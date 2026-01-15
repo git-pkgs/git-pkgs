@@ -902,6 +902,71 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 	return stats, nil
 }
 
+func (db *DB) GetAuthorStats(opts StatsOptions) ([]AuthorStats, error) {
+	query := `
+		SELECT c.author_name, c.author_email,
+		       COUNT(DISTINCT c.id) as commits,
+		       COUNT(dc.id) as changes,
+		       SUM(CASE WHEN dc.change_type = 'added' THEN 1 ELSE 0 END) as added,
+		       SUM(CASE WHEN dc.change_type = 'modified' THEN 1 ELSE 0 END) as modified,
+		       SUM(CASE WHEN dc.change_type = 'removed' THEN 1 ELSE 0 END) as removed
+		FROM commits c
+		JOIN branch_commits bc ON bc.commit_id = c.id
+		JOIN dependency_changes dc ON dc.commit_id = c.id
+	`
+	args := []any{opts.BranchID}
+	query += " WHERE bc.branch_id = ?"
+
+	if opts.Ecosystem != "" {
+		query += " AND dc.ecosystem = ?"
+		args = append(args, opts.Ecosystem)
+	}
+	if opts.Since != "" {
+		query += " AND c.committed_at >= ?"
+		args = append(args, opts.Since)
+	}
+	if opts.Until != "" {
+		query += " AND c.committed_at <= ?"
+		args = append(args, opts.Until)
+	}
+
+	query += " GROUP BY c.author_name, c.author_email ORDER BY changes DESC"
+	if opts.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, opts.Limit)
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []AuthorStats
+	for rows.Next() {
+		var as AuthorStats
+		var name, email sql.NullString
+		var added, modified, removed int
+		if err := rows.Scan(&name, &email, &as.Commits, &as.Changes, &added, &modified, &removed); err != nil {
+			return nil, err
+		}
+		if name.Valid {
+			as.Name = name.String
+		}
+		if email.Valid {
+			as.Email = email.String
+		}
+		as.ByType = map[string]int{
+			"added":    added,
+			"modified": modified,
+			"removed":  removed,
+		}
+		results = append(results, as)
+	}
+
+	return results, rows.Err()
+}
+
 func (db *DB) SearchDependencies(branchID int64, pattern, ecosystem string, directOnly bool) ([]SearchResult, error) {
 	// Get current dependencies matching pattern, with first seen and last changed dates
 	query := `

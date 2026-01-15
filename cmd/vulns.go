@@ -157,7 +157,7 @@ func runVulnsSync(cmd *cobra.Command, args []string) error {
 			if count >= 0 {
 				// Already synced, skip unless force
 				// Note: count=0 means synced with no vulns, which is valid
-				// We'd need a last_synced timestamp to do proper staleness checks
+				continue
 			}
 		}
 
@@ -1085,6 +1085,44 @@ func getVulnsAtRef(db *database.DB, branchID int64, ref, ecosystem string) ([]Vu
 	return vulnResults, nil
 }
 
+// getAllTimeVulns gets all vulnerabilities that have ever affected the codebase
+// by scanning commit history and collecting any vulnerability that was present.
+func getAllTimeVulns(db *database.DB, branchID int64, ecosystem string) ([]VulnResult, error) {
+	// Get recent commits with changes
+	commits, err := db.GetCommitsWithChanges(database.LogOptions{
+		BranchID:  branchID,
+		Ecosystem: ecosystem,
+		Limit:     100,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Track unique vulns we've seen
+	seen := make(map[string]VulnResult) // key: vulnID:package:version
+
+	for _, c := range commits {
+		vulns, err := getVulnsAtRef(db, branchID, c.SHA, ecosystem)
+		if err != nil {
+			continue
+		}
+
+		for _, v := range vulns {
+			key := v.ID + ":" + v.Package + ":" + v.Version
+			if _, ok := seen[key]; !ok {
+				seen[key] = v
+			}
+		}
+	}
+
+	var results []VulnResult
+	for _, v := range seen {
+		results = append(results, v)
+	}
+
+	return results, nil
+}
+
 // vulns blame command
 func addVulnsBlameCmd(parent *cobra.Command) {
 	blameCmd := &cobra.Command{
@@ -1099,6 +1137,7 @@ Shows which developers added packages that are currently vulnerable.`,
 	blameCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	blameCmd.Flags().StringP("severity", "s", "", "Minimum severity: critical, high, medium, low")
 	blameCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
+	blameCmd.Flags().Bool("all-time", false, "Include historical vulnerabilities that have been fixed")
 	parent.AddCommand(blameCmd)
 }
 
@@ -1119,6 +1158,7 @@ func runVulnsBlame(cmd *cobra.Command, args []string) error {
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	severity, _ := cmd.Flags().GetString("severity")
 	format, _ := cmd.Flags().GetString("format")
+	allTime, _ := cmd.Flags().GetBool("all-time")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -1149,8 +1189,13 @@ func runVulnsBlame(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get current vulnerabilities
-	vulns, err := getVulnsAtRef(db, branch.ID, "HEAD", ecosystem)
+	// Get vulnerabilities
+	var vulns []VulnResult
+	if allTime {
+		vulns, err = getAllTimeVulns(db, branch.ID, ecosystem)
+	} else {
+		vulns, err = getVulnsAtRef(db, branch.ID, "HEAD", ecosystem)
+	}
 	if err != nil {
 		return fmt.Errorf("getting vulnerabilities: %w", err)
 	}
@@ -1611,10 +1656,12 @@ Shows the exposure time from when the vulnerable package was first added.`,
 	}
 
 	exposureCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
+	exposureCmd.Flags().StringP("ref", "r", "", "Check exposure at specific commit (default: HEAD)")
 	exposureCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	exposureCmd.Flags().StringP("severity", "s", "", "Minimum severity: critical, high, medium, low")
 	exposureCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	exposureCmd.Flags().Bool("summary", false, "Show aggregate metrics only")
+	exposureCmd.Flags().Bool("all-time", false, "Include historical vulnerabilities that have been fixed")
 	parent.AddCommand(exposureCmd)
 }
 
@@ -1630,10 +1677,12 @@ type VulnExposureEntry struct {
 
 func runVulnsExposure(cmd *cobra.Command, args []string) error {
 	branchName, _ := cmd.Flags().GetString("branch")
+	ref, _ := cmd.Flags().GetString("ref")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	severity, _ := cmd.Flags().GetString("severity")
 	format, _ := cmd.Flags().GetString("format")
 	summary, _ := cmd.Flags().GetBool("summary")
+	allTime, _ := cmd.Flags().GetBool("all-time")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -1664,8 +1713,19 @@ func runVulnsExposure(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get current vulnerabilities
-	vulns, err := getVulnsAtRef(db, branch.ID, "HEAD", ecosystem)
+	// Get vulnerabilities at the specified ref
+	targetRef := ref
+	if targetRef == "" {
+		targetRef = "HEAD"
+	}
+
+	var vulns []VulnResult
+	if allTime {
+		// Get all historical vulnerabilities by scanning commit history
+		vulns, err = getAllTimeVulns(db, branch.ID, ecosystem)
+	} else {
+		vulns, err = getVulnsAtRef(db, branch.ID, targetRef, ecosystem)
+	}
 	if err != nil {
 		return fmt.Errorf("getting vulnerabilities: %w", err)
 	}

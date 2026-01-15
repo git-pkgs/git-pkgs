@@ -228,7 +228,7 @@ func (w *BatchWriter) getCommitIDs(tx *sql.Tx) (map[string]int64, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	result := make(map[string]int64)
 	for rows.Next() {
@@ -317,7 +317,7 @@ func (w *BatchWriter) ensureManifests(tx *sql.Tx, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var path string

@@ -39,6 +39,7 @@ func runStats(cmd *cobra.Command, args []string) error {
 	until, _ := cmd.Flags().GetString("until")
 	limit, _ := cmd.Flags().GetInt("limit")
 	format, _ := cmd.Flags().GetString("format")
+	byAuthor, _ := cmd.Flags().GetBool("by-author")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -69,13 +70,31 @@ func runStats(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	stats, err := db.GetStats(database.StatsOptions{
+	opts := database.StatsOptions{
 		BranchID:  branchInfo.ID,
 		Ecosystem: ecosystem,
 		Since:     since,
 		Until:     until,
 		Limit:     limit,
-	})
+	}
+
+	if byAuthor {
+		authorStats, err := db.GetAuthorStats(opts)
+		if err != nil {
+			return fmt.Errorf("getting author stats: %w", err)
+		}
+
+		switch format {
+		case "json":
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(authorStats)
+		default:
+			return outputAuthorStatsText(cmd, authorStats)
+		}
+	}
+
+	stats, err := db.GetStats(opts)
 	if err != nil {
 		return fmt.Errorf("getting stats: %w", err)
 	}
@@ -92,6 +111,42 @@ func outputStatsJSON(cmd *cobra.Command, stats *database.Stats) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(stats)
+}
+
+func outputAuthorStatsText(cmd *cobra.Command, authors []database.AuthorStats) error {
+	if len(authors) == 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No author statistics found.")
+		return nil
+	}
+
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), Bold("Author Statistics"))
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "========================================")
+	_, _ = fmt.Fprintln(cmd.OutOrStdout())
+
+	for _, a := range authors {
+		name := a.Name
+		if name == "" {
+			name = "(unknown)"
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", Bold(name))
+		if a.Email != "" {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Email: %s\n", Dim(a.Email))
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commits: %d\n", a.Commits)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Changes: %d total\n", a.Changes)
+		if added := a.ByType["added"]; added > 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    %s %d\n", Green("+added:"), added)
+		}
+		if modified := a.ByType["modified"]; modified > 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    %s %d\n", Yellow("~modified:"), modified)
+		}
+		if removed := a.ByType["removed"]; removed > 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    %s %d\n", Red("-removed:"), removed)
+		}
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+	}
+
+	return nil
 }
 
 func outputStatsText(cmd *cobra.Command, stats *database.Stats) error {
