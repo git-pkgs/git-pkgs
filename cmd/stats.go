@@ -28,6 +28,7 @@ func addStatsCmd(parent *cobra.Command) {
 	statsCmd.Flags().String("until", "", "Only changes before this date (YYYY-MM-DD)")
 	statsCmd.Flags().IntP("limit", "n", 10, "Number of top items to show")
 	statsCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
+	statsCmd.Flags().Bool("by-author", false, "Show detailed per-author statistics")
 	parent.AddCommand(statsCmd)
 }
 

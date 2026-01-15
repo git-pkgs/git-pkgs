@@ -33,6 +33,9 @@ Changes are shown in chronological order.`,
 }
 
 func runHistory(cmd *cobra.Command, args []string) error {
+	cleanup := SetupPager(cmd)
+	defer cleanup()
+
 	packageName := ""
 	if len(args) > 0 {
 		packageName = args[0]
@@ -109,7 +112,7 @@ func capitalize(s string) string {
 
 func outputHistoryText(cmd *cobra.Command, entries []database.HistoryEntry, packageName string) error {
 	if packageName != "" {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "History for %s:\n\n", packageName)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "History for %s:\n\n", Bold(packageName))
 	}
 
 	for _, e := range entries {
@@ -119,17 +122,17 @@ func outputHistoryText(cmd *cobra.Command, entries []database.HistoryEntry, pack
 		var line string
 		switch e.ChangeType {
 		case "added":
-			line = fmt.Sprintf("%s Added", date)
+			line = fmt.Sprintf("%s %s", date, Green("Added"))
 			if e.Requirement != "" {
 				line += fmt.Sprintf(" = %s", e.Requirement)
 			}
 		case "modified":
-			line = fmt.Sprintf("%s Updated", date)
+			line = fmt.Sprintf("%s %s", date, Yellow("Updated"))
 			if e.PreviousRequirement != "" || e.Requirement != "" {
-				line += fmt.Sprintf(" = %s -> = %s", e.PreviousRequirement, e.Requirement)
+				line += fmt.Sprintf(" = %s -> = %s", Dim(e.PreviousRequirement), e.Requirement)
 			}
 		case "removed":
-			line = fmt.Sprintf("%s Removed", date)
+			line = fmt.Sprintf("%s %s", date, Red("Removed"))
 			if e.Requirement != "" {
 				line += fmt.Sprintf(" = %s", e.Requirement)
 			}
@@ -141,7 +144,7 @@ func outputHistoryText(cmd *cobra.Command, entries []database.HistoryEntry, pack
 
 		// If showing all packages, show the package name
 		if packageName == "" {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Package: %s (%s)\n", e.Name, e.Ecosystem)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Package: %s %s\n", Bold(e.Name), Dim("("+e.Ecosystem+")"))
 		}
 
 		// First line of commit message
@@ -151,9 +154,9 @@ func outputHistoryText(cmd *cobra.Command, entries []database.HistoryEntry, pack
 		}
 		message = strings.TrimSpace(message)
 
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commit: %s %s\n", e.SHA[:7], message)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Author: %s <%s>\n", e.AuthorName, e.AuthorEmail)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Manifest: %s\n", e.ManifestPath)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commit: %s %s\n", Yellow(e.SHA[:7]), message)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Author: %s %s\n", e.AuthorName, Dim("<"+e.AuthorEmail+">"))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Manifest: %s\n", Dim(e.ManifestPath))
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
 

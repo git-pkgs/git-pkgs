@@ -32,6 +32,9 @@ func addLogCmd(parent *cobra.Command) {
 }
 
 func runLog(cmd *cobra.Command, args []string) error {
+	cleanup := SetupPager(cmd)
+	defer cleanup()
+
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	author, _ := cmd.Flags().GetString("author")
 	since, _ := cmd.Flags().GetString("since")
@@ -103,8 +106,8 @@ func outputLogText(cmd *cobra.Command, commits []database.CommitWithChanges) err
 			message = message[:57] + "..."
 		}
 
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", c.SHA[:7], message)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Author: %s <%s>\n", c.AuthorName, c.AuthorEmail)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", Yellow(c.SHA[:7]), message)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Author: %s %s\n", c.AuthorName, Dim("<"+c.AuthorEmail+">"))
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Date:   %s\n", c.CommittedAt[:10])
 
 		// Summarize changes
@@ -122,13 +125,13 @@ func outputLogText(cmd *cobra.Command, commits []database.CommitWithChanges) err
 
 		var parts []string
 		if added > 0 {
-			parts = append(parts, fmt.Sprintf("+%d", added))
+			parts = append(parts, Green(fmt.Sprintf("+%d", added)))
 		}
 		if modified > 0 {
-			parts = append(parts, fmt.Sprintf("~%d", modified))
+			parts = append(parts, Yellow(fmt.Sprintf("~%d", modified)))
 		}
 		if removed > 0 {
-			parts = append(parts, fmt.Sprintf("-%d", removed))
+			parts = append(parts, Red(fmt.Sprintf("-%d", removed)))
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Changes: %s\n", strings.Join(parts, " "))
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())

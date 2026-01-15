@@ -35,6 +35,9 @@ Defaults to HEAD if no commit is specified.`,
 }
 
 func runList(cmd *cobra.Command, args []string) error {
+	cleanup := SetupPager(cmd)
+	defer cleanup()
+
 	commitRef, _ := cmd.Flags().GetString("commit")
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")

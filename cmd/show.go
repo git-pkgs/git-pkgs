@@ -161,24 +161,26 @@ func outputShowText(cmd *cobra.Command, changes []database.Change) error {
 
 	for _, manifestPath := range manifestOrder {
 		manifestChanges := byManifest[manifestPath]
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s:\n", manifestPath)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s:\n", Bold(manifestPath))
 
 		for _, c := range manifestChanges {
-			var prefix string
+			var prefix, line string
 			switch c.ChangeType {
 			case "added":
-				prefix = "+"
+				prefix = Green("+")
+				line = fmt.Sprintf("  %s %s", prefix, Green(c.Name))
 			case "removed":
-				prefix = "-"
+				prefix = Red("-")
+				line = fmt.Sprintf("  %s %s", prefix, Red(c.Name))
 			case "modified":
-				prefix = "~"
+				prefix = Yellow("~")
+				line = fmt.Sprintf("  %s %s", prefix, Yellow(c.Name))
 			default:
-				prefix = " "
+				line = fmt.Sprintf("    %s", c.Name)
 			}
 
-			line := fmt.Sprintf("  %s %s", prefix, c.Name)
 			if c.ChangeType == "modified" && c.PreviousRequirement != "" {
-				line += fmt.Sprintf(" %s -> %s", c.PreviousRequirement, c.Requirement)
+				line += fmt.Sprintf(" %s -> %s", Dim(c.PreviousRequirement), c.Requirement)
 			} else if c.Requirement != "" {
 				line += fmt.Sprintf(" %s", c.Requirement)
 			}

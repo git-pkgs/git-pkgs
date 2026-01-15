@@ -3,7 +3,9 @@ module github.com/git-pkgs/git-pkgs
 go 1.24.2
 
 require (
-	github.com/git-pkgs/manifests v0.0.0-20260115154000-31f4ea7a2ba4
+	github.com/ecosyste-ms/ecosystems-go v0.0.0-20260115154313-d5f3879b6ec0
+	github.com/git-pkgs/manifests v0.1.1
+	github.com/git-pkgs/vers v0.2.0
 	github.com/go-git/go-git/v5 v5.13.2
 	github.com/spf13/cobra v1.8.1
 	modernc.org/sqlite v1.34.5
@@ -20,9 +22,7 @@ require (
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/cyphar/filepath-securejoin v0.3.6 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ecosyste-ms/ecosystems-go v0.0.0-20260115154313-d5f3879b6ec0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/git-pkgs/vers v0.2.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.6.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect

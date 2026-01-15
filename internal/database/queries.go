@@ -528,6 +528,14 @@ type NameCount struct {
 	Count int
 }
 
+type AuthorStats struct {
+	Name     string         `json:"name"`
+	Email    string         `json:"email"`
+	Commits  int            `json:"commits"`
+	Changes  int            `json:"changes"`
+	ByType   map[string]int `json:"by_type"`
+}
+
 type StatsOptions struct {
 	BranchID  int64
 	Ecosystem string
@@ -1223,4 +1231,305 @@ func (db *DB) GetChangesForCommit(sha string) ([]Change, error) {
 	}
 
 	return changes, rows.Err()
+}
+
+// Vulnerability represents a stored vulnerability record.
+type Vulnerability struct {
+	ID           string
+	Aliases      []string
+	Severity     string
+	CVSSScore    float64
+	CVSSVector   string
+	References   []string
+	Summary      string
+	Details      string
+	PublishedAt  string
+	WithdrawnAt  string
+	ModifiedAt   string
+	FetchedAt    string
+}
+
+// VulnerabilityPackage represents a package affected by a vulnerability.
+type VulnerabilityPackage struct {
+	VulnerabilityID  string
+	Ecosystem        string
+	PackageName      string
+	AffectedVersions string // vers range string
+	FixedVersions    string // comma-separated list
+}
+
+// VulnSyncStatus tracks when vulnerabilities were last synced for a package.
+type VulnSyncStatus struct {
+	Ecosystem   string
+	PackageName string
+	SyncedAt    string
+	VulnCount   int
+}
+
+// GetVulnerabilitiesForPackage returns all vulnerabilities affecting a specific package.
+func (db *DB) GetVulnerabilitiesForPackage(ecosystem, packageName string) ([]Vulnerability, error) {
+	rows, err := db.Query(`
+		SELECT v.id, v.aliases, v.severity, v.cvss_score, v.cvss_vector, v.refs,
+		       v.summary, v.details, v.published_at, v.withdrawn_at, v.modified_at, v.fetched_at
+		FROM vulnerabilities v
+		JOIN vulnerability_packages vp ON vp.vulnerability_id = v.id
+		WHERE vp.ecosystem = ? AND vp.package_name = ?
+		ORDER BY v.cvss_score DESC, v.id
+	`, ecosystem, packageName)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var vulns []Vulnerability
+	for rows.Next() {
+		var v Vulnerability
+		var aliases, refs sql.NullString
+		var severity, cvssVector, summary, details sql.NullString
+		var publishedAt, withdrawnAt, modifiedAt sql.NullString
+		var cvssScore sql.NullFloat64
+
+		if err := rows.Scan(&v.ID, &aliases, &severity, &cvssScore, &cvssVector, &refs,
+			&summary, &details, &publishedAt, &withdrawnAt, &modifiedAt, &v.FetchedAt); err != nil {
+			return nil, err
+		}
+
+		if aliases.Valid && aliases.String != "" {
+			v.Aliases = splitCommaList(aliases.String)
+		}
+		if refs.Valid && refs.String != "" {
+			v.References = splitCommaList(refs.String)
+		}
+		if severity.Valid {
+			v.Severity = severity.String
+		}
+		if cvssScore.Valid {
+			v.CVSSScore = cvssScore.Float64
+		}
+		if cvssVector.Valid {
+			v.CVSSVector = cvssVector.String
+		}
+		if summary.Valid {
+			v.Summary = summary.String
+		}
+		if details.Valid {
+			v.Details = details.String
+		}
+		if publishedAt.Valid {
+			v.PublishedAt = publishedAt.String
+		}
+		if withdrawnAt.Valid {
+			v.WithdrawnAt = withdrawnAt.String
+		}
+		if modifiedAt.Valid {
+			v.ModifiedAt = modifiedAt.String
+		}
+
+		vulns = append(vulns, v)
+	}
+
+	return vulns, rows.Err()
+}
+
+// GetVulnerabilityPackageInfo returns the affected package info for a vulnerability.
+func (db *DB) GetVulnerabilityPackageInfo(vulnID, ecosystem, packageName string) (*VulnerabilityPackage, error) {
+	var vp VulnerabilityPackage
+	var affectedVersions, fixedVersions sql.NullString
+
+	err := db.QueryRow(`
+		SELECT vulnerability_id, ecosystem, package_name, affected_versions, fixed_versions
+		FROM vulnerability_packages
+		WHERE vulnerability_id = ? AND ecosystem = ? AND package_name = ?
+	`, vulnID, ecosystem, packageName).Scan(&vp.VulnerabilityID, &vp.Ecosystem, &vp.PackageName,
+		&affectedVersions, &fixedVersions)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if affectedVersions.Valid {
+		vp.AffectedVersions = affectedVersions.String
+	}
+	if fixedVersions.Valid {
+		vp.FixedVersions = fixedVersions.String
+	}
+
+	return &vp, nil
+}
+
+// GetVulnSyncStatus returns packages that need vulnerability syncing.
+func (db *DB) GetVulnSyncStatus(branchID int64) ([]VulnSyncStatus, error) {
+	rows, err := db.Query(`
+		SELECT DISTINCT ds.ecosystem, ds.name
+		FROM dependency_snapshots ds
+		JOIN branch_commits bc ON bc.commit_id = ds.commit_id
+		JOIN manifests m ON m.id = ds.manifest_id
+		WHERE bc.branch_id = ?
+		AND m.kind = 'lockfile'
+		AND ds.ecosystem IS NOT NULL AND ds.ecosystem != ''
+		ORDER BY ds.ecosystem, ds.name
+	`, branchID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var statuses []VulnSyncStatus
+	for rows.Next() {
+		var s VulnSyncStatus
+		if err := rows.Scan(&s.Ecosystem, &s.PackageName); err != nil {
+			return nil, err
+		}
+		statuses = append(statuses, s)
+	}
+
+	return statuses, rows.Err()
+}
+
+// GetStoredVulnCount returns the number of vulnerabilities stored for a package.
+func (db *DB) GetStoredVulnCount(ecosystem, packageName string) (int, error) {
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM vulnerability_packages
+		WHERE ecosystem = ? AND package_name = ?
+	`, ecosystem, packageName).Scan(&count)
+	return count, err
+}
+
+// InsertVulnerability inserts or updates a vulnerability record.
+func (db *DB) InsertVulnerability(v Vulnerability) error {
+	aliases := joinCommaList(v.Aliases)
+	refs := joinCommaList(v.References)
+
+	_, err := db.Exec(`
+		INSERT INTO vulnerabilities (id, aliases, severity, cvss_score, cvss_vector, refs,
+			summary, details, published_at, withdrawn_at, modified_at, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			aliases = excluded.aliases,
+			severity = excluded.severity,
+			cvss_score = excluded.cvss_score,
+			cvss_vector = excluded.cvss_vector,
+			refs = excluded.refs,
+			summary = excluded.summary,
+			details = excluded.details,
+			published_at = excluded.published_at,
+			withdrawn_at = excluded.withdrawn_at,
+			modified_at = excluded.modified_at,
+			fetched_at = excluded.fetched_at
+	`, v.ID, aliases, v.Severity, v.CVSSScore, v.CVSSVector, refs,
+		v.Summary, v.Details, v.PublishedAt, v.WithdrawnAt, v.ModifiedAt, v.FetchedAt)
+	return err
+}
+
+// InsertVulnerabilityPackage inserts or updates a vulnerability-package mapping.
+func (db *DB) InsertVulnerabilityPackage(vp VulnerabilityPackage) error {
+	_, err := db.Exec(`
+		INSERT INTO vulnerability_packages (vulnerability_id, ecosystem, package_name, affected_versions, fixed_versions)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(vulnerability_id, ecosystem, package_name) DO UPDATE SET
+			affected_versions = excluded.affected_versions,
+			fixed_versions = excluded.fixed_versions
+	`, vp.VulnerabilityID, vp.Ecosystem, vp.PackageName, vp.AffectedVersions, vp.FixedVersions)
+	return err
+}
+
+// DeleteVulnerabilitiesForPackage removes all vulnerability mappings for a package.
+// This is used before re-syncing to handle withdrawn vulnerabilities.
+func (db *DB) DeleteVulnerabilitiesForPackage(ecosystem, packageName string) error {
+	_, err := db.Exec(`
+		DELETE FROM vulnerability_packages
+		WHERE ecosystem = ? AND package_name = ?
+	`, ecosystem, packageName)
+	return err
+}
+
+// GetVulnerabilityStats returns vulnerability counts by severity for current dependencies.
+func (db *DB) GetVulnerabilityStats(branchID int64) (map[string]int, error) {
+	rows, err := db.Query(`
+		SELECT v.severity, COUNT(DISTINCT v.id)
+		FROM vulnerabilities v
+		JOIN vulnerability_packages vp ON vp.vulnerability_id = v.id
+		JOIN dependency_snapshots ds ON ds.ecosystem = vp.ecosystem AND ds.name = vp.package_name
+		JOIN branch_commits bc ON bc.commit_id = ds.commit_id
+		JOIN manifests m ON m.id = ds.manifest_id
+		WHERE bc.branch_id = ?
+		AND bc.position = (SELECT MAX(position) FROM branch_commits WHERE branch_id = ?)
+		AND m.kind = 'lockfile'
+		GROUP BY v.severity
+	`, branchID, branchID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	stats := make(map[string]int)
+	for rows.Next() {
+		var severity sql.NullString
+		var count int
+		if err := rows.Scan(&severity, &count); err != nil {
+			return nil, err
+		}
+		sev := "unknown"
+		if severity.Valid && severity.String != "" {
+			sev = severity.String
+		}
+		stats[sev] = count
+	}
+
+	return stats, rows.Err()
+}
+
+func splitCommaList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := make([]string, 0)
+	for _, p := range splitString(s, ",") {
+		p = trimSpace(p)
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
+}
+
+func joinCommaList(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	result := parts[0]
+	for i := 1; i < len(parts); i++ {
+		result += "," + parts[i]
+	}
+	return result
+}
+
+func splitString(s, sep string) []string {
+	var result []string
+	start := 0
+	for i := 0; i <= len(s)-len(sep); i++ {
+		if s[i:i+len(sep)] == sep {
+			result = append(result, s[start:i])
+			start = i + len(sep)
+			i += len(sep) - 1
+		}
+	}
+	result = append(result, s[start:])
+	return result
+}
+
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n') {
+		end--
+	}
+	return s[start:end]
 }

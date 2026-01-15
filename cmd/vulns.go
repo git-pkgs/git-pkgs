@@ -11,6 +11,7 @@ import (
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/git-pkgs/internal/osv"
+	"github.com/git-pkgs/vers"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,7 @@ func addVulnsCmd(parent *cobra.Command) {
 		Long:  `Commands for scanning dependencies for known vulnerabilities using OSV.`,
 	}
 
+	addVulnsSyncCmd(vulnsCmd)
 	addVulnsScanCmd(vulnsCmd)
 	addVulnsShowCmd(vulnsCmd)
 	addVulnsDiffCmd(vulnsCmd)
@@ -51,12 +53,285 @@ type VulnResult struct {
 	References   []string `json:"references,omitempty"`
 }
 
+// vulns sync command
+func addVulnsSyncCmd(parent *cobra.Command) {
+	syncCmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Sync vulnerability data from OSV",
+		Long: `Fetch and store vulnerability data from OSV for all current dependencies.
+This allows subsequent vulnerability queries to use cached data instead of making API calls.`,
+		RunE: runVulnsSync,
+	}
+
+	syncCmd.Flags().StringP("branch", "b", "", "Branch to sync (default: first tracked branch)")
+	syncCmd.Flags().StringP("ecosystem", "e", "", "Only sync specific ecosystem")
+	syncCmd.Flags().Bool("force", false, "Force re-sync even if recently synced")
+	parent.AddCommand(syncCmd)
+}
+
+func runVulnsSync(cmd *cobra.Command, args []string) error {
+	branchName, _ := cmd.Flags().GetString("branch")
+	ecosystem, _ := cmd.Flags().GetString("ecosystem")
+	force, _ := cmd.Flags().GetBool("force")
+	quiet, _ := cmd.Flags().GetBool("quiet")
+
+	repo, err := git.OpenRepository(".")
+	if err != nil {
+		return fmt.Errorf("not in a git repository: %w", err)
+	}
+
+	dbPath := repo.DatabasePath()
+	if !database.Exists(dbPath) {
+		return fmt.Errorf("database not found. Run 'git pkgs init' first")
+	}
+
+	db, err := database.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("opening database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var branch *database.BranchInfo
+	if branchName != "" {
+		branch, err = db.GetBranch(branchName)
+		if err != nil {
+			return fmt.Errorf("branch %q not found: %w", branchName, err)
+		}
+	} else {
+		branch, err = db.GetDefaultBranch()
+		if err != nil {
+			return fmt.Errorf("getting branch: %w", err)
+		}
+	}
+
+	// Get current lockfile dependencies
+	deps, err := db.GetLatestDependencies(branch.ID)
+	if err != nil {
+		return fmt.Errorf("getting dependencies: %w", err)
+	}
+
+	// Filter to lockfile deps
+	var lockfileDeps []database.Dependency
+	for _, d := range deps {
+		if d.ManifestKind != "lockfile" || d.Requirement == "" {
+			continue
+		}
+		if ecosystem != "" && d.Ecosystem != ecosystem {
+			continue
+		}
+		lockfileDeps = append(lockfileDeps, d)
+	}
+
+	if len(lockfileDeps) == 0 {
+		if !quiet {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No lockfile dependencies to sync.")
+		}
+		return nil
+	}
+
+	// Group by ecosystem+name for unique packages
+	type pkgKey struct {
+		ecosystem string
+		name      string
+	}
+	uniquePkgs := make(map[pkgKey]bool)
+	for _, d := range lockfileDeps {
+		uniquePkgs[pkgKey{d.Ecosystem, d.Name}] = true
+	}
+
+	if !quiet {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Syncing vulnerabilities for %d packages...\n", len(uniquePkgs))
+	}
+
+	client := osv.NewClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Build queries for all unique packages
+	var queries []osv.QueryRequest
+	var queryKeys []pkgKey
+	for key := range uniquePkgs {
+		// Check if we need to sync (unless force)
+		if !force {
+			count, _ := db.GetStoredVulnCount(key.ecosystem, key.name)
+			if count >= 0 {
+				// Already synced, skip unless force
+				// Note: count=0 means synced with no vulns, which is valid
+				// We'd need a last_synced timestamp to do proper staleness checks
+			}
+		}
+
+		queries = append(queries, osv.QueryRequest{
+			Package: osv.Package{
+				Ecosystem: key.ecosystem,
+				Name:      key.name,
+			},
+		})
+		queryKeys = append(queryKeys, key)
+	}
+
+	if len(queries) == 0 {
+		if !quiet {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "All packages already synced.")
+		}
+		return nil
+	}
+
+	// Query OSV in batches
+	results, err := client.BatchQuery(ctx, queries)
+	if err != nil {
+		return fmt.Errorf("querying OSV: %w", err)
+	}
+
+	// Store results
+	totalVulns := 0
+	now := time.Now().Format(time.RFC3339)
+
+	for i, vulns := range results {
+		key := queryKeys[i]
+
+		// Clear existing vulns for this package
+		if err := db.DeleteVulnerabilitiesForPackage(key.ecosystem, key.name); err != nil {
+			return fmt.Errorf("clearing vulns for %s/%s: %w", key.ecosystem, key.name, err)
+		}
+
+		for _, v := range vulns {
+			// Store the vulnerability
+			dbVuln := database.Vulnerability{
+				ID:          v.ID,
+				Aliases:     v.Aliases,
+				Severity:    osv.GetSeverityLevel(&v),
+				Summary:     v.Summary,
+				Details:     v.Details,
+				PublishedAt: v.Published.Format(time.RFC3339),
+				ModifiedAt:  v.Modified.Format(time.RFC3339),
+				FetchedAt:   now,
+			}
+
+			// Extract CVSS score if available
+			for _, sev := range v.Severity {
+				if sev.Type == "CVSS_V3" {
+					dbVuln.CVSSVector = sev.Score
+					var score float64
+					_, _ = fmt.Sscanf(sev.Score, "%f", &score)
+					dbVuln.CVSSScore = score
+				}
+			}
+
+			// Extract references
+			for _, ref := range v.References {
+				dbVuln.References = append(dbVuln.References, ref.URL)
+			}
+
+			if err := db.InsertVulnerability(dbVuln); err != nil {
+				return fmt.Errorf("inserting vulnerability %s: %w", v.ID, err)
+			}
+
+			// Store the package mapping
+			var fixedVersions []string
+			var affectedVersions string
+
+			for _, aff := range v.Affected {
+				if strings.EqualFold(aff.Package.Name, key.name) {
+					// Collect fixed versions
+					for _, r := range aff.Ranges {
+						for _, e := range r.Events {
+							if e.Fixed != "" {
+								fixedVersions = append(fixedVersions, e.Fixed)
+							}
+						}
+					}
+
+					// Build vers range from affected ranges
+					affectedVersions = buildVersRange(aff.Ranges)
+					break
+				}
+			}
+
+			vp := database.VulnerabilityPackage{
+				VulnerabilityID:  v.ID,
+				Ecosystem:        key.ecosystem,
+				PackageName:      key.name,
+				AffectedVersions: affectedVersions,
+				FixedVersions:    strings.Join(fixedVersions, ","),
+			}
+
+			if err := db.InsertVulnerabilityPackage(vp); err != nil {
+				return fmt.Errorf("inserting vulnerability package: %w", err)
+			}
+
+			totalVulns++
+		}
+	}
+
+	if !quiet {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Synced %d vulnerabilities for %d packages.\n", totalVulns, len(queries))
+	}
+
+	return nil
+}
+
+// buildVersRange converts OSV ranges to a vers URI string.
+// Format: vers:generic/<constraints>
+func buildVersRange(ranges []osv.Range) string {
+	var parts []string
+
+	for _, r := range ranges {
+		if r.Type != "SEMVER" && r.Type != "ECOSYSTEM" {
+			continue
+		}
+
+		var introduced, fixed, lastAffected string
+		for _, e := range r.Events {
+			if e.Introduced != "" {
+				introduced = e.Introduced
+			}
+			if e.Fixed != "" {
+				fixed = e.Fixed
+			}
+			if e.LastAffected != "" {
+				lastAffected = e.LastAffected
+			}
+		}
+
+		if introduced != "" {
+			// Handle "0" as the minimum version (unbounded lower)
+			if introduced == "0" {
+				if fixed != "" {
+					parts = append(parts, fmt.Sprintf("<=%s", fixed))
+				} else if lastAffected != "" {
+					parts = append(parts, fmt.Sprintf("<=%s", lastAffected))
+				} else {
+					parts = append(parts, "*")
+				}
+			} else {
+				if fixed != "" {
+					parts = append(parts, fmt.Sprintf(">=%s|<%s", introduced, fixed))
+				} else if lastAffected != "" {
+					parts = append(parts, fmt.Sprintf(">=%s|<=%s", introduced, lastAffected))
+				} else {
+					parts = append(parts, fmt.Sprintf(">=%s", introduced))
+				}
+			}
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return "vers:generic/" + strings.Join(parts, "|")
+}
+
 func addVulnsScanCmd(parent *cobra.Command) {
 	scanCmd := &cobra.Command{
 		Use:   "scan",
 		Short: "Scan dependencies for vulnerabilities",
 		Long: `Check all dependencies against the OSV database for known vulnerabilities.
-Results are grouped by severity.`,
+Results are grouped by severity.
+
+By default, uses cached vulnerability data from the database if available.
+Use --live to always query OSV directly.`,
 		RunE: runVulnsScan,
 	}
 
@@ -66,6 +341,7 @@ Results are grouped by severity.`,
 	scanCmd.Flags().StringP("severity", "s", "", "Minimum severity to report: critical, high, medium, low")
 	scanCmd.Flags().StringP("format", "f", "text", "Output format: text, json, sarif")
 	scanCmd.Flags().Bool("stateless", false, "Parse manifests directly without database")
+	scanCmd.Flags().Bool("live", false, "Query OSV directly instead of using cached data")
 	parent.AddCommand(scanCmd)
 }
 
@@ -76,6 +352,7 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	severity, _ := cmd.Flags().GetString("severity")
 	format, _ := cmd.Flags().GetString("format")
 	stateless, _ := cmd.Flags().GetBool("stateless")
+	live, _ := cmd.Flags().GetBool("live")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -83,19 +360,22 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	}
 
 	var deps []database.Dependency
+	var db *database.DB
 
 	if stateless {
 		deps, err = listStateless(repo, commit)
 		if err != nil {
 			return err
 		}
+		// Stateless mode implies live queries
+		live = true
 	} else {
 		dbPath := repo.DatabasePath()
 		if !database.Exists(dbPath) {
 			return fmt.Errorf("database not found. Run 'git pkgs init' first")
 		}
 
-		db, err := database.Open(dbPath)
+		db, err = database.Open(dbPath)
 		if err != nil {
 			return fmt.Errorf("opening database: %w", err)
 		}
@@ -148,10 +428,56 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Build OSV queries
+	var vulnResults []VulnResult
+	severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
+	minSeverity := 4
+	if severity != "" {
+		if order, ok := severityOrder[strings.ToLower(severity)]; ok {
+			minSeverity = order
+		}
+	}
+
+	if live || db == nil {
+		// Live query mode - use OSV API directly
+		vulnResults, err = scanLive(lockfileDeps, minSeverity)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Cached mode - use stored vulnerability data
+		vulnResults, err = scanCached(db, lockfileDeps, minSeverity)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Sort by severity, then package name
+	sort.Slice(vulnResults, func(i, j int) bool {
+		if severityOrder[vulnResults[i].Severity] != severityOrder[vulnResults[j].Severity] {
+			return severityOrder[vulnResults[i].Severity] < severityOrder[vulnResults[j].Severity]
+		}
+		return vulnResults[i].Package < vulnResults[j].Package
+	})
+
+	if len(vulnResults) == 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerabilities found.")
+		return nil
+	}
+
+	switch format {
+	case "json":
+		return outputVulnsJSON(cmd, vulnResults)
+	case "sarif":
+		return outputVulnsSARIF(cmd, vulnResults)
+	default:
+		return outputVulnsText(cmd, vulnResults)
+	}
+}
+
+func scanLive(deps []database.Dependency, minSeverity int) ([]VulnResult, error) {
 	client := osv.NewClient()
-	queries := make([]osv.QueryRequest, len(lockfileDeps))
-	for i, d := range lockfileDeps {
+	queries := make([]osv.QueryRequest, len(deps))
+	for i, d := range deps {
 		queries[i] = osv.QueryRequest{
 			Version: d.Requirement,
 			Package: osv.Package{
@@ -166,21 +492,14 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 
 	results, err := client.BatchQuery(ctx, queries)
 	if err != nil {
-		return fmt.Errorf("querying OSV: %w", err)
+		return nil, fmt.Errorf("querying OSV: %w", err)
 	}
 
-	// Build vulnerability results
-	var vulnResults []VulnResult
 	severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
-	minSeverity := 4
-	if severity != "" {
-		if order, ok := severityOrder[strings.ToLower(severity)]; ok {
-			minSeverity = order
-		}
-	}
+	var vulnResults []VulnResult
 
 	for i, vulns := range results {
-		dep := lockfileDeps[i]
+		dep := deps[i]
 		for _, v := range vulns {
 			sev := osv.GetSeverityLevel(&v)
 			if severityOrder[sev] > minSeverity {
@@ -215,27 +534,80 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Sort by severity, then package name
-	sort.Slice(vulnResults, func(i, j int) bool {
-		if severityOrder[vulnResults[i].Severity] != severityOrder[vulnResults[j].Severity] {
-			return severityOrder[vulnResults[i].Severity] < severityOrder[vulnResults[j].Severity]
+	return vulnResults, nil
+}
+
+func scanCached(db *database.DB, deps []database.Dependency, minSeverity int) ([]VulnResult, error) {
+	severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
+	var vulnResults []VulnResult
+
+	// Group deps by ecosystem+name for efficient querying
+	type pkgKey struct {
+		ecosystem string
+		name      string
+	}
+	depsByPkg := make(map[pkgKey][]database.Dependency)
+	for _, d := range deps {
+		key := pkgKey{d.Ecosystem, d.Name}
+		depsByPkg[key] = append(depsByPkg[key], d)
+	}
+
+	for key, pkgDeps := range depsByPkg {
+		vulns, err := db.GetVulnerabilitiesForPackage(key.ecosystem, key.name)
+		if err != nil {
+			return nil, fmt.Errorf("getting vulns for %s/%s: %w", key.ecosystem, key.name, err)
 		}
-		return vulnResults[i].Package < vulnResults[j].Package
-	})
 
-	if len(vulnResults) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerabilities found.")
-		return nil
+		for _, v := range vulns {
+			if severityOrder[v.Severity] > minSeverity {
+				continue
+			}
+
+			// Get the fixed version from the vulnerability package mapping
+			vp, err := db.GetVulnerabilityPackageInfo(v.ID, key.ecosystem, key.name)
+			if err != nil {
+				continue
+			}
+
+			fixedVersion := ""
+			if vp != nil && vp.FixedVersions != "" {
+				// Take the first fixed version
+				parts := strings.Split(vp.FixedVersions, ",")
+				if len(parts) > 0 {
+					fixedVersion = parts[0]
+				}
+			}
+
+			// Parse the affected version range for matching
+			var affectedRange *vers.Range
+			if vp != nil && vp.AffectedVersions != "" {
+				affectedRange, _ = vers.Parse(vp.AffectedVersions)
+			}
+
+			// Check each dep version against the affected range
+			for _, dep := range pkgDeps {
+				// If we have a range, check if the version is affected
+				if affectedRange != nil && !affectedRange.Contains(dep.Requirement) {
+					continue
+				}
+
+				vulnResults = append(vulnResults, VulnResult{
+					ID:           v.ID,
+					Aliases:      v.Aliases,
+					Summary:      v.Summary,
+					Severity:     v.Severity,
+					Package:      dep.Name,
+					Ecosystem:    dep.Ecosystem,
+					Version:      dep.Requirement,
+					FixedVersion: fixedVersion,
+					ManifestPath: dep.ManifestPath,
+					References:   v.References,
+				})
+			}
+		}
 	}
 
-	switch format {
-	case "json":
-		return outputVulnsJSON(cmd, vulnResults)
-	case "sarif":
-		return outputVulnsSARIF(cmd, vulnResults)
-	default:
-		return outputVulnsText(cmd, vulnResults)
-	}
+	return vulnResults, nil
 }
 
 func outputVulnsJSON(cmd *cobra.Command, results []VulnResult) error {
@@ -253,24 +625,33 @@ func outputVulnsText(cmd *cobra.Command, results []VulnResult) error {
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Found %d vulnerabilities:\n\n", len(results))
 
+	severityColors := map[string]func(string) string{
+		"critical": Red,
+		"high":     Red,
+		"medium":   Yellow,
+		"low":      Cyan,
+		"unknown":  Dim,
+	}
+
 	for _, sev := range []string{"critical", "high", "medium", "low", "unknown"} {
 		vulns := bySeverity[sev]
 		if len(vulns) == 0 {
 			continue
 		}
 
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%d):\n", strings.ToUpper(sev), len(vulns))
+		colorFn := severityColors[sev]
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%d):\n", colorFn(strings.ToUpper(sev)), len(vulns))
 		for _, v := range vulns {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s - %s@%s\n", v.ID, v.Package, v.Version)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s - %s@%s\n", Bold(v.ID), v.Package, v.Version)
 			if v.Summary != "" {
 				summary := v.Summary
 				if len(summary) > 80 {
 					summary = summary[:77] + "..."
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    %s\n", summary)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    %s\n", Dim(summary))
 			}
 			if v.FixedVersion != "" {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Fixed in: %s\n", v.FixedVersion)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Fixed in: %s\n", Green(v.FixedVersion))
 			}
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
@@ -496,6 +877,7 @@ Defaults to comparing HEAD~1 with HEAD.`,
 
 	diffCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
 	diffCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
+	diffCmd.Flags().StringP("severity", "s", "", "Minimum severity: critical, high, medium, low")
 	diffCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	parent.AddCommand(diffCmd)
 }
@@ -508,6 +890,7 @@ type VulnsDiffResult struct {
 func runVulnsDiff(cmd *cobra.Command, args []string) error {
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
+	severity, _ := cmd.Flags().GetString("severity")
 	format, _ := cmd.Flags().GetString("format")
 
 	fromRef := "HEAD~1"
@@ -573,15 +956,27 @@ func runVulnsDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Find added and fixed
+	severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
+	minSeverity := 4
+	if severity != "" {
+		if order, ok := severityOrder[strings.ToLower(severity)]; ok {
+			minSeverity = order
+		}
+	}
+
 	result := VulnsDiffResult{}
 	for key, v := range toSet {
 		if _, ok := fromSet[key]; !ok {
-			result.Added = append(result.Added, v)
+			if severityOrder[v.Severity] <= minSeverity {
+				result.Added = append(result.Added, v)
+			}
 		}
 	}
 	for key, v := range fromSet {
 		if _, ok := toSet[key]; !ok {
-			result.Fixed = append(result.Fixed, v)
+			if severityOrder[v.Severity] <= minSeverity {
+				result.Fixed = append(result.Fixed, v)
+			}
 		}
 	}
 
@@ -598,17 +993,17 @@ func runVulnsDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(result.Added) > 0 {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added vulnerabilities (%d):\n", len(result.Added))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%d):\n", Red("Added vulnerabilities"), len(result.Added))
 		for _, v := range result.Added {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  + %s - %s@%s (%s)\n", v.ID, v.Package, v.Version, v.Severity)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s - %s@%s (%s)\n", Red("+"), Bold(v.ID), v.Package, v.Version, v.Severity)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
 
 	if len(result.Fixed) > 0 {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Fixed vulnerabilities (%d):\n", len(result.Fixed))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%d):\n", Green("Fixed vulnerabilities"), len(result.Fixed))
 		for _, v := range result.Fixed {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  - %s - %s@%s (%s)\n", v.ID, v.Package, v.Version, v.Severity)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s - %s@%s (%s)\n", Green("-"), Bold(v.ID), v.Package, v.Version, v.Severity)
 		}
 	}
 
@@ -869,6 +1264,9 @@ Shows a timeline of how vulnerabilities have changed over time.`,
 	logCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
 	logCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	logCmd.Flags().StringP("severity", "s", "", "Minimum severity: critical, high, medium, low")
+	logCmd.Flags().String("since", "", "Only commits after this date (YYYY-MM-DD)")
+	logCmd.Flags().String("until", "", "Only commits before this date (YYYY-MM-DD)")
+	logCmd.Flags().String("author", "", "Filter by author name or email")
 	logCmd.Flags().Bool("introduced", false, "Only show commits that introduced vulnerabilities")
 	logCmd.Flags().Bool("fixed", false, "Only show commits that fixed vulnerabilities")
 	logCmd.Flags().Int("limit", 20, "Maximum commits to check")
@@ -889,6 +1287,9 @@ func runVulnsLog(cmd *cobra.Command, args []string) error {
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	severity, _ := cmd.Flags().GetString("severity")
+	since, _ := cmd.Flags().GetString("since")
+	until, _ := cmd.Flags().GetString("until")
+	author, _ := cmd.Flags().GetString("author")
 	introducedOnly, _ := cmd.Flags().GetBool("introduced")
 	fixedOnly, _ := cmd.Flags().GetBool("fixed")
 	limit, _ := cmd.Flags().GetInt("limit")
@@ -927,6 +1328,9 @@ func runVulnsLog(cmd *cobra.Command, args []string) error {
 	commits, err := db.GetCommitsWithChanges(database.LogOptions{
 		BranchID:  branch.ID,
 		Ecosystem: ecosystem,
+		Author:    author,
+		Since:     since,
+		Until:     until,
 		Limit:     limit,
 	})
 	if err != nil {
@@ -1210,6 +1614,7 @@ Shows the exposure time from when the vulnerable package was first added.`,
 	exposureCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	exposureCmd.Flags().StringP("severity", "s", "", "Minimum severity: critical, high, medium, low")
 	exposureCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
+	exposureCmd.Flags().Bool("summary", false, "Show aggregate metrics only")
 	parent.AddCommand(exposureCmd)
 }
 
@@ -1228,6 +1633,7 @@ func runVulnsExposure(cmd *cobra.Command, args []string) error {
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	severity, _ := cmd.Flags().GetString("severity")
 	format, _ := cmd.Flags().GetString("format")
+	summary, _ := cmd.Flags().GetBool("summary")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -1331,6 +1737,10 @@ func runVulnsExposure(cmd *cobra.Command, args []string) error {
 		return entries[i].ExposureDays > entries[j].ExposureDays
 	})
 
+	if summary {
+		return outputExposureSummary(cmd, entries, format)
+	}
+
 	if format == "json" {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
@@ -1348,6 +1758,69 @@ func runVulnsExposure(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+type ExposureSummary struct {
+	TotalVulnerabilities int            `json:"total_vulnerabilities"`
+	TotalExposureDays    int            `json:"total_exposure_days"`
+	AverageExposureDays  float64        `json:"average_exposure_days"`
+	MaxExposureDays      int            `json:"max_exposure_days"`
+	BySeverity           map[string]int `json:"by_severity"`
+	OldestExposure       string         `json:"oldest_exposure,omitempty"`
+}
+
+func outputExposureSummary(cmd *cobra.Command, entries []VulnExposureEntry, format string) error {
+	summary := ExposureSummary{
+		TotalVulnerabilities: len(entries),
+		BySeverity:           make(map[string]int),
+	}
+
+	totalDays := 0
+	maxDays := 0
+	var oldestDate string
+
+	for _, e := range entries {
+		totalDays += e.ExposureDays
+		if e.ExposureDays > maxDays {
+			maxDays = e.ExposureDays
+			oldestDate = e.IntroducedAt
+		}
+		summary.BySeverity[e.Severity]++
+	}
+
+	summary.TotalExposureDays = totalDays
+	summary.MaxExposureDays = maxDays
+	if len(entries) > 0 {
+		summary.AverageExposureDays = float64(totalDays) / float64(len(entries))
+	}
+	if oldestDate != "" && len(oldestDate) >= 10 {
+		summary.OldestExposure = oldestDate[:10]
+	}
+
+	if format == "json" {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(summary)
+	}
+
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Vulnerability Exposure Summary")
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("-", 30))
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Total vulnerabilities: %d\n", summary.TotalVulnerabilities)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Total exposure:        %d days\n", summary.TotalExposureDays)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Average exposure:      %.1f days\n", summary.AverageExposureDays)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Max exposure:          %d days\n", summary.MaxExposureDays)
+	if summary.OldestExposure != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Oldest since:          %s\n", summary.OldestExposure)
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout())
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "By severity:")
+	for _, sev := range []string{"critical", "high", "medium", "low", "unknown"} {
+		if count, ok := summary.BySeverity[sev]; ok && count > 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d\n", sev, count)
+		}
+	}
+
+	return nil
+}
+
 // vulns praise command
 func addVulnsPraiseCmd(parent *cobra.Command) {
 	praiseCmd := &cobra.Command{
@@ -1360,8 +1833,10 @@ This is the opposite of blame - it shows positive contributions to security.`,
 
 	praiseCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
 	praiseCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
+	praiseCmd.Flags().StringP("severity", "s", "", "Minimum severity: critical, high, medium, low")
 	praiseCmd.Flags().Int("limit", 50, "Maximum commits to check")
 	praiseCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
+	praiseCmd.Flags().Bool("summary", false, "Show author leaderboard only")
 	parent.AddCommand(praiseCmd)
 }
 
@@ -1377,8 +1852,10 @@ type VulnPraiseEntry struct {
 func runVulnsPraise(cmd *cobra.Command, args []string) error {
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
+	severity, _ := cmd.Flags().GetString("severity")
 	limit, _ := cmd.Flags().GetInt("limit")
 	format, _ := cmd.Flags().GetString("format")
+	summary, _ := cmd.Flags().GetBool("summary")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -1424,6 +1901,14 @@ func runVulnsPraise(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
+	minSeverity := 4
+	if severity != "" {
+		if order, ok := severityOrder[strings.ToLower(severity)]; ok {
+			minSeverity = order
+		}
+	}
+
 	var entries []VulnPraiseEntry
 	var prevVulns []VulnResult
 
@@ -1453,6 +1938,10 @@ func runVulnsPraise(cmd *cobra.Command, args []string) error {
 
 		for key, v := range prevSet {
 			if !currSet[key] {
+				// Apply severity filter
+				if severityOrder[v.Severity] > minSeverity {
+					continue
+				}
 				entries = append(entries, VulnPraiseEntry{
 					VulnID:    v.ID,
 					Severity:  v.Severity,
@@ -1470,6 +1959,10 @@ func runVulnsPraise(cmd *cobra.Command, args []string) error {
 	if len(entries) == 0 {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerability fixes found in recent commits.")
 		return nil
+	}
+
+	if summary {
+		return outputPraiseSummary(cmd, entries, format)
 	}
 
 	if format == "json" {
@@ -1500,6 +1993,82 @@ func runVulnsPraise(cmd *cobra.Command, args []string) error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    Fixed in %s on %s\n", e.FixedIn[:7], e.FixedDate[:10])
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+	}
+
+	return nil
+}
+
+type PraiseAuthorSummary struct {
+	Author        string         `json:"author"`
+	TotalFixes    int            `json:"total_fixes"`
+	BySeverity    map[string]int `json:"by_severity"`
+	UniquePackages int           `json:"unique_packages"`
+}
+
+type PraiseSummary struct {
+	TotalFixes int                   `json:"total_fixes"`
+	Authors    []PraiseAuthorSummary `json:"authors"`
+}
+
+func outputPraiseSummary(cmd *cobra.Command, entries []VulnPraiseEntry, format string) error {
+	// Group by author
+	byAuthor := make(map[string][]VulnPraiseEntry)
+	for _, e := range entries {
+		byAuthor[e.FixedBy] = append(byAuthor[e.FixedBy], e)
+	}
+
+	summary := PraiseSummary{
+		TotalFixes: len(entries),
+	}
+
+	for author, fixes := range byAuthor {
+		as := PraiseAuthorSummary{
+			Author:     author,
+			TotalFixes: len(fixes),
+			BySeverity: make(map[string]int),
+		}
+
+		uniquePkgs := make(map[string]bool)
+		for _, f := range fixes {
+			as.BySeverity[f.Severity]++
+			uniquePkgs[f.Package] = true
+		}
+		as.UniquePackages = len(uniquePkgs)
+
+		summary.Authors = append(summary.Authors, as)
+	}
+
+	// Sort by total fixes descending
+	sort.Slice(summary.Authors, func(i, j int) bool {
+		return summary.Authors[i].TotalFixes > summary.Authors[j].TotalFixes
+	})
+
+	if format == "json" {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(summary)
+	}
+
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Vulnerability Fix Leaderboard")
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("-", 30))
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Total fixes: %d\n\n", summary.TotalFixes)
+
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Rank  Author                    Fixes  Critical  High  Packages")
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("-", 70))
+
+	for i, a := range summary.Authors {
+		authorName := a.Author
+		if len(authorName) > 24 {
+			authorName = authorName[:21] + "..."
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%4d  %-24s  %5d  %8d  %4d  %8d\n",
+			i+1,
+			authorName,
+			a.TotalFixes,
+			a.BySeverity["critical"],
+			a.BySeverity["high"],
+			a.UniquePackages,
+		)
 	}
 
 	return nil

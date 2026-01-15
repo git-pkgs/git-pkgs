@@ -31,12 +31,10 @@ github.com/elazarl/goproxy v1.4.0 h1:4GyuSbFa+s26+3rmYNSuUVsx+HgPrV1bk1jXI0l9wjM
 github.com/elazarl/goproxy v1.4.0/go.mod h1:X/5W/t+gzDyLfHW4DrMdpjqYjpXsURlBt9lpBDxZZZQ=
 github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc=
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
-github.com/git-pkgs/manifests v0.0.0-20260115154000-31f4ea7a2ba4 h1:0OZQ2sujecMr/2OnCSJg3RjGnp3owW1eFqFh1Xbvp1E=
-github.com/git-pkgs/manifests v0.0.0-20260115154000-31f4ea7a2ba4/go.mod h1:fRg+mzF2Y7YDoVM3Bno7Ln4UGS7nNQvgfAuvkDwqWCI=
+github.com/git-pkgs/manifests v0.1.1 h1:yOkDoXRPFAZ8kUFkaWL5w0Havo2esMjQZGrjCj9M5VM=
+github.com/git-pkgs/manifests v0.1.1/go.mod h1:fRg+mzF2Y7YDoVM3Bno7Ln4UGS7nNQvgfAuvkDwqWCI=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e h1:HP9nixDfQIsqSBVYoGA9+FoimW8e2vSUg4cCqXLbX08=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
-github.com/git-pkgs/vers v0.1.1-0.20260115091357-1ced911533f2 h1:SxCZo2hitWeffhv7bbCIjApotYiBKptX6cYZEv5LWwo=
-github.com/git-pkgs/vers v0.1.1-0.20260115091357-1ced911533f2/go.mod h1:wn8lpnRoIg1Y1F1daZK+OZxsmGuqVXj3ov6+uRWnMAw=
 github.com/git-pkgs/vers v0.2.0 h1:yJUQiKe4qVN6ktDAiSdJVwV99k7l1suwkYKber2QTdc=
 github.com/git-pkgs/vers v0.2.0/go.mod h1:wn8lpnRoIg1Y1F1daZK+OZxsmGuqVXj3ov6+uRWnMAw=
 github.com/gliderlabs/ssh v0.3.8 h1:a4YXD1V7xMF9g5nTkdfnja3Sxy1PVDCj1Zg4Wb8vY6c=

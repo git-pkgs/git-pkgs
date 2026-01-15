@@ -284,36 +284,36 @@ func outputDiffJSON(cmd *cobra.Command, result *DiffResult) error {
 
 func outputDiffText(cmd *cobra.Command, result *DiffResult) error {
 	if len(result.Added) > 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Added:")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), Bold("Added:"))
 		for _, e := range result.Added {
-			line := fmt.Sprintf("  + %s", e.Name)
+			line := fmt.Sprintf("  %s %s", Green("+"), Green(e.Name))
 			if e.ToRequirement != "" {
 				line += fmt.Sprintf(" %s", e.ToRequirement)
 			}
-			line += fmt.Sprintf(" (%s)", e.ManifestPath)
+			line += fmt.Sprintf(" %s", Dim("("+e.ManifestPath+")"))
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
 
 	if len(result.Modified) > 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Modified:")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), Bold("Modified:"))
 		for _, e := range result.Modified {
-			line := fmt.Sprintf("  ~ %s %s -> %s", e.Name, e.FromRequirement, e.ToRequirement)
-			line += fmt.Sprintf(" (%s)", e.ManifestPath)
+			line := fmt.Sprintf("  %s %s %s -> %s", Yellow("~"), Yellow(e.Name), Dim(e.FromRequirement), e.ToRequirement)
+			line += fmt.Sprintf(" %s", Dim("("+e.ManifestPath+")"))
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
 
 	if len(result.Removed) > 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Removed:")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), Bold("Removed:"))
 		for _, e := range result.Removed {
-			line := fmt.Sprintf("  - %s", e.Name)
+			line := fmt.Sprintf("  %s %s", Red("-"), Red(e.Name))
 			if e.FromRequirement != "" {
 				line += fmt.Sprintf(" %s", e.FromRequirement)
 			}
-			line += fmt.Sprintf(" (%s)", e.ManifestPath)
+			line += fmt.Sprintf(" %s", Dim("("+e.ManifestPath+")"))
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
