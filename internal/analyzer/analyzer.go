@@ -1,7 +1,11 @@
 package analyzer
 
 import (
+	"bufio"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/git-pkgs/manifests"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -42,13 +46,105 @@ type Result struct {
 	Snapshot Snapshot
 }
 
+type cachedDiff struct {
+	added    []string
+	modified []string
+	deleted  []string
+}
+
 type Analyzer struct {
 	blobCache map[string]*manifests.ParseResult
+	diffCache map[string]*cachedDiff
+	diffMu    sync.RWMutex
+	repoPath  string
 }
 
 func New() *Analyzer {
 	return &Analyzer{
 		blobCache: make(map[string]*manifests.ParseResult),
+		diffCache: make(map[string]*cachedDiff),
+	}
+}
+
+// SetRepoPath sets the repository path for git shell commands.
+func (a *Analyzer) SetRepoPath(path string) {
+	a.repoPath = path
+}
+
+// PrefetchDiffs pre-computes diffs for all commits using a single git log command.
+// This is much faster than individual git diff-tree calls.
+func (a *Analyzer) PrefetchDiffs(commits []*object.Commit, numWorkers int) {
+	if len(commits) == 0 || a.repoPath == "" {
+		return
+	}
+
+	// Use git log with --name-status to get all diffs in one command
+	lastSHA := commits[len(commits)-1].Hash.String()
+	firstSHA := commits[0].Hash.String()
+
+	// git log --name-status --format="COMMIT:%H" --reverse firstSHA^..lastSHA
+	cmd := exec.Command("git", "log", "--name-status", "--format=COMMIT:%H", "--reverse", firstSHA+"^.."+lastSHA)
+	cmd.Dir = a.repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback for root commits: include first commit
+		cmd = exec.Command("git", "log", "--name-status", "--format=COMMIT:%H", "--reverse", lastSHA)
+		cmd.Dir = a.repoPath
+		output, err = cmd.Output()
+		if err != nil {
+			return
+		}
+	}
+
+	// Parse the output
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	var currentSHA string
+	var currentDiff *cachedDiff
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Empty line - just skip
+		if line == "" {
+			continue
+		}
+
+		// COMMIT: line marks a new commit
+		if strings.HasPrefix(line, "COMMIT:") {
+			// Save previous commit
+			if currentSHA != "" && currentDiff != nil {
+				a.diffCache[currentSHA] = currentDiff
+			}
+			currentSHA = line[7:] // Remove "COMMIT:" prefix
+			currentDiff = &cachedDiff{}
+			continue
+		}
+
+		// Name-status line (starts with A, M, D followed by tab)
+		if currentDiff != nil && len(line) >= 2 && (line[0] == 'A' || line[0] == 'M' || line[0] == 'D') && line[1] == '\t' {
+			status := line[0]
+			path := line[2:] // Skip status and tab
+
+			_, _, ok := manifests.Identify(filepath.Base(path))
+			if !ok {
+				continue
+			}
+
+			switch status {
+			case 'A':
+				currentDiff.added = append(currentDiff.added, path)
+			case 'M':
+				currentDiff.modified = append(currentDiff.modified, path)
+			case 'D':
+				currentDiff.deleted = append(currentDiff.deleted, path)
+			}
+		}
+	}
+
+	// Don't forget the last commit
+	if currentSHA != "" && currentDiff != nil {
+		a.diffCache[currentSHA] = currentDiff
 	}
 }
 
@@ -74,37 +170,49 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		}
 	}
 
-	changes, err := object.DiffTree(parentTree, tree)
-	if err != nil {
-		return nil, err
-	}
-
+	// Check for cached diff first
 	var added, modified, deleted []string
-	for _, change := range changes {
-		action, err := change.Action()
+	a.diffMu.RLock()
+	cached, hasCached := a.diffCache[commit.Hash.String()]
+	a.diffMu.RUnlock()
+
+	if hasCached {
+		added = cached.added
+		modified = cached.modified
+		deleted = cached.deleted
+	} else {
+		// Fallback to go-git diff
+		changes, err := object.DiffTree(parentTree, tree)
 		if err != nil {
-			continue
+			return nil, err
 		}
 
-		var path string
-		if change.To.Name != "" {
-			path = change.To.Name
-		} else {
-			path = change.From.Name
-		}
+		for _, change := range changes {
+			action, err := change.Action()
+			if err != nil {
+				continue
+			}
 
-		_, _, ok := manifests.Identify(filepath.Base(path))
-		if !ok {
-			continue
-		}
+			var path string
+			if change.To.Name != "" {
+				path = change.To.Name
+			} else {
+				path = change.From.Name
+			}
 
-		switch action {
-		case merkletrie.Insert:
-			added = append(added, path)
-		case merkletrie.Modify:
-			modified = append(modified, path)
-		case merkletrie.Delete:
-			deleted = append(deleted, path)
+			_, _, ok := manifests.Identify(filepath.Base(path))
+			if !ok {
+				continue
+			}
+
+			switch action {
+			case merkletrie.Insert:
+				added = append(added, path)
+			case merkletrie.Modify:
+				modified = append(modified, path)
+			case merkletrie.Delete:
+				deleted = append(deleted, path)
+			}
 		}
 	}
 

@@ -11,11 +11,13 @@ import (
 )
 
 type Options struct {
-	Branch      string
-	Since       string
-	Output      io.Writer
-	Quiet       bool
-	Incremental bool // Use existing branch and continue from last SHA
+	Branch           string
+	Since            string
+	Output           io.Writer
+	Quiet            bool
+	Incremental      bool // Use existing branch and continue from last SHA
+	BatchSize        int  // Commits to buffer before flushing (default 500)
+	SnapshotInterval int  // Store snapshot every N commits with changes (default 50)
 }
 
 type Result struct {
@@ -54,11 +56,13 @@ func (idx *Indexer) Run() (*Result, error) {
 		return nil, fmt.Errorf("optimizing database: %w", err)
 	}
 
-	writer, err := database.NewWriter(idx.db)
-	if err != nil {
-		return nil, fmt.Errorf("creating writer: %w", err)
+	writer := database.NewBatchWriter(idx.db)
+	if idx.opts.BatchSize > 0 {
+		writer.SetBatchSize(idx.opts.BatchSize)
 	}
-	defer func() { _ = writer.Close() }()
+	if idx.opts.SnapshotInterval > 0 {
+		writer.SetSnapshotInterval(idx.opts.SnapshotInterval)
+	}
 
 	var snapshot analyzer.Snapshot
 	var sinceSHA string
@@ -98,7 +102,12 @@ func (idx *Indexer) Run() (*Result, error) {
 		_, _ = fmt.Fprintf(idx.opts.Output, "Analyzing %d commits on %s...\n", len(commits), branch)
 	}
 
+	// Prefetch diffs in parallel using git shell commands (thread-safe unlike go-git)
+	idx.analyzer.SetRepoPath(idx.repo.WorkDir())
+	idx.analyzer.PrefetchDiffs(commits, 8)
+
 	result := &Result{}
+	var lastSHAWithChanges string
 
 	for i, commit := range commits {
 		if !idx.opts.Quiet && idx.opts.Output != nil && (i+1)%100 == 0 {
@@ -111,35 +120,26 @@ func (idx *Indexer) Run() (*Result, error) {
 		}
 
 		hasChanges := analysisResult != nil && len(analysisResult.Changes) > 0
+		sha := commit.Hash.String()
 
 		commitInfo := database.CommitInfo{
-			SHA:         commit.Hash.String(),
+			SHA:         sha,
 			Message:     commit.Message,
 			AuthorName:  commit.Author.Name,
 			AuthorEmail: commit.Author.Email,
 			CommittedAt: commit.Committer.When,
 		}
 
-		commitID, wasNew, err := writer.InsertCommit(commitInfo, hasChanges)
-		if err != nil {
-			return nil, fmt.Errorf("inserting commit %s: %w", commit.Hash.String()[:7], err)
-		}
-
+		writer.AddCommit(commitInfo, hasChanges)
 		result.CommitsAnalyzed++
-
-		// If commit already existed (from another branch), we still need to update
-		// our snapshot state but don't need to re-store the changes
-		if !wasNew {
-			if hasChanges {
-				snapshot = analysisResult.Snapshot
-			}
-			continue
-		}
 
 		if hasChanges {
 			result.CommitsWithChanges++
 			result.TotalChanges += len(analysisResult.Changes)
 			snapshot = analysisResult.Snapshot
+			lastSHAWithChanges = sha
+
+			writer.IncrementDepCommitCount()
 
 			for _, change := range analysisResult.Changes {
 				manifest := database.ManifestInfo{
@@ -157,32 +157,62 @@ func (idx *Indexer) Run() (*Result, error) {
 					PreviousRequirement: change.PreviousRequirement,
 					DependencyType:      change.DependencyType,
 				}
-				if err := writer.InsertChange(commitID, manifest, changeInfo); err != nil {
-					return nil, fmt.Errorf("inserting change: %w", err)
-				}
+				writer.AddChange(sha, manifest, changeInfo)
 			}
 
-			// Store snapshot at commits with changes
-			for key, entry := range analysisResult.Snapshot {
-				manifest := database.ManifestInfo{
-					Path:      key.ManifestPath,
-					Ecosystem: entry.Ecosystem,
-					Kind:      entry.Kind,
-				}
-				snapshotInfo := database.SnapshotInfo{
-					ManifestPath:   key.ManifestPath,
-					Name:           key.Name,
-					Ecosystem:      entry.Ecosystem,
-					PURL:           entry.PURL,
-					Requirement:    entry.Requirement,
-					DependencyType: entry.DependencyType,
-					Integrity:      entry.Integrity,
-				}
-				if err := writer.InsertSnapshot(commitID, manifest, snapshotInfo); err != nil {
-					return nil, fmt.Errorf("inserting snapshot: %w", err)
+			// Store snapshot at intervals
+			if writer.ShouldStoreSnapshot() {
+				for key, entry := range analysisResult.Snapshot {
+					manifest := database.ManifestInfo{
+						Path:      key.ManifestPath,
+						Ecosystem: entry.Ecosystem,
+						Kind:      entry.Kind,
+					}
+					snapshotInfo := database.SnapshotInfo{
+						ManifestPath:   key.ManifestPath,
+						Name:           key.Name,
+						Ecosystem:      entry.Ecosystem,
+						PURL:           entry.PURL,
+						Requirement:    entry.Requirement,
+						DependencyType: entry.DependencyType,
+						Integrity:      entry.Integrity,
+					}
+					writer.AddSnapshot(sha, manifest, snapshotInfo)
 				}
 			}
 		}
+
+		if writer.ShouldFlush() {
+			if err := writer.Flush(); err != nil {
+				return nil, fmt.Errorf("flushing batch: %w", err)
+			}
+		}
+	}
+
+	// Always store final snapshot for the last commit with changes
+	if lastSHAWithChanges != "" && len(snapshot) > 0 && !writer.HasPendingSnapshots(lastSHAWithChanges) {
+		for key, entry := range snapshot {
+			manifest := database.ManifestInfo{
+				Path:      key.ManifestPath,
+				Ecosystem: entry.Ecosystem,
+				Kind:      entry.Kind,
+			}
+			snapshotInfo := database.SnapshotInfo{
+				ManifestPath:   key.ManifestPath,
+				Name:           key.Name,
+				Ecosystem:      entry.Ecosystem,
+				PURL:           entry.PURL,
+				Requirement:    entry.Requirement,
+				DependencyType: entry.DependencyType,
+				Integrity:      entry.Integrity,
+			}
+			writer.AddSnapshot(lastSHAWithChanges, manifest, snapshotInfo)
+		}
+	}
+
+	// Final flush
+	if err := writer.Flush(); err != nil {
+		return nil, fmt.Errorf("flushing final batch: %w", err)
 	}
 
 	if len(commits) > 0 {
