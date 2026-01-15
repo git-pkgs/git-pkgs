@@ -37,6 +37,8 @@ github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e h1:HP9nixDf
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
 github.com/git-pkgs/vers v0.1.1-0.20260115091357-1ced911533f2 h1:SxCZo2hitWeffhv7bbCIjApotYiBKptX6cYZEv5LWwo=
 github.com/git-pkgs/vers v0.1.1-0.20260115091357-1ced911533f2/go.mod h1:wn8lpnRoIg1Y1F1daZK+OZxsmGuqVXj3ov6+uRWnMAw=
+github.com/git-pkgs/vers v0.2.0 h1:yJUQiKe4qVN6ktDAiSdJVwV99k7l1suwkYKber2QTdc=
+github.com/git-pkgs/vers v0.2.0/go.mod h1:wn8lpnRoIg1Y1F1daZK+OZxsmGuqVXj3ov6+uRWnMAw=
 github.com/gliderlabs/ssh v0.3.8 h1:a4YXD1V7xMF9g5nTkdfnja3Sxy1PVDCj1Zg4Wb8vY6c=
 github.com/gliderlabs/ssh v0.3.8/go.mod h1:xYoytBv1sV0aL3CavoDuJIQNURXkkfPA/wxQ1pL1fAU=
 github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 h1:+zs/tPmkDkHx3U66DAb0lQFJrpS6731Oaa12ikc+DiI=
