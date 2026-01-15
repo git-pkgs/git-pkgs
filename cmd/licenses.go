@@ -105,6 +105,7 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	}
 
 	var deps []database.Dependency
+	var db *database.DB
 
 	if stateless {
 		deps, err = listStateless(repo, commit)
@@ -117,7 +118,7 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("database not found. Run 'git pkgs init' first")
 		}
 
-		db, err := database.Open(dbPath)
+		db, err = database.Open(dbPath)
 		if err != nil {
 			return fmt.Errorf("opening database: %w", err)
 		}
@@ -183,16 +184,8 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create ecosystems client
-	client, err := ecosystems.NewClient("git-pkgs/1.0")
-	if err != nil {
-		return fmt.Errorf("creating ecosystems client: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	packages, err := client.BulkLookup(ctx, purls)
+	// Get license data (from cache or API)
+	packageData, err := getLicenseData(db, purls, purlToDep)
 	if err != nil {
 		return fmt.Errorf("looking up packages: %w", err)
 	}
@@ -211,7 +204,7 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	var licenseInfos []LicenseInfo
 	hasViolations := false
 
-	for purl, pkg := range packages {
+	for purl, data := range packageData {
 		dep := purlToDep[purl]
 
 		info := LicenseInfo{
@@ -222,12 +215,8 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 			PURL:         purl,
 		}
 
-		if pkg != nil {
-			if pkg.NormalizedLicenses != nil {
-				info.Licenses = pkg.NormalizedLicenses
-			} else if pkg.Licenses != nil {
-				info.Licenses = []string{*pkg.Licenses}
-			}
+		if data.License != "" {
+			info.Licenses = []string{data.License}
 		}
 
 		// Check for violations
@@ -301,6 +290,74 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("license violations found")
 	}
 	return nil
+}
+
+type licenseData struct {
+	License string
+}
+
+func getLicenseData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]*licenseData, error) {
+	result := make(map[string]*licenseData)
+	var uncachedPurls []string
+
+	// Check cache if DB is available
+	if db != nil {
+		cached, err := db.GetCachedPackages(purls, enrichmentCacheTTL)
+		if err != nil {
+			return nil, err
+		}
+		for purl, cp := range cached {
+			result[purl] = &licenseData{License: cp.License}
+		}
+		// Find uncached PURLs
+		for _, purl := range purls {
+			if _, ok := cached[purl]; !ok {
+				uncachedPurls = append(uncachedPurls, purl)
+			}
+		}
+	} else {
+		uncachedPurls = purls
+	}
+
+	// Fetch uncached from API
+	if len(uncachedPurls) > 0 {
+		client, err := ecosystems.NewClient("git-pkgs/1.0")
+		if err != nil {
+			return nil, err
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		packages, err := client.BulkLookup(ctx, uncachedPurls)
+		if err != nil {
+			return nil, err
+		}
+
+		for purl, pkg := range packages {
+			data := &licenseData{}
+			if pkg != nil {
+				if len(pkg.NormalizedLicenses) > 0 {
+					data.License = pkg.NormalizedLicenses[0]
+				} else if pkg.Licenses != nil && *pkg.Licenses != "" {
+					data.License = *pkg.Licenses
+				}
+			}
+			result[purl] = data
+
+			// Save to cache if DB available
+			if db != nil {
+				dep := purlToDep[purl]
+				latestVersion := ""
+				if pkg != nil && pkg.LatestReleaseNumber != nil {
+					latestVersion = *pkg.LatestReleaseNumber
+				}
+				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, latestVersion, data.License)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func outputLicensesJSON(cmd *cobra.Command, infos []LicenseInfo) error {

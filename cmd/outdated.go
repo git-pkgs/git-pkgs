@@ -48,6 +48,9 @@ type OutdatedPackage struct {
 	PURL           string `json:"purl,omitempty"`
 }
 
+// Default cache TTL for enrichment data (24 hours)
+const enrichmentCacheTTL = 24 * time.Hour
+
 func runOutdated(cmd *cobra.Command, args []string) error {
 	commit, _ := cmd.Flags().GetString("commit")
 	branchName, _ := cmd.Flags().GetString("branch")
@@ -64,6 +67,7 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 	}
 
 	var deps []database.Dependency
+	var db *database.DB
 
 	if stateless {
 		deps, err = listStateless(repo, commit)
@@ -76,7 +80,7 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("database not found. Run 'git pkgs init' first")
 		}
 
-		db, err := database.Open(dbPath)
+		db, err = database.Open(dbPath)
 		if err != nil {
 			return fmt.Errorf("opening database: %w", err)
 		}
@@ -146,21 +150,6 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create ecosystems client
-	client, err := ecosystems.NewClient("git-pkgs/1.0")
-	if err != nil {
-		return fmt.Errorf("creating ecosystems client: %w", err)
-	}
-
-	// Lookup packages
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	packages, err := client.BulkLookup(ctx, purls)
-	if err != nil {
-		return fmt.Errorf("looking up packages: %w", err)
-	}
-
 	// Parse --at date if provided
 	var atTime time.Time
 	if atDate != "" {
@@ -170,20 +159,26 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Get package data (from cache or API)
+	packageData, err := getPackageData(db, purls, purlToDep)
+	if err != nil {
+		return fmt.Errorf("looking up packages: %w", err)
+	}
+
 	// Compare versions
 	var outdated []OutdatedPackage
-	for purl, pkg := range packages {
-		if pkg == nil || pkg.LatestReleaseNumber == nil {
+	for purl, data := range packageData {
+		if data.LatestVersion == "" {
 			continue
 		}
 
 		dep := purlToDep[purl]
 		current := dep.Requirement
-		latest := *pkg.LatestReleaseNumber
+		latest := data.LatestVersion
 
 		// If --at is specified, find the latest version at that date
 		if !atTime.IsZero() {
-			latest = findLatestAtDate(client, ctx, pkg.Ecosystem, pkg.Name, atTime)
+			latest = findLatestAtDateCached(db, data.Ecosystem, data.Name, purl, atTime)
 			if latest == "" {
 				continue
 			}
@@ -228,6 +223,163 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 		return outputOutdatedJSON(cmd, outdated)
 	}
 	return outputOutdatedText(cmd, outdated)
+}
+
+type packageInfo struct {
+	Ecosystem     string
+	Name          string
+	LatestVersion string
+	License       string
+}
+
+func getPackageData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]*packageInfo, error) {
+	result := make(map[string]*packageInfo)
+	var uncachedPurls []string
+
+	// Check cache if DB is available
+	if db != nil {
+		cached, err := db.GetCachedPackages(purls, enrichmentCacheTTL)
+		if err != nil {
+			return nil, err
+		}
+		for purl, cp := range cached {
+			result[purl] = &packageInfo{
+				Ecosystem:     cp.Ecosystem,
+				Name:          cp.Name,
+				LatestVersion: cp.LatestVersion,
+				License:       cp.License,
+			}
+		}
+		// Find uncached PURLs
+		for _, purl := range purls {
+			if _, ok := cached[purl]; !ok {
+				uncachedPurls = append(uncachedPurls, purl)
+			}
+		}
+	} else {
+		uncachedPurls = purls
+	}
+
+	// Fetch uncached from API
+	if len(uncachedPurls) > 0 {
+		client, err := ecosystems.NewClient("git-pkgs/1.0")
+		if err != nil {
+			return nil, err
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		packages, err := client.BulkLookup(ctx, uncachedPurls)
+		if err != nil {
+			return nil, err
+		}
+
+		for purl, pkg := range packages {
+			if pkg == nil {
+				continue
+			}
+
+			info := &packageInfo{
+				Ecosystem: pkg.Ecosystem,
+				Name:      pkg.Name,
+			}
+			if pkg.LatestReleaseNumber != nil {
+				info.LatestVersion = *pkg.LatestReleaseNumber
+			}
+			if len(pkg.NormalizedLicenses) > 0 {
+				info.License = pkg.NormalizedLicenses[0]
+			} else if pkg.Licenses != nil && *pkg.Licenses != "" {
+				info.License = *pkg.Licenses
+			}
+			result[purl] = info
+
+			// Save to cache if DB available
+			if db != nil {
+				dep := purlToDep[purl]
+				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, info.LatestVersion, info.License)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func findLatestAtDateCached(db *database.DB, ecosystem, name, purl string, atTime time.Time) string {
+	// Check cache first if DB available
+	if db != nil {
+		versions, err := db.GetCachedVersions(purl, enrichmentCacheTTL)
+		if err == nil && len(versions) > 0 {
+			var latestVersion string
+			var latestTime time.Time
+			for _, v := range versions {
+				if !v.PublishedAt.After(atTime) {
+					if latestVersion == "" || v.PublishedAt.After(latestTime) {
+						// Extract version from PURL (pkg:type/name@version)
+						if idx := strings.LastIndex(v.PURL, "@"); idx > 0 {
+							latestVersion = v.PURL[idx+1:]
+							latestTime = v.PublishedAt
+						}
+					}
+				}
+			}
+			if latestVersion != "" {
+				return latestVersion
+			}
+		}
+	}
+
+	// Fall back to API
+	registry := ecosystemToRegistry(ecosystem)
+	if registry == "" {
+		return ""
+	}
+
+	client, err := ecosystems.NewClient("git-pkgs/1.0")
+	if err != nil {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	apiVersions, err := client.GetAllVersions(ctx, registry, name)
+	if err != nil {
+		return ""
+	}
+
+	var latestVersion string
+	var latestTime time.Time
+	var toCache []database.CachedVersion
+
+	for _, v := range apiVersions {
+		var publishedAt time.Time
+		if v.PublishedAt != nil {
+			publishedAt, _ = time.Parse(time.RFC3339, *v.PublishedAt)
+		}
+
+		// Build version PURL
+		versionPurl := purl + "@" + v.Number
+		toCache = append(toCache, database.CachedVersion{
+			PURL:        versionPurl,
+			PackagePURL: purl,
+			PublishedAt: publishedAt,
+		})
+
+		if !publishedAt.IsZero() && !publishedAt.After(atTime) {
+			if latestVersion == "" || publishedAt.After(latestTime) {
+				latestVersion = v.Number
+				latestTime = publishedAt
+			}
+		}
+	}
+
+	// Save to cache if DB available
+	if db != nil && len(toCache) > 0 {
+		_ = db.SaveVersions(toCache)
+	}
+
+	return latestVersion
 }
 
 func buildPURL(ecosystem, name string) string {
@@ -285,40 +437,6 @@ func classifyUpdate(current, latest string) string {
 	}
 
 	return ""
-}
-
-func findLatestAtDate(client *ecosystems.Client, ctx context.Context, ecosystem, name string, atTime time.Time) string {
-	// Get registry from ecosystem
-	registry := ecosystemToRegistry(ecosystem)
-	if registry == "" {
-		return ""
-	}
-
-	versions, err := client.GetAllVersions(ctx, registry, name)
-	if err != nil {
-		return ""
-	}
-
-	var latestVersion string
-	var latestTime time.Time
-
-	for _, v := range versions {
-		if v.PublishedAt == nil {
-			continue
-		}
-		publishedAt, err := time.Parse(time.RFC3339, *v.PublishedAt)
-		if err != nil {
-			continue
-		}
-		if !publishedAt.After(atTime) {
-			if latestVersion == "" || publishedAt.After(latestTime) {
-				latestVersion = v.Number
-				latestTime = publishedAt
-			}
-		}
-	}
-
-	return latestVersion
 }
 
 func ecosystemToRegistry(ecosystem string) string {

@@ -139,6 +139,7 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 	}
 
 	var deps []database.Dependency
+	var db *database.DB
 
 	if stateless {
 		deps, err = listStateless(repo, commit)
@@ -151,7 +152,7 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("database not found. Run 'git pkgs init' first")
 		}
 
-		db, err := database.Open(dbPath)
+		db, err = database.Open(dbPath)
 		if err != nil {
 			return fmt.Errorf("opening database: %w", err)
 		}
@@ -190,10 +191,11 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 		deps = filtered
 	}
 
-	// Get licenses from ecosyste.ms if not skipped
+	// Get licenses from cache or ecosyste.ms if not skipped
 	licenseMap := make(map[string][]string)
 	if !skipEnrichment {
 		purls := make([]string, 0, len(deps))
+		purlToDep := make(map[string]database.Dependency)
 		for _, d := range deps {
 			purl := d.PURL
 			if purl == "" {
@@ -201,23 +203,16 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 			}
 			if purl != "" {
 				purls = append(purls, purl)
+				purlToDep[purl] = d
 			}
 		}
 
 		if len(purls) > 0 {
-			client, err := ecosystems.NewClient("git-pkgs/1.0")
+			data, err := getSBOMLicenseData(db, purls, purlToDep)
 			if err == nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-				packages, err := client.BulkLookup(ctx, purls)
-				cancel()
-
-				if err == nil {
-					for purl, pkg := range packages {
-						if pkg != nil && pkg.NormalizedLicenses != nil {
-							licenseMap[purl] = pkg.NormalizedLicenses
-						} else if pkg != nil && pkg.Licenses != nil {
-							licenseMap[purl] = []string{*pkg.Licenses}
-						}
+				for purl, license := range data {
+					if license != "" {
+						licenseMap[purl] = []string{license}
 					}
 				}
 			}
@@ -234,6 +229,70 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 	default:
 		return generateCycloneDX(cmd, deps, licenseMap, projectName, projectVersion, format)
 	}
+}
+
+func getSBOMLicenseData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]string, error) {
+	result := make(map[string]string)
+	var uncachedPurls []string
+
+	// Check cache if DB is available
+	if db != nil {
+		cached, err := db.GetCachedPackages(purls, enrichmentCacheTTL)
+		if err != nil {
+			return nil, err
+		}
+		for purl, cp := range cached {
+			result[purl] = cp.License
+		}
+		// Find uncached PURLs
+		for _, purl := range purls {
+			if _, ok := cached[purl]; !ok {
+				uncachedPurls = append(uncachedPurls, purl)
+			}
+		}
+	} else {
+		uncachedPurls = purls
+	}
+
+	// Fetch uncached from API
+	if len(uncachedPurls) > 0 {
+		client, err := ecosystems.NewClient("git-pkgs/1.0")
+		if err != nil {
+			return nil, err
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		packages, err := client.BulkLookup(ctx, uncachedPurls)
+		if err != nil {
+			return nil, err
+		}
+
+		for purl, pkg := range packages {
+			license := ""
+			latestVersion := ""
+			if pkg != nil {
+				if len(pkg.NormalizedLicenses) > 0 {
+					license = pkg.NormalizedLicenses[0]
+				} else if pkg.Licenses != nil && *pkg.Licenses != "" {
+					license = *pkg.Licenses
+				}
+				if pkg.LatestReleaseNumber != nil {
+					latestVersion = *pkg.LatestReleaseNumber
+				}
+			}
+			result[purl] = license
+
+			// Save to cache if DB available
+			if db != nil {
+				dep := purlToDep[purl]
+				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, latestVersion, license)
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func generateCycloneDX(cmd *cobra.Command, deps []database.Dependency, licenseMap map[string][]string, name, version, format string) error {

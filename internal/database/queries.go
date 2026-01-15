@@ -3,6 +3,8 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 )
 
 type BranchInfo struct {
@@ -1597,4 +1599,154 @@ func trimSpace(s string) string {
 		end--
 	}
 	return s[start:end]
+}
+
+// CachedPackage represents cached enrichment data for a package.
+type CachedPackage struct {
+	PURL          string
+	Ecosystem     string
+	Name          string
+	LatestVersion string
+	License       string
+	EnrichedAt    time.Time
+}
+
+// CachedVersion represents cached version data for a package.
+type CachedVersion struct {
+	PURL        string
+	PackagePURL string
+	License     string
+	PublishedAt time.Time
+}
+
+// GetCachedPackages returns cached package data for the given PURLs that aren't stale.
+func (db *DB) GetCachedPackages(purls []string, staleDuration time.Duration) (map[string]*CachedPackage, error) {
+	if len(purls) == 0 {
+		return make(map[string]*CachedPackage), nil
+	}
+
+	staleThreshold := time.Now().Add(-staleDuration)
+
+	placeholders := make([]string, len(purls))
+	args := make([]interface{}, len(purls)+1)
+	args[0] = staleThreshold.Format(time.RFC3339)
+	for i, purl := range purls {
+		placeholders[i] = "?"
+		args[i+1] = purl
+	}
+
+	query := `SELECT purl, ecosystem, name, latest_version, license, enriched_at
+		FROM packages
+		WHERE enriched_at >= ? AND purl IN (` + strings.Join(placeholders, ",") + `)`
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	result := make(map[string]*CachedPackage)
+	for rows.Next() {
+		var cp CachedPackage
+		var latestVersion, license sql.NullString
+		var enrichedAt string
+		if err := rows.Scan(&cp.PURL, &cp.Ecosystem, &cp.Name, &latestVersion, &license, &enrichedAt); err != nil {
+			return nil, err
+		}
+		if latestVersion.Valid {
+			cp.LatestVersion = latestVersion.String
+		}
+		if license.Valid {
+			cp.License = license.String
+		}
+		cp.EnrichedAt, _ = time.Parse(time.RFC3339, enrichedAt)
+		result[cp.PURL] = &cp
+	}
+	return result, rows.Err()
+}
+
+// SavePackageEnrichment saves or updates enrichment data for a package.
+func (db *DB) SavePackageEnrichment(purl, ecosystem, name, latestVersion, license string) error {
+	now := time.Now().Format(time.RFC3339)
+	_, err := db.Exec(`
+		INSERT INTO packages (purl, ecosystem, name, latest_version, license, enriched_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(purl) DO UPDATE SET
+			latest_version = excluded.latest_version,
+			license = excluded.license,
+			enriched_at = excluded.enriched_at,
+			updated_at = excluded.updated_at`,
+		purl, ecosystem, name, latestVersion, license, now, now, now)
+	return err
+}
+
+// GetCachedVersions returns cached version data for a package that isn't stale.
+func (db *DB) GetCachedVersions(packagePurl string, staleDuration time.Duration) ([]CachedVersion, error) {
+	staleThreshold := time.Now().Add(-staleDuration)
+
+	rows, err := db.Query(`
+		SELECT purl, package_purl, license, published_at
+		FROM versions
+		WHERE package_purl = ? AND enriched_at >= ?
+		ORDER BY published_at DESC`,
+		packagePurl, staleThreshold.Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []CachedVersion
+	for rows.Next() {
+		var cv CachedVersion
+		var license sql.NullString
+		var publishedAt string
+		if err := rows.Scan(&cv.PURL, &cv.PackagePURL, &license, &publishedAt); err != nil {
+			return nil, err
+		}
+		if license.Valid {
+			cv.License = license.String
+		}
+		cv.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
+		result = append(result, cv)
+	}
+	return result, rows.Err()
+}
+
+// SaveVersions saves version history for a package.
+func (db *DB) SaveVersions(versions []CachedVersion) error {
+	if len(versions) == 0 {
+		return nil
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO versions (purl, package_purl, license, published_at, enriched_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(purl) DO UPDATE SET
+			license = excluded.license,
+			published_at = excluded.published_at,
+			enriched_at = excluded.enriched_at,
+			updated_at = excluded.updated_at`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, v := range versions {
+		publishedAt := ""
+		if !v.PublishedAt.IsZero() {
+			publishedAt = v.PublishedAt.Format(time.RFC3339)
+		}
+		if _, err := stmt.Exec(v.PURL, v.PackagePURL, v.License, publishedAt, now, now, now); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
