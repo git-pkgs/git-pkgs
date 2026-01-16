@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/ecosyste-ms/ecosystems-go"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/spf13/cobra"
@@ -29,18 +32,21 @@ drift where the same version has different hashes across manifests.`,
 	integrityCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	integrityCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	integrityCmd.Flags().Bool("drift", false, "Only show packages with integrity drift")
+	integrityCmd.Flags().Bool("registry", false, "Check integrity against package registry")
 	integrityCmd.Flags().Bool("stateless", false, "Parse manifests directly without database")
 	parent.AddCommand(integrityCmd)
 }
 
 type IntegrityEntry struct {
-	Name         string   `json:"name"`
-	Ecosystem    string   `json:"ecosystem"`
-	Version      string   `json:"version"`
-	Integrity    string   `json:"integrity"`
-	ManifestPath string   `json:"manifest_path"`
-	HasDrift     bool     `json:"has_drift,omitempty"`
-	OtherHashes  []string `json:"other_hashes,omitempty"`
+	Name             string   `json:"name"`
+	Ecosystem        string   `json:"ecosystem"`
+	Version          string   `json:"version"`
+	Integrity        string   `json:"integrity"`
+	ManifestPath     string   `json:"manifest_path"`
+	HasDrift         bool     `json:"has_drift,omitempty"`
+	OtherHashes      []string `json:"other_hashes,omitempty"`
+	RegistryMismatch bool     `json:"registry_mismatch,omitempty"`
+	RegistryHash     string   `json:"registry_hash,omitempty"`
 }
 
 type IntegrityDrift struct {
@@ -50,12 +56,22 @@ type IntegrityDrift struct {
 	Hashes    map[string]string `json:"hashes"` // manifest_path -> integrity
 }
 
+type RegistryMismatch struct {
+	Name         string `json:"name"`
+	Ecosystem    string `json:"ecosystem"`
+	Version      string `json:"version"`
+	LocalHash    string `json:"local_hash"`
+	RegistryHash string `json:"registry_hash"`
+	ManifestPath string `json:"manifest_path"`
+}
+
 func runIntegrity(cmd *cobra.Command, args []string) error {
 	commit, _ := cmd.Flags().GetString("commit")
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	format, _ := cmd.Flags().GetString("format")
 	driftOnly, _ := cmd.Flags().GetBool("drift")
+	checkRegistry, _ := cmd.Flags().GetBool("registry")
 	stateless, _ := cmd.Flags().GetBool("stateless")
 
 	repo, err := git.OpenRepository(".")
@@ -114,6 +130,11 @@ func runIntegrity(cmd *cobra.Command, args []string) error {
 			}
 		}
 		deps = filtered
+	}
+
+	// Handle registry mismatch check mode
+	if checkRegistry {
+		return runRegistryCheck(cmd, deps, format)
 	}
 
 	// Filter to lockfile deps with integrity hashes
@@ -278,4 +299,173 @@ func outputDriftText(cmd *cobra.Command, drifts []IntegrityDrift) error {
 	}
 
 	return nil
+}
+
+func runRegistryCheck(cmd *cobra.Command, deps []database.Dependency, format string) error {
+	// Filter to lockfile deps with integrity hashes
+	var lockfileDeps []database.Dependency
+	for _, d := range deps {
+		if d.ManifestKind == "lockfile" && d.Integrity != "" && d.Requirement != "" {
+			lockfileDeps = append(lockfileDeps, d)
+		}
+	}
+
+	if len(lockfileDeps) == 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependencies with integrity hashes found.")
+		return nil
+	}
+
+	// Create ecosystems client
+	client, err := ecosystems.NewClient("git-pkgs/1.0")
+	if err != nil {
+		return fmt.Errorf("creating ecosystems client: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	// Check each dependency against registry
+	var mismatches []RegistryMismatch
+	checked := 0
+	skipped := 0
+
+	// Deduplicate by name+version to avoid redundant API calls
+	type key struct{ name, version, ecosystem string }
+	seen := make(map[key]string) // key -> registry integrity
+
+	for _, d := range lockfileDeps {
+		k := key{d.Name, d.Requirement, d.Ecosystem}
+
+		var registryHash string
+		if cached, ok := seen[k]; ok {
+			registryHash = cached
+		} else {
+			registry := ecosystemToRegistry(d.Ecosystem)
+			if registry == "" {
+				skipped++
+				continue
+			}
+
+			version, err := client.GetVersion(ctx, registry, d.Name, d.Requirement)
+			if err != nil || version == nil {
+				skipped++
+				continue
+			}
+
+			if version.Integrity != nil {
+				registryHash = *version.Integrity
+			}
+			seen[k] = registryHash
+			checked++
+		}
+
+		if registryHash == "" {
+			continue
+		}
+
+		// Compare hashes (normalize by comparing just the hash part)
+		if !hashesMatch(d.Integrity, registryHash) {
+			mismatches = append(mismatches, RegistryMismatch{
+				Name:         d.Name,
+				Ecosystem:    d.Ecosystem,
+				Version:      d.Requirement,
+				LocalHash:    d.Integrity,
+				RegistryHash: registryHash,
+				ManifestPath: d.ManifestPath,
+			})
+		}
+	}
+
+	if format == "json" {
+		return outputRegistryMismatchJSON(cmd, mismatches, checked, skipped)
+	}
+	return outputRegistryMismatchText(cmd, mismatches, checked, skipped)
+}
+
+func hashesMatch(local, registry string) bool {
+	// Normalize hashes for comparison
+	// Lockfiles may use different formats:
+	// - npm: sha512-xxx or sha1-xxx
+	// - ecosyste.ms may return similar format
+
+	// If they're exactly equal, match
+	if local == registry {
+		return true
+	}
+
+	// Extract just the hash portion after the algorithm prefix
+	localHash := extractHashValue(local)
+	registryHash := extractHashValue(registry)
+
+	if localHash != "" && registryHash != "" {
+		return localHash == registryHash
+	}
+
+	return false
+}
+
+func extractHashValue(hash string) string {
+	// Handle formats like "sha512-abcdef..." or "sha256:abcdef..."
+	for _, sep := range []string{"-", ":"} {
+		if idx := strings.Index(hash, sep); idx > 0 {
+			return hash[idx+1:]
+		}
+	}
+	return hash
+}
+
+type RegistryCheckResult struct {
+	Mismatches []RegistryMismatch `json:"mismatches"`
+	Checked    int                `json:"checked"`
+	Skipped    int                `json:"skipped"`
+}
+
+func outputRegistryMismatchJSON(cmd *cobra.Command, mismatches []RegistryMismatch, checked, skipped int) error {
+	result := RegistryCheckResult{
+		Mismatches: mismatches,
+		Checked:    checked,
+		Skipped:    skipped,
+	}
+	if result.Mismatches == nil {
+		result.Mismatches = []RegistryMismatch{}
+	}
+	enc := json.NewEncoder(cmd.OutOrStdout())
+	enc.SetIndent("", "  ")
+	return enc.Encode(result)
+}
+
+func outputRegistryMismatchText(cmd *cobra.Command, mismatches []RegistryMismatch, checked, skipped int) error {
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Registry integrity check: %d packages checked", checked)
+	if skipped > 0 {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), " (%d skipped)", skipped)
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout())
+	_, _ = fmt.Fprintln(cmd.OutOrStdout())
+
+	if len(mismatches) == 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), Green("No registry mismatches detected."))
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s Found %d packages with registry mismatches:\n\n", Red("WARNING:"), len(mismatches))
+
+	for _, m := range mismatches {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s@%s (%s)\n", m.Name, m.Version, m.Ecosystem)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Manifest: %s\n", m.ManifestPath)
+
+		localHash := m.LocalHash
+		if len(localHash) > 50 {
+			localHash = localHash[:50] + "..."
+		}
+		registryHash := m.RegistryHash
+		if len(registryHash) > 50 {
+			registryHash = registryHash[:50] + "..."
+		}
+
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Local:    %s\n", Red(localHash))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Registry: %s\n", Green(registryHash))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+	}
+
+	return fmt.Errorf("registry integrity mismatches found")
 }

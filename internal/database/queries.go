@@ -8,11 +8,11 @@ import (
 )
 
 type BranchInfo struct {
-	ID              int64
-	Name            string
-	LastAnalyzedSHA string
-	LastSHA         string // Alias for LastAnalyzedSHA
-	CommitCount     int
+	ID              int64  `json:"id"`
+	Name            string `json:"name"`
+	LastAnalyzedSHA string `json:"last_analyzed_sha"`
+	LastSHA         string `json:"last_sha,omitempty"` // Alias for LastAnalyzedSHA
+	CommitCount     int    `json:"commit_count"`
 }
 
 func (db *DB) GetBranch(name string) (*BranchInfo, error) {
@@ -193,14 +193,14 @@ func (db *DB) GetMaxPosition(branchID int64) (int, error) {
 }
 
 type Dependency struct {
-	Name           string
-	Ecosystem      string
-	PURL           string
-	Requirement    string
-	DependencyType string
-	Integrity      string
-	ManifestPath   string
-	ManifestKind   string
+	Name           string `json:"name"`
+	Ecosystem      string `json:"ecosystem"`
+	PURL           string `json:"purl"`
+	Requirement    string `json:"requirement"`
+	DependencyType string `json:"dependency_type"`
+	Integrity      string `json:"integrity,omitempty"`
+	ManifestPath   string `json:"manifest_path"`
+	ManifestKind   string `json:"manifest_kind"`
 }
 
 func (db *DB) GetDependenciesAtCommit(sha string) ([]Dependency, error) {
@@ -339,23 +339,23 @@ func (db *DB) GetCommitID(sha string) (int64, error) {
 }
 
 type Change struct {
-	Name                string
-	Ecosystem           string
-	PURL                string
-	ChangeType          string
-	Requirement         string
-	PreviousRequirement string
-	DependencyType      string
-	ManifestPath        string
+	Name                string `json:"name"`
+	Ecosystem           string `json:"ecosystem"`
+	PURL                string `json:"purl"`
+	ChangeType          string `json:"change_type"`
+	Requirement         string `json:"requirement"`
+	PreviousRequirement string `json:"previous_requirement,omitempty"`
+	DependencyType      string `json:"dependency_type"`
+	ManifestPath        string `json:"manifest_path"`
 }
 
 type CommitWithChanges struct {
-	SHA         string
-	Message     string
-	AuthorName  string
-	AuthorEmail string
-	CommittedAt string
-	Changes     []Change
+	SHA         string   `json:"sha"`
+	Message     string   `json:"message"`
+	AuthorName  string   `json:"author_name"`
+	AuthorEmail string   `json:"author_email"`
+	CommittedAt string   `json:"committed_at"`
+	Changes     []Change `json:"changes"`
 }
 
 type LogOptions struct {
@@ -459,17 +459,17 @@ func (db *DB) GetCommitsWithChanges(opts LogOptions) ([]CommitWithChanges, error
 }
 
 type HistoryEntry struct {
-	SHA                 string
-	Message             string
-	AuthorName          string
-	AuthorEmail         string
-	CommittedAt         string
-	Name                string
-	Ecosystem           string
-	ChangeType          string
-	Requirement         string
-	PreviousRequirement string
-	ManifestPath        string
+	SHA                 string `json:"sha"`
+	Message             string `json:"message"`
+	AuthorName          string `json:"author_name"`
+	AuthorEmail         string `json:"author_email"`
+	CommittedAt         string `json:"committed_at"`
+	Name                string `json:"name"`
+	Ecosystem           string `json:"ecosystem"`
+	ChangeType          string `json:"change_type"`
+	Requirement         string `json:"requirement"`
+	PreviousRequirement string `json:"previous_requirement,omitempty"`
+	ManifestPath        string `json:"manifest_path"`
 }
 
 type HistoryOptions struct {
@@ -482,52 +482,52 @@ type HistoryOptions struct {
 }
 
 type BlameEntry struct {
-	Name         string
-	Ecosystem    string
-	Requirement  string
-	ManifestPath string
-	SHA          string
-	AuthorName   string
-	AuthorEmail  string
-	CommittedAt  string
+	Name         string `json:"name"`
+	Ecosystem    string `json:"ecosystem"`
+	Requirement  string `json:"requirement"`
+	ManifestPath string `json:"manifest_path"`
+	SHA          string `json:"sha"`
+	AuthorName   string `json:"author_name"`
+	AuthorEmail  string `json:"author_email"`
+	CommittedAt  string `json:"committed_at"`
 }
 
 type WhyResult struct {
-	Name         string
-	Ecosystem    string
-	ManifestPath string
-	SHA          string
-	Message      string
-	AuthorName   string
-	AuthorEmail  string
-	CommittedAt  string
+	Name         string `json:"name"`
+	Ecosystem    string `json:"ecosystem"`
+	ManifestPath string `json:"manifest_path"`
+	SHA          string `json:"sha"`
+	Message      string `json:"message"`
+	AuthorName   string `json:"author_name"`
+	AuthorEmail  string `json:"author_email"`
+	CommittedAt  string `json:"committed_at"`
 }
 
 type SearchResult struct {
-	Name        string
-	Ecosystem   string
-	Requirement string
-	FirstSeen   string
-	LastChanged string
-	AddedIn     string
-	ManifestKind string
+	Name         string `json:"name"`
+	Ecosystem    string `json:"ecosystem"`
+	Requirement  string `json:"requirement"`
+	FirstSeen    string `json:"first_seen"`
+	LastChanged  string `json:"last_changed"`
+	AddedIn      string `json:"added_in"`
+	ManifestKind string `json:"manifest_kind"`
 }
 
 type Stats struct {
-	Branch             string
-	CommitsAnalyzed    int
-	CommitsWithChanges int
-	CurrentDeps        int
-	DepsByEcosystem    map[string]int
-	TotalChanges       int
-	ChangesByType      map[string]int
-	TopChanged         []NameCount
-	TopAuthors         []NameCount
+	Branch             string         `json:"branch"`
+	CommitsAnalyzed    int            `json:"commits_analyzed"`
+	CommitsWithChanges int            `json:"commits_with_changes"`
+	CurrentDeps        int            `json:"current_deps"`
+	DepsByEcosystem    map[string]int `json:"deps_by_ecosystem"`
+	TotalChanges       int            `json:"total_changes"`
+	ChangesByType      map[string]int `json:"changes_by_type"`
+	TopChanged         []NameCount    `json:"top_changed"`
+	TopAuthors         []NameCount    `json:"top_authors"`
 }
 
 type NameCount struct {
-	Name  string
-	Count int
+	Name  string `json:"name"`
+	Count int    `json:"count"`
 }
 
 type AuthorStats struct {
@@ -547,22 +547,22 @@ type StatsOptions struct {
 }
 
 type StaleEntry struct {
-	Name         string
-	Ecosystem    string
-	Requirement  string
-	ManifestPath string
-	LastChanged  string
-	DaysSince    int
+	Name         string `json:"name"`
+	Ecosystem    string `json:"ecosystem"`
+	Requirement  string `json:"requirement"`
+	ManifestPath string `json:"manifest_path"`
+	LastChanged  string `json:"last_changed"`
+	DaysSince    int    `json:"days_since"`
 }
 
 type DatabaseInfo struct {
-	Path               string
-	SizeBytes          int64
-	SchemaVersion      int
-	BranchName         string
-	LastAnalyzedSHA    string
-	RowCounts          map[string]int
-	Ecosystems         []string
+	Path            string         `json:"path"`
+	SizeBytes       int64          `json:"size_bytes"`
+	SchemaVersion   int            `json:"schema_version"`
+	BranchName      string         `json:"branch_name"`
+	LastAnalyzedSHA string         `json:"last_analyzed_sha"`
+	RowCounts       map[string]int `json:"row_counts"`
+	Ecosystems      []string       `json:"ecosystems"`
 }
 
 func (db *DB) GetDatabaseInfo() (*DatabaseInfo, error) {
@@ -669,9 +669,10 @@ func (db *DB) GetStaleDependencies(branchID int64, ecosystem string, days int) (
 	var entries []StaleEntry
 	for rows.Next() {
 		var e StaleEntry
-		var eco, req sql.NullString
+		var eco, req, lastChanged sql.NullString
+		var daysSince sql.NullInt64
 
-		if err := rows.Scan(&e.Name, &eco, &req, &e.ManifestPath, &e.LastChanged, &e.DaysSince); err != nil {
+		if err := rows.Scan(&e.Name, &eco, &req, &e.ManifestPath, &lastChanged, &daysSince); err != nil {
 			return nil, err
 		}
 
@@ -680,6 +681,12 @@ func (db *DB) GetStaleDependencies(branchID int64, ecosystem string, days int) (
 		}
 		if req.Valid {
 			e.Requirement = req.String
+		}
+		if lastChanged.Valid {
+			e.LastChanged = lastChanged.String
+		}
+		if daysSince.Valid {
+			e.DaysSince = int(daysSince.Int64)
 		}
 
 		entries = append(entries, e)
@@ -1302,35 +1309,35 @@ func (db *DB) GetChangesForCommit(sha string) ([]Change, error) {
 
 // Vulnerability represents a stored vulnerability record.
 type Vulnerability struct {
-	ID           string
-	Aliases      []string
-	Severity     string
-	CVSSScore    float64
-	CVSSVector   string
-	References   []string
-	Summary      string
-	Details      string
-	PublishedAt  string
-	WithdrawnAt  string
-	ModifiedAt   string
-	FetchedAt    string
+	ID          string   `json:"id"`
+	Aliases     []string `json:"aliases,omitempty"`
+	Severity    string   `json:"severity"`
+	CVSSScore   float64  `json:"cvss_score"`
+	CVSSVector  string   `json:"cvss_vector,omitempty"`
+	References  []string `json:"references,omitempty"`
+	Summary     string   `json:"summary"`
+	Details     string   `json:"details,omitempty"`
+	PublishedAt string   `json:"published_at"`
+	WithdrawnAt string   `json:"withdrawn_at,omitempty"`
+	ModifiedAt  string   `json:"modified_at"`
+	FetchedAt   string   `json:"fetched_at"`
 }
 
 // VulnerabilityPackage represents a package affected by a vulnerability.
 type VulnerabilityPackage struct {
-	VulnerabilityID  string
-	Ecosystem        string
-	PackageName      string
-	AffectedVersions string // vers range string
-	FixedVersions    string // comma-separated list
+	VulnerabilityID  string `json:"vulnerability_id"`
+	Ecosystem        string `json:"ecosystem"`
+	PackageName      string `json:"package_name"`
+	AffectedVersions string `json:"affected_versions"` // vers range string
+	FixedVersions    string `json:"fixed_versions"`    // comma-separated list
 }
 
 // VulnSyncStatus tracks when vulnerabilities were last synced for a package.
 type VulnSyncStatus struct {
-	Ecosystem   string
-	PackageName string
-	SyncedAt    string
-	VulnCount   int
+	Ecosystem   string `json:"ecosystem"`
+	PackageName string `json:"package_name"`
+	SyncedAt    string `json:"synced_at"`
+	VulnCount   int    `json:"vuln_count"`
 }
 
 // GetVulnerabilitiesForPackage returns all vulnerabilities affecting a specific package.
@@ -1603,20 +1610,20 @@ func trimSpace(s string) string {
 
 // CachedPackage represents cached enrichment data for a package.
 type CachedPackage struct {
-	PURL          string
-	Ecosystem     string
-	Name          string
-	LatestVersion string
-	License       string
-	EnrichedAt    time.Time
+	PURL          string    `json:"purl"`
+	Ecosystem     string    `json:"ecosystem"`
+	Name          string    `json:"name"`
+	LatestVersion string    `json:"latest_version"`
+	License       string    `json:"license"`
+	EnrichedAt    time.Time `json:"enriched_at"`
 }
 
 // CachedVersion represents cached version data for a package.
 type CachedVersion struct {
-	PURL        string
-	PackagePURL string
-	License     string
-	PublishedAt time.Time
+	PURL        string    `json:"purl"`
+	PackagePURL string    `json:"package_purl"`
+	License     string    `json:"license"`
+	PublishedAt time.Time `json:"published_at"`
 }
 
 // GetCachedPackages returns cached package data for the given PURLs that aren't stale.

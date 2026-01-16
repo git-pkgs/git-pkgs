@@ -38,7 +38,35 @@ potential security vulnerabilities.`,
 	cmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output")
 	cmd.PersistentFlags().Bool("no-color", false, "Disable colored output")
 	cmd.PersistentFlags().BoolP("pager", "p", false, "Use pager for output")
+
+	// Add all subcommands
 	addInitCmd(cmd)
+	addUpdateCmd(cmd)
+	addUpgradeCmd(cmd)
+	addListCmd(cmd)
+	addShowCmd(cmd)
+	addDiffCmd(cmd)
+	addLogCmd(cmd)
+	addHistoryCmd(cmd)
+	addBlameCmd(cmd)
+	addWhyCmd(cmd)
+	addWhereCmd(cmd)
+	addSearchCmd(cmd)
+	addTreeCmd(cmd)
+	addStatsCmd(cmd)
+	addStaleCmd(cmd)
+	addBranchCmd(cmd)
+	addOutdatedCmd(cmd)
+	addLicensesCmd(cmd)
+	addIntegrityCmd(cmd)
+	addSBOMCmd(cmd)
+	addVulnsCmd(cmd)
+	addInfoCmd(cmd)
+	addHooksCmd(cmd)
+	addCompletionsCmd(cmd)
+	addSchemaCmd(cmd)
+	addDiffDriverCmd(cmd)
+
 	return cmd
 }
 

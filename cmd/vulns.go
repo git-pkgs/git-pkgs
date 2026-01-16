@@ -790,18 +790,36 @@ func addVulnsShowCmd(parent *cobra.Command) {
 	showCmd := &cobra.Command{
 		Use:   "show <vuln-id>",
 		Short: "Show details of a vulnerability",
-		Long:  `Display detailed information about a specific vulnerability by its ID.`,
-		Args:  cobra.ExactArgs(1),
-		RunE:  runVulnsShow,
+		Long: `Display detailed information about a specific vulnerability by its ID.
+With --ref, also shows exposure analysis for this vulnerability in the repo.`,
+		Args: cobra.ExactArgs(1),
+		RunE: runVulnsShow,
 	}
 
 	showCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
+	showCmd.Flags().StringP("ref", "r", "", "Analyze exposure at specific commit (shows repo impact)")
+	showCmd.Flags().StringP("branch", "b", "", "Branch to query for exposure analysis")
 	parent.AddCommand(showCmd)
+}
+
+type VulnShowResult struct {
+	Vulnerability *osv.Vulnerability `json:"vulnerability"`
+	Exposure      *VulnShowExposure  `json:"exposure,omitempty"`
+}
+
+type VulnShowExposure struct {
+	Affected        bool     `json:"affected"`
+	AffectedPackage string   `json:"affected_package,omitempty"`
+	CurrentVersion  string   `json:"current_version,omitempty"`
+	FixedVersion    string   `json:"fixed_version,omitempty"`
+	Commit          string   `json:"commit,omitempty"`
 }
 
 func runVulnsShow(cmd *cobra.Command, args []string) error {
 	vulnID := args[0]
 	format, _ := cmd.Flags().GetString("format")
+	ref, _ := cmd.Flags().GetString("ref")
+	branchName, _ := cmd.Flags().GetString("branch")
 
 	client := osv.NewClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -816,10 +834,23 @@ func runVulnsShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("vulnerability %q not found", vulnID)
 	}
 
+	// Check exposure if --ref is provided
+	var exposure *VulnShowExposure
+	if ref != "" {
+		exposure, err = analyzeVulnExposure(vuln, ref, branchName)
+		if err != nil {
+			return fmt.Errorf("analyzing exposure: %w", err)
+		}
+	}
+
 	if format == "json" {
+		result := VulnShowResult{
+			Vulnerability: vuln,
+			Exposure:      exposure,
+		}
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(vuln)
+		return enc.Encode(result)
 	}
 
 	// Text output
@@ -860,9 +891,125 @@ func runVulnsShow(cmd *cobra.Command, args []string) error {
 		for _, ref := range vuln.References {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s\n", ref.Type, ref.URL)
 		}
+		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+	}
+
+	// Show exposure analysis if requested
+	if exposure != nil {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Exposure Analysis:")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("-", 18))
+		if exposure.Affected {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", Red("AFFECTED"))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Package: %s @ %s\n", exposure.AffectedPackage, exposure.CurrentVersion)
+			if exposure.FixedVersion != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Fix available: %s\n", Green(exposure.FixedVersion))
+			}
+		} else {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", Green("NOT AFFECTED"))
+		}
 	}
 
 	return nil
+}
+
+func analyzeVulnExposure(vuln *osv.Vulnerability, ref, branchName string) (*VulnShowExposure, error) {
+	repo, err := git.OpenRepository(".")
+	if err != nil {
+		return nil, fmt.Errorf("not in a git repository: %w", err)
+	}
+
+	dbPath := repo.DatabasePath()
+	if !database.Exists(dbPath) {
+		return nil, fmt.Errorf("database not found. Run 'git pkgs init' first")
+	}
+
+	db, err := database.Open(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("opening database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var branch *database.BranchInfo
+	if branchName != "" {
+		branch, err = db.GetBranch(branchName)
+		if err != nil {
+			return nil, fmt.Errorf("branch %q not found: %w", branchName, err)
+		}
+	} else {
+		branch, err = db.GetDefaultBranch()
+		if err != nil {
+			return nil, fmt.Errorf("getting branch: %w", err)
+		}
+	}
+
+	// Get dependencies at the specified ref
+	deps, err := db.GetDependenciesAtRef(ref, branch.ID)
+	if err != nil {
+		return nil, fmt.Errorf("getting dependencies: %w", err)
+	}
+
+	// Check if any dependency is affected by this vulnerability
+	for _, dep := range deps {
+		if dep.ManifestKind != "lockfile" || dep.Requirement == "" {
+			continue
+		}
+
+		for _, aff := range vuln.Affected {
+			if !ecosystemMatches(dep.Ecosystem, aff.Package.Ecosystem) {
+				continue
+			}
+			if dep.Name != aff.Package.Name {
+				continue
+			}
+
+			// Check if version is affected
+			if osv.IsVersionAffected(aff, dep.Requirement) {
+				return &VulnShowExposure{
+					Affected:        true,
+					AffectedPackage: dep.Name,
+					CurrentVersion:  dep.Requirement,
+					FixedVersion:    osv.GetFixedVersion(aff),
+					Commit:          ref,
+				}, nil
+			}
+		}
+	}
+
+	return &VulnShowExposure{
+		Affected: false,
+		Commit:   ref,
+	}, nil
+}
+
+func ecosystemMatches(depEco, vulnEco string) bool {
+	depLower := strings.ToLower(depEco)
+	vulnLower := strings.ToLower(vulnEco)
+	if depLower == vulnLower {
+		return true
+	}
+	// Handle ecosystem aliases
+	aliases := map[string][]string{
+		"npm":       {"npm"},
+		"gem":       {"rubygems", "gem"},
+		"rubygems":  {"rubygems", "gem"},
+		"pypi":      {"pypi"},
+		"cargo":     {"crates.io", "cargo"},
+		"crates.io": {"crates.io", "cargo"},
+		"go":        {"go", "golang"},
+		"golang":    {"go", "golang"},
+		"maven":     {"maven"},
+		"nuget":     {"nuget"},
+		"packagist": {"packagist", "composer"},
+		"composer":  {"packagist", "composer"},
+		"hex":       {"hex"},
+		"pub":       {"pub"},
+	}
+	for _, alias := range aliases[depLower] {
+		if alias == vulnLower {
+			return true
+		}
+	}
+	return false
 }
 
 // vulns diff command

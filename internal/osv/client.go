@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/git-pkgs/vers"
 )
 
 const (
@@ -313,4 +315,51 @@ func GetFixedVersion(affected Affected) string {
 		}
 	}
 	return ""
+}
+
+// IsVersionAffected checks if a specific version is affected by the vulnerability.
+func IsVersionAffected(affected Affected, version string) bool {
+	// Check explicit versions list first
+	for _, v := range affected.Versions {
+		if v == version {
+			return true
+		}
+	}
+
+	// Check version ranges
+	for _, r := range affected.Ranges {
+		if r.Type != "SEMVER" && r.Type != "ECOSYSTEM" {
+			continue
+		}
+
+		// Process events to determine if version is in affected range
+		inRange := false
+		for _, e := range r.Events {
+			if e.Introduced != "" {
+				// "0" means all versions from the beginning
+				if e.Introduced == "0" {
+					inRange = true
+				} else if vers.Compare(version, e.Introduced) >= 0 {
+					inRange = true
+				}
+			}
+			if e.Fixed != "" && inRange {
+				// If version is >= fixed, no longer affected
+				if vers.Compare(version, e.Fixed) >= 0 {
+					inRange = false
+				}
+			}
+			if e.LastAffected != "" && inRange {
+				// If version is > lastAffected, no longer affected
+				if vers.Compare(version, e.LastAffected) > 0 {
+					inRange = false
+				}
+			}
+		}
+		if inRange {
+			return true
+		}
+	}
+
+	return false
 }
