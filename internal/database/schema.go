@@ -41,6 +41,7 @@ func (db *DB) CreateSchema() error {
 		position INTEGER
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_commits_unique ON branch_commits(branch_id, commit_id);
+	CREATE INDEX IF NOT EXISTS idx_branch_commits_position ON branch_commits(branch_id, position DESC);
 
 	CREATE TABLE IF NOT EXISTS manifests (
 		id INTEGER PRIMARY KEY,

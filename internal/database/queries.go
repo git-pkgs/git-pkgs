@@ -434,14 +434,21 @@ func (db *DB) GetCommitsWithChanges(opts LogOptions) ([]CommitWithChanges, error
 		return nil, err
 	}
 
-	// Load changes for each commit
-	for i := range commits {
-		changes, err := db.GetChangesForCommit(commits[i].SHA)
-		if err != nil {
-			return nil, err
-		}
+	// Eager load all changes in one query
+	shas := make([]string, len(commits))
+	for i, c := range commits {
+		shas[i] = c.SHA
+	}
 
-		// Filter by ecosystem if needed
+	allChanges, err := db.GetChangesForCommits(shas)
+	if err != nil {
+		return nil, err
+	}
+
+	// Assign changes to commits, filtering by ecosystem if needed
+	for i := range commits {
+		changes := allChanges[commits[i].SHA]
+
 		if opts.Ecosystem != "" {
 			var filtered []Change
 			for _, ch := range changes {
@@ -701,9 +708,17 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		ChangesByType:   make(map[string]int),
 	}
 
-	// Get branch name
+	// Get branch name and latest commit_id in one query
 	var branchName sql.NullString
-	err := db.QueryRow("SELECT name FROM branches WHERE id = ?", opts.BranchID).Scan(&branchName)
+	var latestCommitID sql.NullInt64
+	err := db.QueryRow(`
+		SELECT b.name, bc.commit_id
+		FROM branches b
+		LEFT JOIN branch_commits bc ON bc.branch_id = b.id
+		WHERE b.id = ?
+		ORDER BY bc.position DESC
+		LIMIT 1
+	`, opts.BranchID).Scan(&branchName, &latestCommitID)
 	if err != nil {
 		return nil, err
 	}
@@ -745,44 +760,38 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		return nil, err
 	}
 
-	// Current deps count
-	err = db.QueryRow(`
-		SELECT COUNT(DISTINCT ds.name || '|' || m.path)
-		FROM dependency_snapshots ds
-		JOIN manifests m ON m.id = ds.manifest_id
-		JOIN branch_commits bc ON bc.commit_id = ds.commit_id
-		WHERE bc.branch_id = ?
-		AND bc.position = (SELECT MAX(position) FROM branch_commits WHERE branch_id = ?)
-	`, opts.BranchID, opts.BranchID).Scan(&stats.CurrentDeps)
-	if err != nil {
-		return nil, err
-	}
-
-	// Deps by ecosystem
-	rows, err := db.Query(`
-		SELECT ds.ecosystem, COUNT(DISTINCT ds.name || '|' || m.path)
-		FROM dependency_snapshots ds
-		JOIN manifests m ON m.id = ds.manifest_id
-		JOIN branch_commits bc ON bc.commit_id = ds.commit_id
-		WHERE bc.branch_id = ?
-		AND bc.position = (SELECT MAX(position) FROM branch_commits WHERE branch_id = ?)
-		GROUP BY ds.ecosystem
-	`, opts.BranchID, opts.BranchID)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var eco sql.NullString
-		var count int
-		if err := rows.Scan(&eco, &count); err != nil {
-			_ = rows.Close()
+	// Current deps count and by ecosystem - use pre-computed latest commit_id
+	if latestCommitID.Valid {
+		err = db.QueryRow(`
+			SELECT COUNT(*) FROM dependency_snapshots WHERE commit_id = ?
+		`, latestCommitID.Int64).Scan(&stats.CurrentDeps)
+		if err != nil {
 			return nil, err
 		}
-		if eco.Valid && eco.String != "" {
-			stats.DepsByEcosystem[eco.String] = count
+
+		// Deps by ecosystem
+		rows, err := db.Query(`
+			SELECT ecosystem, COUNT(*)
+			FROM dependency_snapshots
+			WHERE commit_id = ?
+			GROUP BY ecosystem
+		`, latestCommitID.Int64)
+		if err != nil {
+			return nil, err
 		}
+		for rows.Next() {
+			var eco sql.NullString
+			var count int
+			if err := rows.Scan(&eco, &count); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if eco.Valid && eco.String != "" {
+				stats.DepsByEcosystem[eco.String] = count
+			}
+		}
+		_ = rows.Close()
 	}
-	_ = rows.Close()
 
 	// Total changes and changes by type
 	query = `
@@ -807,7 +816,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 	}
 	query += " GROUP BY dc.change_type"
 
-	rows, err = db.Query(query, args...)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1305,6 +1314,66 @@ func (db *DB) GetChangesForCommit(sha string) ([]Change, error) {
 	}
 
 	return changes, rows.Err()
+}
+
+// GetChangesForCommits fetches changes for multiple commits in one query (eager loading).
+func (db *DB) GetChangesForCommits(shas []string) (map[string][]Change, error) {
+	if len(shas) == 0 {
+		return make(map[string][]Change), nil
+	}
+
+	placeholders := make([]string, len(shas))
+	args := make([]any, len(shas))
+	for i, sha := range shas {
+		placeholders[i] = "?"
+		args[i] = sha
+	}
+
+	query := fmt.Sprintf(`
+		SELECT c.sha, dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, m.path
+		FROM dependency_changes dc
+		JOIN commits c ON c.id = dc.commit_id
+		JOIN manifests m ON m.id = dc.manifest_id
+		WHERE c.sha IN (%s)
+		ORDER BY c.sha, m.path, dc.name
+	`, strings.Join(placeholders, ","))
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	result := make(map[string][]Change)
+	for rows.Next() {
+		var sha string
+		var ch Change
+		var ecosystem, purl, requirement, prevReq, depType sql.NullString
+
+		if err := rows.Scan(&sha, &ch.Name, &ecosystem, &purl, &ch.ChangeType, &requirement, &prevReq, &depType, &ch.ManifestPath); err != nil {
+			return nil, err
+		}
+
+		if ecosystem.Valid {
+			ch.Ecosystem = ecosystem.String
+		}
+		if purl.Valid {
+			ch.PURL = purl.String
+		}
+		if requirement.Valid {
+			ch.Requirement = requirement.String
+		}
+		if prevReq.Valid {
+			ch.PreviousRequirement = prevReq.String
+		}
+		if depType.Valid {
+			ch.DependencyType = depType.String
+		}
+
+		result[sha] = append(result[sha], ch)
+	}
+
+	return result, rows.Err()
 }
 
 // Vulnerability represents a stored vulnerability record.
