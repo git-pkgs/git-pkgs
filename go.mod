@@ -1,9 +1,10 @@
 module github.com/git-pkgs/git-pkgs
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/ecosyste-ms/ecosystems-go v0.0.0-20260115154313-d5f3879b6ec0
+	github.com/git-pkgs/managers v0.2.0
 	github.com/git-pkgs/manifests v0.1.1
 	github.com/git-pkgs/vers v0.2.0
 	github.com/go-git/go-git/v5 v5.16.4

@@ -44,6 +44,9 @@ git pkgs diff --from=HEAD~10  # what changed recently?
 git pkgs diff --from=main --to=feature  # compare branches
 git pkgs vulns          # scan for known CVEs
 git pkgs vulns blame    # who introduced each vulnerability
+git pkgs outdated       # find packages with newer versions
+git pkgs update         # update all dependencies
+git pkgs add lodash     # add a package
 ```
 
 ## Commands
@@ -254,6 +257,31 @@ Checks package registries (via [ecosyste.ms](https://packages.ecosyste.ms/)) to 
 
 The `--at` flag enables time travel: pass a date (YYYY-MM-DD) or any git ref (tag, branch, commit SHA) to see what was outdated at that point in time. When given a git ref, it uses the commit's date.
 
+### Manage dependencies
+
+git-pkgs can run package manager commands for you, detecting the right tool from your lockfiles:
+
+```bash
+git pkgs install              # install from lockfile
+git pkgs install --frozen     # CI mode (fail if lockfile would change)
+git pkgs add lodash           # add a package
+git pkgs add rails --dev      # add as dev dependency
+git pkgs add lodash 4.17.21   # add specific version
+git pkgs remove lodash        # remove a package
+git pkgs update               # update all dependencies
+git pkgs update lodash        # update specific package
+```
+
+Supports npm, pnpm, yarn, bun, bundler, cargo, go, uv, poetry, composer, mix, pub, and cocoapods. The package manager is detected from lockfiles in the current directory.
+
+Use `-m` to override detection, `-x` to pass extra arguments to the underlying tool:
+
+```bash
+git pkgs install -m pnpm                    # force pnpm
+git pkgs install -x --legacy-peer-deps      # pass extra flags
+git pkgs add lodash -x --save-exact         # npm --save-exact
+```
+
 ### Check licenses
 
 ```bash
@@ -383,7 +411,7 @@ Like `git log` but only shows commits that changed dependencies, with the change
 After the initial analysis, the database updates automatically via git hooks installed during init. You can also update manually:
 
 ```bash
-git pkgs update
+git pkgs reindex
 ```
 
 To manage hooks separately:

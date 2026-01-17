@@ -11,46 +11,47 @@ import (
 )
 
 func init() {
-	addUpdateCmd(rootCmd)
+	addAddCmd(rootCmd)
 }
 
-const defaultUpdateTimeout = 10 * time.Minute
+const defaultAddTimeout = 5 * time.Minute
 
-func addUpdateCmd(parent *cobra.Command) {
-	updateCmd := &cobra.Command{
-		Use:   "update [package]",
-		Short: "Update dependencies",
-		Long: `Update dependencies using the detected package manager.
-If a package name is provided, only that package is updated.
-Otherwise, all dependencies are updated.
+func addAddCmd(parent *cobra.Command) {
+	addCmd := &cobra.Command{
+		Use:   "add <package> [version]",
+		Short: "Add a dependency",
+		Long: `Add a package dependency using the detected package manager.
+Detects the package manager from lockfiles in the current directory
+and runs the appropriate add command.
 
 Examples:
-  git-pkgs update              # update all dependencies
-  git-pkgs update lodash       # update specific package
-  git-pkgs update -e npm       # only update npm ecosystem
-  git-pkgs update --all        # update all (for managers that need explicit flag)`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: runUpdate,
+  git-pkgs add lodash
+  git-pkgs add lodash 4.17.21
+  git-pkgs add rails --dev
+  git-pkgs add lodash -e npm`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: runAdd,
 	}
 
-	updateCmd.Flags().StringP("manager", "m", "", "Override detected package manager (takes precedence over -e)")
-	updateCmd.Flags().StringP("ecosystem", "e", "", "Filter to specific ecosystem")
-	updateCmd.Flags().Bool("all", false, "Update all dependencies (for managers like mix that require explicit --all)")
-	updateCmd.Flags().Bool("dry-run", false, "Show what would be run without executing")
-	updateCmd.Flags().StringArrayP("extra", "x", nil, "Extra arguments to pass to package manager")
-	updateCmd.Flags().DurationP("timeout", "t", defaultUpdateTimeout, "Timeout for update operation")
-	parent.AddCommand(updateCmd)
+	addCmd.Flags().BoolP("dev", "D", false, "Add as development dependency")
+	addCmd.Flags().StringP("manager", "m", "", "Override detected package manager (takes precedence over -e)")
+	addCmd.Flags().StringP("ecosystem", "e", "", "Filter to specific ecosystem")
+	addCmd.Flags().Bool("dry-run", false, "Show what would be run without executing")
+	addCmd.Flags().StringArrayP("extra", "x", nil, "Extra arguments to pass to package manager")
+	addCmd.Flags().DurationP("timeout", "t", defaultAddTimeout, "Timeout for add operation")
+	parent.AddCommand(addCmd)
 }
 
-func runUpdate(cmd *cobra.Command, args []string) error {
-	var pkg string
-	if len(args) > 0 {
-		pkg = args[0]
+func runAdd(cmd *cobra.Command, args []string) error {
+	pkg := args[0]
+	var version string
+	if len(args) > 1 {
+		version = args[1]
 	}
 
+	dev, _ := cmd.Flags().GetBool("dev")
 	managerOverride, _ := cmd.Flags().GetString("manager")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
-	all, _ := cmd.Flags().GetBool("all")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	quiet, _ := cmd.Flags().GetBool("quiet")
 	extra, _ := cmd.Flags().GetStringArray("extra")
@@ -90,18 +91,20 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	input := managers.CommandInput{
-		Args: map[string]string{},
+		Args: map[string]string{
+			"package": pkg,
+		},
 		Flags: map[string]any{
-			"all": all,
+			"dev": dev,
 		},
 		Extra: extra,
 	}
 
-	if pkg != "" {
-		input.Args["package"] = pkg
+	if version != "" {
+		input.Args["version"] = version
 	}
 
-	builtCmds, err := BuildCommands(mgr.Name, "update", input)
+	builtCmds, err := BuildCommands(mgr.Name, "add", input)
 	if err != nil {
 		return fmt.Errorf("building command: %w", err)
 	}
@@ -122,8 +125,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	if err := RunManagerCommands(ctx, dir, mgr.Name, "update", input); err != nil {
-		return fmt.Errorf("update failed: %w", err)
+	if err := RunManagerCommands(ctx, dir, mgr.Name, "add", input); err != nil {
+		return fmt.Errorf("add failed: %w", err)
 	}
 
 	return nil

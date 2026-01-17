@@ -41,7 +41,7 @@ potential security vulnerabilities.`,
 
 	// Add all subcommands
 	addInitCmd(cmd)
-	addUpdateCmd(cmd)
+	addReindexCmd(cmd)
 	addUpgradeCmd(cmd)
 	addListCmd(cmd)
 	addShowCmd(cmd)
@@ -66,6 +66,12 @@ potential security vulnerabilities.`,
 	addCompletionsCmd(cmd)
 	addSchemaCmd(cmd)
 	addDiffDriverCmd(cmd)
+
+	// Package manager commands
+	addInstallCmd(cmd)
+	addAddCmd(cmd)
+	addRemoveCmd(cmd)
+	addUpdateCmd(cmd)
 
 	return cmd
 }
