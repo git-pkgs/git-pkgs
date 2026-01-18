@@ -37,6 +37,8 @@ github.com/git-pkgs/manifests v0.1.1 h1:yOkDoXRPFAZ8kUFkaWL5w0Havo2esMjQZGrjCj9M
 github.com/git-pkgs/manifests v0.1.1/go.mod h1:fRg+mzF2Y7YDoVM3Bno7Ln4UGS7nNQvgfAuvkDwqWCI=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e h1:HP9nixDfQIsqSBVYoGA9+FoimW8e2vSUg4cCqXLbX08=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
+github.com/git-pkgs/registries v0.2.0 h1:7bz/r7bfHWEkw5E87svvDVrwdvbkIagEuU3yJ3iYixo=
+github.com/git-pkgs/registries v0.2.0/go.mod h1:TjegMuCfMSI66jQZ/LT+kqh/yUa1n8bU4nmo4YJ0IQY=
 github.com/git-pkgs/vers v0.2.0 h1:yJUQiKe4qVN6ktDAiSdJVwV99k7l1suwkYKber2QTdc=
 github.com/git-pkgs/vers v0.2.0/go.mod h1:wn8lpnRoIg1Y1F1daZK+OZxsmGuqVXj3ov6+uRWnMAw=
 github.com/gliderlabs/ssh v0.3.8 h1:a4YXD1V7xMF9g5nTkdfnja3Sxy1PVDCj1Zg4Wb8vY6c=
