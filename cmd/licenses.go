@@ -12,6 +12,7 @@ import (
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/git"
+	"github.com/git-pkgs/spdx"
 	"github.com/spf13/cobra"
 )
 
@@ -23,8 +24,8 @@ func addLicensesCmd(parent *cobra.Command) {
 	licensesCmd := &cobra.Command{
 		Use:   "licenses",
 		Short: "Show license information for dependencies",
-		Long: `Query the ecosyste.ms API to retrieve license information
-for all dependencies in the project.`,
+		Long: `Retrieve license information for all dependencies in the project.
+Licenses are normalized to SPDX identifiers when possible.`,
 		RunE: runLicenses,
 	}
 
@@ -54,37 +55,6 @@ type LicenseInfo struct {
 	FlagReason   string   `json:"flag_reason,omitempty"`
 }
 
-var permissiveLicenses = map[string]bool{
-	"MIT":           true,
-	"MIT License":   true,
-	"Apache-2.0":    true,
-	"Apache 2.0":    true,
-	"BSD-2-Clause":  true,
-	"BSD-3-Clause":  true,
-	"ISC":           true,
-	"0BSD":          true,
-	"CC0-1.0":       true,
-	"Unlicense":     true,
-	"WTFPL":         true,
-	"Zlib":          true,
-	"PostgreSQL":    true,
-	"BlueOak-1.0.0": true,
-}
-
-var copyleftLicenses = map[string]bool{
-	"GPL-2.0":      true,
-	"GPL-3.0":      true,
-	"LGPL-2.0":     true,
-	"LGPL-2.1":     true,
-	"LGPL-3.0":     true,
-	"AGPL-3.0":     true,
-	"MPL-2.0":      true,
-	"EPL-1.0":      true,
-	"EPL-2.0":      true,
-	"CDDL-1.0":     true,
-	"GPL-2.0-only": true,
-	"GPL-3.0-only": true,
-}
 
 func runLicenses(cmd *cobra.Command, args []string) error {
 	commit, _ := cmd.Flags().GetString("commit")
@@ -190,14 +160,22 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("looking up packages: %w", err)
 	}
 
-	// Build allow/deny sets
+	// Normalize allow/deny lists to SPDX identifiers
 	allowSet := make(map[string]bool)
 	for _, l := range allowList {
-		allowSet[strings.ToLower(l)] = true
+		if normalized, err := spdx.Normalize(l); err == nil {
+			allowSet[normalized] = true
+		} else {
+			allowSet[strings.ToLower(l)] = true
+		}
 	}
 	denySet := make(map[string]bool)
 	for _, l := range denyList {
-		denySet[strings.ToLower(l)] = true
+		if normalized, err := spdx.Normalize(l); err == nil {
+			denySet[normalized] = true
+		} else {
+			denySet[strings.ToLower(l)] = true
+		}
 	}
 
 	// Build license info
@@ -229,31 +207,49 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 			}
 		} else {
 			for _, lic := range info.Licenses {
-				licLower := strings.ToLower(lic)
-
-				// Check allow list
-				if len(allowSet) > 0 && !allowSet[licLower] {
-					info.Flagged = true
-					info.FlagReason = fmt.Sprintf("license %q not in allow list", lic)
-					hasViolations = true
+				// Check allow list (compare normalized forms)
+				if len(allowSet) > 0 {
+					inAllowList := allowSet[lic]
+					if !inAllowList {
+						if normalized, err := spdx.Normalize(lic); err == nil {
+							inAllowList = allowSet[normalized]
+						}
+					}
+					if !inAllowList {
+						inAllowList = allowSet[strings.ToLower(lic)]
+					}
+					if !inAllowList {
+						info.Flagged = true
+						info.FlagReason = fmt.Sprintf("license %q not in allow list", lic)
+						hasViolations = true
+					}
 				}
 
-				// Check deny list
-				if denySet[licLower] {
+				// Check deny list (compare normalized forms)
+				inDenyList := denySet[lic]
+				if !inDenyList {
+					if normalized, err := spdx.Normalize(lic); err == nil {
+						inDenyList = denySet[normalized]
+					}
+				}
+				if !inDenyList {
+					inDenyList = denySet[strings.ToLower(lic)]
+				}
+				if inDenyList {
 					info.Flagged = true
 					info.FlagReason = fmt.Sprintf("license %q is denied", lic)
 					hasViolations = true
 				}
 
-				// Check permissive
-				if flagPermissive && !permissiveLicenses[lic] {
+				// Check permissive using spdx library
+				if flagPermissive && !spdx.IsFullyPermissive(lic) {
 					info.Flagged = true
 					info.FlagReason = fmt.Sprintf("license %q is not permissive", lic)
 					hasViolations = true
 				}
 
-				// Check copyleft
-				if flagCopyleft && copyleftLicenses[lic] {
+				// Check copyleft using spdx library
+				if flagCopyleft && spdx.HasCopyleft(lic) {
 					info.Flagged = true
 					info.FlagReason = fmt.Sprintf("license %q is copyleft", lic)
 					hasViolations = true
@@ -337,7 +333,14 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 		for purl, pkg := range packages {
 			data := &licenseData{}
 			if pkg != nil {
-				data.License = pkg.License
+				// Normalize license to SPDX identifier
+				if pkg.License != "" {
+					if normalized, err := spdx.Normalize(pkg.License); err == nil {
+						data.License = normalized
+					} else {
+						data.License = pkg.License
+					}
+				}
 			}
 			result[purl] = data
 

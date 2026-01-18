@@ -11,6 +11,7 @@ cmd/                    CLI commands (cobra)
 internal/
   analyzer/             Manifest parsing and change detection
   database/             SQLite layer (queries, schema, batch writer)
+  enrichment/           Package metadata fetching (ecosyste.ms or direct registry)
   git/                  Repository wrapper (go-git)
   indexer/              Orchestrates history walking
   osv/                  OSV API client
@@ -145,7 +146,14 @@ See [vulns.md](vulns.md) for command documentation.
 
 ## Package Enrichment
 
-The `outdated`, `licenses`, and `sbom` commands fetch metadata from [ecosyste.ms](https://packages.ecosyste.ms/) using [ecosyste-ms/ecosystems-go](https://github.com/ecosyste-ms/ecosystems-go). Data is cached in the `packages` and `versions` tables with a 24-hour TTL.
+The `outdated`, `licenses`, `sbom`, and `integrity --registry` commands fetch metadata from external sources. The `internal/enrichment` package provides a unified interface with two backends:
+
+- **ecosyste.ms** - Bulk API queries via [ecosyste-ms/ecosystems-go](https://github.com/ecosyste-ms/ecosystems-go). Efficient for public packages.
+- **registries** - Direct queries to package registries via [git-pkgs/registries](https://github.com/git-pkgs/registries). Required for private registries.
+
+By default, a hybrid approach routes requests based on PURL qualifiers: packages with a `repository_url` qualifier (indicating a private registry) go directly to that registry, while public packages go through ecosyste.ms. Set `git config pkgs.direct true` or `GIT_PKGS_DIRECT=1` to skip ecosyste.ms and query all registries directly.
+
+Data is cached in the `packages` and `versions` tables with a 24-hour TTL. The `packages` table stores provenance: `repository_url` (the registry queried) and `source` (ecosystems or registries).
 
 ## Package Management
 

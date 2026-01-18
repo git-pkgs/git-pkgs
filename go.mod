@@ -1,15 +1,17 @@
 module github.com/git-pkgs/git-pkgs
 
-go 1.25.0
+go 1.25.5
 
 require (
 	github.com/ecosyste-ms/ecosystems-go v0.0.0-20260115154313-d5f3879b6ec0
 	github.com/git-pkgs/managers v0.3.0
 	github.com/git-pkgs/manifests v0.1.1
 	github.com/git-pkgs/registries v0.2.0
+	github.com/git-pkgs/spdx v0.1.0
 	github.com/git-pkgs/vers v0.2.0
 	github.com/go-git/go-git/v5 v5.16.4
 	github.com/mattn/go-isatty v0.0.20
+	github.com/package-url/packageurl-go v0.1.3
 	github.com/spf13/cobra v1.10.2
 	modernc.org/sqlite v1.44.1
 )
@@ -26,6 +28,7 @@ require (
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
+	github.com/github/go-spdx/v2 v2.3.6 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.6.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
@@ -35,7 +38,6 @@ require (
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
-	github.com/package-url/packageurl-go v0.1.3 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
