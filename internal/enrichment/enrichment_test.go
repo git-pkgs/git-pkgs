@@ -1,7 +1,6 @@
 package enrichment
 
 import (
-	"os"
 	"testing"
 )
 
@@ -117,7 +116,7 @@ func TestExtractEcosystem(t *testing.T) {
 }
 
 func TestNewClientDefault(t *testing.T) {
-	os.Unsetenv("GIT_PKGS_DIRECT")
+	t.Setenv("GIT_PKGS_DIRECT", "")
 
 	client, err := NewClient()
 	if err != nil {
@@ -131,8 +130,7 @@ func TestNewClientDefault(t *testing.T) {
 }
 
 func TestNewClientDirect(t *testing.T) {
-	os.Setenv("GIT_PKGS_DIRECT", "1")
-	defer os.Unsetenv("GIT_PKGS_DIRECT")
+	t.Setenv("GIT_PKGS_DIRECT", "1")
 
 	client, err := NewClient()
 	if err != nil {
@@ -145,28 +143,19 @@ func TestNewClientDirect(t *testing.T) {
 }
 
 func TestDirectMode(t *testing.T) {
-	// Save and clear env
-	orig := os.Getenv("GIT_PKGS_DIRECT")
-	os.Unsetenv("GIT_PKGS_DIRECT")
-	defer func() {
-		if orig != "" {
-			os.Setenv("GIT_PKGS_DIRECT", orig)
-		} else {
-			os.Unsetenv("GIT_PKGS_DIRECT")
-		}
-	}()
+	t.Setenv("GIT_PKGS_DIRECT", "")
 
 	// Test env var takes effect
 	if directMode() {
 		t.Error("directMode() should be false with no env var set")
 	}
 
-	os.Setenv("GIT_PKGS_DIRECT", "1")
+	t.Setenv("GIT_PKGS_DIRECT", "1")
 	if !directMode() {
 		t.Error("directMode() should be true with GIT_PKGS_DIRECT=1")
 	}
 
-	os.Setenv("GIT_PKGS_DIRECT", "yes")
+	t.Setenv("GIT_PKGS_DIRECT", "yes")
 	if !directMode() {
 		t.Error("directMode() should be true with GIT_PKGS_DIRECT=yes")
 	}
