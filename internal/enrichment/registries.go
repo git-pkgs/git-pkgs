@@ -2,9 +2,11 @@ package enrichment
 
 import (
 	"context"
+	"sync"
 
 	"github.com/git-pkgs/registries"
 	_ "github.com/git-pkgs/registries/all"
+	"github.com/git-pkgs/vers"
 	"github.com/package-url/packageurl-go"
 )
 
@@ -24,7 +26,7 @@ func (c *RegistriesClient) BulkLookup(ctx context.Context, purls []string) (map[
 	// Use bulk fetch for packages
 	packages := registries.BulkFetchPackages(ctx, purls, c.client)
 
-	// For packages without LatestVersion populated, fetch it
+	// For packages without LatestVersion populated, fetch versions and compute it
 	var needLatest []string
 	for purl, pkg := range packages {
 		if pkg != nil && pkg.LatestVersion == "" {
@@ -32,9 +34,30 @@ func (c *RegistriesClient) BulkLookup(ctx context.Context, purls []string) (map[
 		}
 	}
 
-	var latestVersions map[string]*registries.Version
+	latestVersions := make(map[string]string)
 	if len(needLatest) > 0 {
-		latestVersions = registries.BulkFetchLatestVersions(ctx, needLatest, c.client)
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 10) // limit concurrency
+
+		for _, purl := range needLatest {
+			wg.Add(1)
+			go func(purl string) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				versions, err := c.GetVersions(ctx, purl)
+				if err != nil || len(versions) == 0 {
+					return
+				}
+				latest := findLatestVersion(versions)
+				mu.Lock()
+				latestVersions[purl] = latest
+				mu.Unlock()
+			}(purl)
+		}
+		wg.Wait()
 	}
 
 	result := make(map[string]*PackageInfo, len(packages))
@@ -53,16 +76,28 @@ func (c *RegistriesClient) BulkLookup(ctx context.Context, purls []string) (map[
 			Source:        "registries",
 		}
 
-		// Fill in latest version from separate fetch if needed
+		// Fill in latest version from computed value if needed
 		if info.LatestVersion == "" {
-			if v, ok := latestVersions[purl]; ok && v != nil {
-				info.LatestVersion = v.Number
-			}
+			info.LatestVersion = latestVersions[purl]
 		}
 
 		result[purl] = info
 	}
 	return result, nil
+}
+
+// findLatestVersion returns the highest version from a list using semver comparison.
+func findLatestVersion(versions []VersionInfo) string {
+	if len(versions) == 0 {
+		return ""
+	}
+	latest := versions[0].Number
+	for _, v := range versions[1:] {
+		if vers.Compare(v.Number, latest) > 0 {
+			latest = v.Number
+		}
+	}
+	return latest
 }
 
 func (c *RegistriesClient) GetVersions(ctx context.Context, purl string) ([]VersionInfo, error) {
