@@ -33,8 +33,8 @@ github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
 github.com/git-pkgs/managers v0.3.0 h1:8cID4KmVpZMFKr60IhjMAERCM7jECaBZ3EiR31qZDC4=
 github.com/git-pkgs/managers v0.3.0/go.mod h1:K6B5Z8vd6tfywKzi2JgOB1eDFevmT4F9wxk4Q3VCWXQ=
-github.com/git-pkgs/manifests v0.1.1 h1:yOkDoXRPFAZ8kUFkaWL5w0Havo2esMjQZGrjCj9M5VM=
-github.com/git-pkgs/manifests v0.1.1/go.mod h1:fRg+mzF2Y7YDoVM3Bno7Ln4UGS7nNQvgfAuvkDwqWCI=
+github.com/git-pkgs/manifests v0.1.2 h1:U9ukKZar60BL//85YhqDzXQzp91oQAL07hGOnuf9ymc=
+github.com/git-pkgs/manifests v0.1.2/go.mod h1:fRg+mzF2Y7YDoVM3Bno7Ln4UGS7nNQvgfAuvkDwqWCI=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e h1:HP9nixDfQIsqSBVYoGA9+FoimW8e2vSUg4cCqXLbX08=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
 github.com/git-pkgs/registries v0.2.0 h1:7bz/r7bfHWEkw5E87svvDVrwdvbkIagEuU3yJ3iYixo=
