@@ -100,6 +100,7 @@ func (db *DB) CreateSchema() error {
 		description TEXT,
 		homepage TEXT,
 		repository_url TEXT,
+		registry_url TEXT,
 		supplier_name TEXT,
 		supplier_type TEXT,
 		source TEXT,

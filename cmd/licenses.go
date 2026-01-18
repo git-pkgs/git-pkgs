@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ecosyste-ms/ecosystems-go"
 	"github.com/git-pkgs/git-pkgs/internal/database"
+	"github.com/git-pkgs/git-pkgs/internal/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/spf13/cobra"
 )
@@ -321,7 +321,7 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 
 	// Fetch uncached from API
 	if len(uncachedPurls) > 0 {
-		client, err := ecosystems.NewClient("git-pkgs/1.0")
+		client, err := enrichment.NewClient()
 		if err != nil {
 			return nil, err
 		}
@@ -337,22 +337,14 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 		for purl, pkg := range packages {
 			data := &licenseData{}
 			if pkg != nil {
-				if len(pkg.NormalizedLicenses) > 0 {
-					data.License = pkg.NormalizedLicenses[0]
-				} else if pkg.Licenses != nil && *pkg.Licenses != "" {
-					data.License = *pkg.Licenses
-				}
+				data.License = pkg.License
 			}
 			result[purl] = data
 
 			// Save to cache if DB available
-			if db != nil {
+			if db != nil && pkg != nil {
 				dep := purlToDep[purl]
-				latestVersion := ""
-				if pkg != nil && pkg.LatestReleaseNumber != nil {
-					latestVersion = *pkg.LatestReleaseNumber
-				}
-				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, latestVersion, data.License)
+				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, pkg.LatestVersion, pkg.License, pkg.RegistryURL, pkg.Source)
 			}
 		}
 	}

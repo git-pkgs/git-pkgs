@@ -1742,17 +1742,19 @@ func (db *DB) GetCachedPackages(purls []string, staleDuration time.Duration) (ma
 }
 
 // SavePackageEnrichment saves or updates enrichment data for a package.
-func (db *DB) SavePackageEnrichment(purl, ecosystem, name, latestVersion, license string) error {
+func (db *DB) SavePackageEnrichment(purl, ecosystem, name, latestVersion, license, registryURL, source string) error {
 	now := time.Now().Format(time.RFC3339)
 	_, err := db.Exec(`
-		INSERT INTO packages (purl, ecosystem, name, latest_version, license, enriched_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO packages (purl, ecosystem, name, latest_version, license, registry_url, source, enriched_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(purl) DO UPDATE SET
 			latest_version = excluded.latest_version,
 			license = excluded.license,
+			registry_url = excluded.registry_url,
+			source = excluded.source,
 			enriched_at = excluded.enriched_at,
 			updated_at = excluded.updated_at`,
-		purl, ecosystem, name, latestVersion, license, now, now, now)
+		purl, ecosystem, name, latestVersion, license, registryURL, source, now, now, now)
 	return err
 }
 

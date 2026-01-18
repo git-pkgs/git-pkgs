@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ecosyste-ms/ecosystems-go"
 	"github.com/git-pkgs/git-pkgs/internal/database"
+	"github.com/git-pkgs/git-pkgs/internal/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/vers"
 	"github.com/spf13/cobra"
@@ -230,6 +230,8 @@ type packageInfo struct {
 	Name          string
 	LatestVersion string
 	License       string
+	RegistryURL   string
+	Source        string
 }
 
 func getPackageData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]*packageInfo, error) {
@@ -262,7 +264,7 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 
 	// Fetch uncached from API
 	if len(uncachedPurls) > 0 {
-		client, err := ecosystems.NewClient("git-pkgs/1.0")
+		client, err := enrichment.NewClient()
 		if err != nil {
 			return nil, err
 		}
@@ -281,23 +283,19 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 			}
 
 			info := &packageInfo{
-				Ecosystem: pkg.Ecosystem,
-				Name:      pkg.Name,
-			}
-			if pkg.LatestReleaseNumber != nil {
-				info.LatestVersion = *pkg.LatestReleaseNumber
-			}
-			if len(pkg.NormalizedLicenses) > 0 {
-				info.License = pkg.NormalizedLicenses[0]
-			} else if pkg.Licenses != nil && *pkg.Licenses != "" {
-				info.License = *pkg.Licenses
+				Ecosystem:     pkg.Ecosystem,
+				Name:          pkg.Name,
+				LatestVersion: pkg.LatestVersion,
+				License:       pkg.License,
+				RegistryURL:   pkg.RegistryURL,
+				Source:        pkg.Source,
 			}
 			result[purl] = info
 
 			// Save to cache if DB available
 			if db != nil {
 				dep := purlToDep[purl]
-				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, info.LatestVersion, info.License)
+				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, info.LatestVersion, info.License, info.RegistryURL, info.Source)
 			}
 		}
 	}
@@ -330,12 +328,7 @@ func findLatestAtDateCached(db *database.DB, ecosystem, name, purl string, atTim
 	}
 
 	// Fall back to API
-	registry := ecosystemToRegistry(ecosystem)
-	if registry == "" {
-		return ""
-	}
-
-	client, err := ecosystems.NewClient("git-pkgs/1.0")
+	client, err := enrichment.NewClient()
 	if err != nil {
 		return ""
 	}
@@ -343,7 +336,7 @@ func findLatestAtDateCached(db *database.DB, ecosystem, name, purl string, atTim
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	apiVersions, err := client.GetAllVersions(ctx, registry, name)
+	apiVersions, err := client.GetVersions(ctx, purl)
 	if err != nil {
 		return ""
 	}
@@ -353,23 +346,18 @@ func findLatestAtDateCached(db *database.DB, ecosystem, name, purl string, atTim
 	var toCache []database.CachedVersion
 
 	for _, v := range apiVersions {
-		var publishedAt time.Time
-		if v.PublishedAt != nil {
-			publishedAt, _ = time.Parse(time.RFC3339, *v.PublishedAt)
-		}
-
 		// Build version PURL
 		versionPurl := purl + "@" + v.Number
 		toCache = append(toCache, database.CachedVersion{
 			PURL:        versionPurl,
 			PackagePURL: purl,
-			PublishedAt: publishedAt,
+			PublishedAt: v.PublishedAt,
 		})
 
-		if !publishedAt.IsZero() && !publishedAt.After(atTime) {
-			if latestVersion == "" || publishedAt.After(latestTime) {
+		if !v.PublishedAt.IsZero() && !v.PublishedAt.After(atTime) {
+			if latestVersion == "" || v.PublishedAt.After(latestTime) {
 				latestVersion = v.Number
-				latestTime = publishedAt
+				latestTime = v.PublishedAt
 			}
 		}
 	}
@@ -437,35 +425,6 @@ func classifyUpdate(current, latest string) string {
 	}
 
 	return ""
-}
-
-func ecosystemToRegistry(ecosystem string) string {
-	switch strings.ToLower(ecosystem) {
-	case "npm":
-		return "npmjs.org"
-	case "gem", "rubygems":
-		return "rubygems.org"
-	case "pypi":
-		return "pypi.org"
-	case "cargo":
-		return "crates.io"
-	case "go", "golang":
-		return "proxy.golang.org"
-	case "maven":
-		return "repo1.maven.org"
-	case "nuget":
-		return "nuget.org"
-	case "composer", "packagist":
-		return "packagist.org"
-	case "hex":
-		return "hex.pm"
-	case "pub":
-		return "pub.dev"
-	case "cocoapods":
-		return "cocoapods.org"
-	default:
-		return ""
-	}
 }
 
 func outputOutdatedJSON(cmd *cobra.Command, outdated []OutdatedPackage) error {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ecosyste-ms/ecosystems-go"
 	"github.com/git-pkgs/git-pkgs/internal/database"
+	"github.com/git-pkgs/git-pkgs/internal/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/spf13/cobra"
 )
@@ -315,10 +315,10 @@ func runRegistryCheck(cmd *cobra.Command, deps []database.Dependency, format str
 		return nil
 	}
 
-	// Create ecosystems client
-	client, err := ecosystems.NewClient("git-pkgs/1.0")
+	// Create enrichment client
+	client, err := enrichment.NewClient()
 	if err != nil {
-		return fmt.Errorf("creating ecosystems client: %w", err)
+		return fmt.Errorf("creating enrichment client: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -340,21 +340,21 @@ func runRegistryCheck(cmd *cobra.Command, deps []database.Dependency, format str
 		if cached, ok := seen[k]; ok {
 			registryHash = cached
 		} else {
-			registry := ecosystemToRegistry(d.Ecosystem)
-			if registry == "" {
+			// Build versioned PURL
+			purl := buildPURL(d.Ecosystem, d.Name)
+			if purl == "" {
 				skipped++
 				continue
 			}
+			purl = purl + "@" + d.Requirement
 
-			version, err := client.GetVersion(ctx, registry, d.Name, d.Requirement)
+			version, err := client.GetVersion(ctx, purl)
 			if err != nil || version == nil {
 				skipped++
 				continue
 			}
 
-			if version.Integrity != nil {
-				registryHash = *version.Integrity
-			}
+			registryHash = version.Integrity
 			seen[k] = registryHash
 			checked++
 		}

@@ -526,10 +526,21 @@ git config --add pkgs.ignoredDirs third_party
 git config --add pkgs.ignoredFiles test/fixtures/package.json
 ```
 
+**Direct registry mode** skips the ecosyste.ms API and queries package registries directly. Useful for private registries or airgapped environments:
+
+```bash
+git config pkgs.direct true        # enable globally
+git config --local pkgs.direct true  # enable for this repo only
+GIT_PKGS_DIRECT=1 git pkgs outdated  # one-off via environment
+```
+
+By default, git-pkgs uses a hybrid approach: packages with a `repository_url` qualifier in their PURL (indicating a private registry) are queried directly, while public packages go through ecosyste.ms for efficiency.
+
 **Environment variables:**
 
 - `GIT_DIR` - git directory location (standard git variable)
 - `GIT_PKGS_DB` - database path (default: `.git/pkgs.sqlite3`)
+- `GIT_PKGS_DIRECT` - set to `1` to query registries directly (skip ecosyste.ms)
 
 ## Supported ecosystems
 
