@@ -2,7 +2,8 @@ package enrichment
 
 import (
 	"context"
-	"strings"
+
+	"github.com/package-url/packageurl-go"
 )
 
 // HybridClient routes requests based on PURL qualifiers.
@@ -82,6 +83,9 @@ func (c *HybridClient) GetVersion(ctx context.Context, purl string) (*VersionInf
 
 // hasRepositoryURL checks if a PURL has a repository_url qualifier.
 func hasRepositoryURL(purl string) bool {
-	// Quick check before parsing - look for the qualifier
-	return strings.Contains(purl, "repository_url=")
+	p, err := packageurl.FromString(purl)
+	if err != nil {
+		return false
+	}
+	return p.Qualifiers.Map()["repository_url"] != ""
 }

@@ -2,10 +2,10 @@ package enrichment
 
 import (
 	"context"
-	"strings"
 
 	"github.com/git-pkgs/registries"
 	_ "github.com/git-pkgs/registries/all"
+	"github.com/package-url/packageurl-go"
 )
 
 // RegistriesClient queries package registries directly.
@@ -108,26 +108,21 @@ func (c *RegistriesClient) GetVersion(ctx context.Context, purl string) (*Versio
 
 // extractEcosystem extracts the ecosystem type from a PURL.
 func extractEcosystem(purl string) string {
-	// pkg:npm/lodash -> npm
-	purl = strings.TrimPrefix(purl, "pkg:")
-	if idx := strings.Index(purl, "/"); idx > 0 {
-		return purl[:idx]
+	p, err := packageurl.FromString(purl)
+	if err != nil {
+		return ""
 	}
-	return ""
+	return p.Type
 }
 
 // extractRegistryURL extracts the registry URL from a PURL qualifier or returns the default.
 func extractRegistryURL(purl, ecosystem string) string {
-	// Check for repository_url qualifier
-	if idx := strings.Index(purl, "repository_url="); idx > 0 {
-		url := purl[idx+len("repository_url="):]
-		// Trim any trailing qualifiers
-		if end := strings.Index(url, "&"); end > 0 {
-			url = url[:end]
-		}
+	p, err := packageurl.FromString(purl)
+	if err != nil {
+		return registries.DefaultURL(ecosystem)
+	}
+	if url := p.Qualifiers.Map()["repository_url"]; url != "" {
 		return url
 	}
-
-	// Return default registry URL
 	return registries.DefaultURL(ecosystem)
 }

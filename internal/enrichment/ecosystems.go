@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ecosyste-ms/ecosystems-go"
+	"github.com/package-url/packageurl-go"
 )
 
 // EcosystemsClient wraps the ecosyste.ms API client.
@@ -102,58 +103,29 @@ func (c *EcosystemsClient) GetVersion(ctx context.Context, purl string) (*Versio
 }
 
 // parsePURLForEcosystems extracts ecosystem and name from a PURL.
-// Returns ecosystem type (npm, gem, etc) and package name.
 func parsePURLForEcosystems(purl string) (ecosystem, name string) {
-	// pkg:npm/lodash -> npm, lodash
-	// pkg:npm/%40babel/core -> npm, @babel/core
-	purl = strings.TrimPrefix(purl, "pkg:")
-	parts := strings.SplitN(purl, "/", 2)
-	if len(parts) != 2 {
+	p, err := packageurl.FromString(purl)
+	if err != nil {
 		return "", ""
 	}
-	ecosystem = parts[0]
-	name = parts[1]
-	// Handle URL-encoded scopes
-	name = strings.ReplaceAll(name, "%40", "@")
-	// Remove version if present
-	if idx := strings.LastIndex(name, "@"); idx > 0 {
-		// Don't split on @ if it's the first char (scoped package)
-		if !strings.HasPrefix(name, "@") || strings.Count(name, "@") > 1 {
-			name = name[:idx]
-		}
-	}
-	return ecosystem, name
+	return p.Type, purlName(p)
 }
 
 // parsePURLWithVersion extracts ecosystem, name, and version from a versioned PURL.
 func parsePURLWithVersion(purl string) (ecosystem, name, version string) {
-	purl = strings.TrimPrefix(purl, "pkg:")
-	parts := strings.SplitN(purl, "/", 2)
-	if len(parts) != 2 {
+	p, err := packageurl.FromString(purl)
+	if err != nil {
 		return "", "", ""
 	}
-	ecosystem = parts[0]
-	rest := strings.ReplaceAll(parts[1], "%40", "@")
+	return p.Type, purlName(p), p.Version
+}
 
-	// Find version - last @ that's not a scope prefix
-	if strings.HasPrefix(rest, "@") {
-		// Scoped package like @babel/core@7.0.0
-		afterScope := rest[1:]
-		if idx := strings.LastIndex(afterScope, "@"); idx > 0 {
-			name = rest[:idx+1]
-			version = afterScope[idx+1:]
-		} else {
-			name = rest
-		}
-	} else {
-		if idx := strings.LastIndex(rest, "@"); idx > 0 {
-			name = rest[:idx]
-			version = rest[idx+1:]
-		} else {
-			name = rest
-		}
+// purlName returns the full package name, including namespace for scoped packages.
+func purlName(p packageurl.PackageURL) string {
+	if p.Namespace != "" {
+		return p.Namespace + "/" + p.Name
 	}
-	return ecosystem, name, version
+	return p.Name
 }
 
 // ecosystemToRegistry maps PURL ecosystem types to ecosyste.ms registry names.
