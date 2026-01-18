@@ -2,10 +2,10 @@ package enrichment
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/ecosyste-ms/ecosystems-go"
+	"github.com/git-pkgs/registries"
 	"github.com/package-url/packageurl-go"
 )
 
@@ -38,7 +38,7 @@ func (c *EcosystemsClient) BulkLookup(ctx context.Context, purls []string) (map[
 		info := &PackageInfo{
 			Ecosystem:   pkg.Ecosystem,
 			Name:        pkg.Name,
-			RegistryURL: ecosystemToDefaultRegistry(pkg.Ecosystem),
+			RegistryURL: registries.DefaultURL(pkg.Ecosystem),
 			Source:      "ecosystems",
 		}
 		if pkg.LatestReleaseNumber != nil {
@@ -55,13 +55,12 @@ func (c *EcosystemsClient) BulkLookup(ctx context.Context, purls []string) (map[
 }
 
 func (c *EcosystemsClient) GetVersions(ctx context.Context, purl string) ([]VersionInfo, error) {
-	ecosystem, name := parsePURLForEcosystems(purl)
-	registry := ecosystemToRegistry(ecosystem)
-	if registry == "" {
+	p, err := packageurl.FromString(purl)
+	if err != nil {
 		return nil, nil
 	}
 
-	versions, err := c.client.GetAllVersions(ctx, registry, name)
+	versions, err := c.client.GetAllVersionsPURL(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -78,13 +77,12 @@ func (c *EcosystemsClient) GetVersions(ctx context.Context, purl string) ([]Vers
 }
 
 func (c *EcosystemsClient) GetVersion(ctx context.Context, purl string) (*VersionInfo, error) {
-	ecosystem, name, version := parsePURLWithVersion(purl)
-	registry := ecosystemToRegistry(ecosystem)
-	if registry == "" {
+	p, err := packageurl.FromString(purl)
+	if err != nil {
 		return nil, nil
 	}
 
-	v, err := c.client.GetVersion(ctx, registry, name, version)
+	v, err := c.client.GetVersionPURL(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -102,88 +100,3 @@ func (c *EcosystemsClient) GetVersion(ctx context.Context, purl string) (*Versio
 	return info, nil
 }
 
-// parsePURLForEcosystems extracts ecosystem and name from a PURL.
-func parsePURLForEcosystems(purl string) (ecosystem, name string) {
-	p, err := packageurl.FromString(purl)
-	if err != nil {
-		return "", ""
-	}
-	return p.Type, purlName(p)
-}
-
-// parsePURLWithVersion extracts ecosystem, name, and version from a versioned PURL.
-func parsePURLWithVersion(purl string) (ecosystem, name, version string) {
-	p, err := packageurl.FromString(purl)
-	if err != nil {
-		return "", "", ""
-	}
-	return p.Type, purlName(p), p.Version
-}
-
-// purlName returns the full package name, including namespace for scoped packages.
-func purlName(p packageurl.PackageURL) string {
-	if p.Namespace != "" {
-		return p.Namespace + "/" + p.Name
-	}
-	return p.Name
-}
-
-// ecosystemToRegistry maps PURL ecosystem types to ecosyste.ms registry names.
-func ecosystemToRegistry(ecosystem string) string {
-	switch strings.ToLower(ecosystem) {
-	case "npm":
-		return "npmjs.org"
-	case "gem":
-		return "rubygems.org"
-	case "pypi":
-		return "pypi.org"
-	case "cargo":
-		return "crates.io"
-	case "golang":
-		return "proxy.golang.org"
-	case "maven":
-		return "repo1.maven.org"
-	case "nuget":
-		return "nuget.org"
-	case "composer":
-		return "packagist.org"
-	case "hex":
-		return "hex.pm"
-	case "pub":
-		return "pub.dev"
-	case "cocoapods":
-		return "cocoapods.org"
-	default:
-		return ""
-	}
-}
-
-// ecosystemToDefaultRegistry returns the default registry URL for an ecosystem.
-func ecosystemToDefaultRegistry(ecosystem string) string {
-	switch strings.ToLower(ecosystem) {
-	case "npm":
-		return "https://registry.npmjs.org"
-	case "gem":
-		return "https://rubygems.org"
-	case "pypi":
-		return "https://pypi.org"
-	case "cargo":
-		return "https://crates.io"
-	case "golang":
-		return "https://proxy.golang.org"
-	case "maven":
-		return "https://repo1.maven.org/maven2"
-	case "nuget":
-		return "https://api.nuget.org/v3"
-	case "composer":
-		return "https://packagist.org"
-	case "hex":
-		return "https://hex.pm"
-	case "pub":
-		return "https://pub.dev"
-	case "cocoapods":
-		return "https://trunk.cocoapods.org"
-	default:
-		return ""
-	}
-}
