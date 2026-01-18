@@ -4,10 +4,11 @@ go 1.25.0
 
 require (
 	github.com/ecosyste-ms/ecosystems-go v0.0.0-20260115154313-d5f3879b6ec0
-	github.com/git-pkgs/managers v0.2.0
+	github.com/git-pkgs/managers v0.3.0
 	github.com/git-pkgs/manifests v0.1.1
 	github.com/git-pkgs/vers v0.2.0
 	github.com/go-git/go-git/v5 v5.16.4
+	github.com/mattn/go-isatty v0.0.20
 	github.com/spf13/cobra v1.10.2
 	modernc.org/sqlite v1.44.1
 )
@@ -31,7 +32,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
 	github.com/package-url/packageurl-go v0.1.3 // indirect

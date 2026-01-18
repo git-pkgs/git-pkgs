@@ -272,7 +272,7 @@ git pkgs update               # update all dependencies
 git pkgs update lodash        # update specific package
 ```
 
-Supports npm, pnpm, yarn, bun, bundler, cargo, go, uv, poetry, composer, mix, pub, and cocoapods. The package manager is detected from lockfiles in the current directory.
+Supports 35 package managers including npm, pnpm, yarn, bun, deno, bundler, gem, cargo, go, pip, uv, poetry, conda, composer, mix, rebar3, pub, cocoapods, swift, nuget, maven, gradle, sbt, cabal, stack, opam, luarocks, nimble, shards, cpanm, lein, vcpkg, conan, helm, and brew. The package manager is detected from lockfiles in the current directory.
 
 Use `-m` to override detection, `-x` to pass extra arguments to the underlying tool:
 
