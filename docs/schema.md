@@ -115,7 +115,7 @@ Indexes: `(commit_id, manifest_id, name)` (unique), `name`, `ecosystem`, `purl`
 
 ### packages
 
-Caches package metadata from registries and vulnerability sync status.
+Caches package metadata from registries (ecosyste.ms) and vulnerability sync status.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -127,11 +127,10 @@ Caches package metadata from registries and vulnerability sync status.
 | license | text | SPDX license identifier |
 | description | text | Package description |
 | homepage | text | Homepage URL |
-| repository_url | text | Source code repository URL |
-| registry_url | text | Package registry URL this data was fetched from |
+| repository_url | text | Source repository URL |
 | supplier_name | text | Package supplier/maintainer name |
 | supplier_type | text | Supplier type (person, organization) |
-| source | text | Data source: "ecosystems" or "registries" |
+| source | text | Data source |
 | enriched_at | datetime | When package metadata was last fetched |
 | vulns_synced_at | datetime | When vulnerabilities were last synced from OSV |
 | created_at | datetime | |
