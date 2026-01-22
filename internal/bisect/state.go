@@ -105,7 +105,7 @@ func (m *Manager) AppendLog(entry string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	_, err = fmt.Fprintln(f, entry)
 	return err
@@ -119,7 +119,7 @@ func (m *Manager) ReadLog() ([]string, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var lines []string
 	scanner := bufio.NewScanner(f)

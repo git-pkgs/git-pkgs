@@ -101,11 +101,9 @@ func TestBisectCommand(t *testing.T) {
 			t.Fatalf("bisect start failed: %v", err)
 		}
 
-		// HEAD should have changed (checked out a middle commit)
-		midHead := getGitSHA(t, repoDir, "HEAD")
-		if midHead == originalHead {
-			// May be the same if the middle commit is HEAD, which is fine
-		}
+		// HEAD may have changed (checked out a middle commit)
+		// It could also be the same if the middle commit is HEAD
+		_ = getGitSHA(t, repoDir, "HEAD")
 
 		// Reset
 		_, _, err = runCmd(t, "bisect", "reset")

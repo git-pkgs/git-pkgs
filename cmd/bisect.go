@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -725,21 +724,4 @@ func getCommitSubject(repo *git.Repository, sha string) string {
 		msg = msg[:idx]
 	}
 	return strings.TrimSpace(msg)
-}
-
-type bisectJSONOutput struct {
-	State      *bisect.State `json:"state"`
-	Candidates int           `json:"candidates"`
-	Current    string        `json:"current"`
-}
-
-func outputBisectJSON(cmd *cobra.Command, state *bisect.State, candidateCount int) error {
-	output := bisectJSONOutput{
-		State:      state,
-		Candidates: candidateCount,
-		Current:    state.CurrentSHA,
-	}
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(output)
 }
