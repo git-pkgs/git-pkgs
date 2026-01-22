@@ -51,7 +51,7 @@ jobs:
           go build -ldflags "-s -w -X main.version=${VERSION}" -o git-pkgs-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: git-pkgs-${{ matrix.goos }}-${{ matrix.goarch }}
           path: git-pkgs-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
