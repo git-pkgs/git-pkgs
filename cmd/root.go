@@ -66,6 +66,7 @@ potential security vulnerabilities.`,
 	addCompletionsCmd(cmd)
 	addSchemaCmd(cmd)
 	addDiffDriverCmd(cmd)
+	addBisectCmd(cmd)
 
 	// Package manager commands
 	addInstallCmd(cmd)

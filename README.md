@@ -406,6 +406,46 @@ git pkgs log -n 50            # show more commits
 
 Like `git log` but only shows commits that changed dependencies, with the changes listed under each commit.
 
+### Bisect dependency changes
+
+Find when a dependency-related change was introduced using binary search, similar to `git bisect` but only considering commits that changed dependencies:
+
+```bash
+git pkgs bisect start
+git pkgs bisect bad HEAD                    # current version has the problem
+git pkgs bisect good v1.0.0                 # this version was fine
+# git-pkgs checks out a commit with dependency changes
+git pkgs bisect good                        # or bad, depending on your test
+# repeat until found
+git pkgs bisect reset                       # end session
+```
+
+Automate with a script:
+
+```bash
+git pkgs bisect start HEAD v1.0.0
+git pkgs bisect run sh -c 'capslock | grep -q NETWORK && exit 1 || exit 0'
+```
+
+This finds when dependencies gained NETWORK capabilities. Exit codes: 0 = good, 1-124 = bad, 125 = skip.
+
+Find when a GPL license was introduced:
+
+```bash
+git pkgs bisect start HEAD v1.0.0
+git pkgs bisect run sh -c 'git pkgs licenses --allow=MIT,Apache-2.0 --stateless >/dev/null 2>&1'
+```
+
+Narrow the search with filters:
+
+```bash
+git pkgs bisect start --ecosystem=npm HEAD v1.0.0      # only npm changes
+git pkgs bisect start --package=lodash HEAD v1.0.0     # only lodash changes
+git pkgs bisect start --manifest=package.json HEAD v1.0.0
+```
+
+See `docs/bisect.md` for detailed examples and use cases.
+
 ### Keep database updated
 
 After the initial analysis, the database updates automatically via git hooks installed during init. You can also update manually:

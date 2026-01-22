@@ -1828,3 +1828,119 @@ func (db *DB) SaveVersions(versions []CachedVersion) error {
 
 	return tx.Commit()
 }
+
+// BisectCandidate represents a commit that changed dependencies, for use in bisect.
+type BisectCandidate struct {
+	SHA      string `json:"sha"`
+	Message  string `json:"message"`
+	Position int    `json:"position"`
+}
+
+// BisectOptions specifies filters for finding bisect candidates.
+type BisectOptions struct {
+	BranchID     int64
+	StartSHA     string // good commit (older)
+	EndSHA       string // bad commit (newer)
+	Ecosystem    string
+	PackageName  string
+	ManifestPath string
+}
+
+// GetBisectCandidates returns commits with dependency changes between two commits.
+// The results are ordered from oldest to newest (good -> bad direction).
+func (db *DB) GetBisectCandidates(opts BisectOptions) ([]BisectCandidate, error) {
+	// First, get the positions of the start and end commits
+	var startPos, endPos int
+	err := db.QueryRow(`
+		SELECT bc.position
+		FROM commits c
+		JOIN branch_commits bc ON bc.commit_id = c.id
+		WHERE c.sha = ? AND bc.branch_id = ?
+	`, opts.StartSHA, opts.BranchID).Scan(&startPos)
+	if err != nil {
+		return nil, fmt.Errorf("finding start commit position: %w", err)
+	}
+
+	err = db.QueryRow(`
+		SELECT bc.position
+		FROM commits c
+		JOIN branch_commits bc ON bc.commit_id = c.id
+		WHERE c.sha = ? AND bc.branch_id = ?
+	`, opts.EndSHA, opts.BranchID).Scan(&endPos)
+	if err != nil {
+		return nil, fmt.Errorf("finding end commit position: %w", err)
+	}
+
+	// Build query to find commits with dependency changes between the two positions
+	query := `
+		SELECT DISTINCT c.sha, c.message, bc.position
+		FROM commits c
+		JOIN branch_commits bc ON bc.commit_id = c.id
+		JOIN dependency_changes dc ON dc.commit_id = c.id
+		JOIN manifests m ON m.id = dc.manifest_id
+		WHERE bc.branch_id = ?
+		AND bc.position > ?
+		AND bc.position <= ?
+	`
+	args := []any{opts.BranchID, startPos, endPos}
+
+	if opts.Ecosystem != "" {
+		query += " AND dc.ecosystem = ?"
+		args = append(args, opts.Ecosystem)
+	}
+	if opts.PackageName != "" {
+		query += " AND dc.name = ?"
+		args = append(args, opts.PackageName)
+	}
+	if opts.ManifestPath != "" {
+		query += " AND m.path = ?"
+		args = append(args, opts.ManifestPath)
+	}
+
+	query += " ORDER BY bc.position ASC"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var candidates []BisectCandidate
+	for rows.Next() {
+		var c BisectCandidate
+		var message sql.NullString
+		if err := rows.Scan(&c.SHA, &message, &c.Position); err != nil {
+			return nil, err
+		}
+		if message.Valid {
+			c.Message = message.String
+		}
+		candidates = append(candidates, c)
+	}
+
+	return candidates, rows.Err()
+}
+
+// GetCommitPosition returns the position of a commit in a branch.
+func (db *DB) GetCommitPosition(sha string, branchID int64) (int, error) {
+	var pos int
+	err := db.QueryRow(`
+		SELECT bc.position
+		FROM commits c
+		JOIN branch_commits bc ON bc.commit_id = c.id
+		WHERE c.sha = ? AND bc.branch_id = ?
+	`, sha, branchID).Scan(&pos)
+	return pos, err
+}
+
+// GetCommitAtPosition returns the SHA of the commit at a given position.
+func (db *DB) GetCommitAtPosition(position int, branchID int64) (string, error) {
+	var sha string
+	err := db.QueryRow(`
+		SELECT c.sha
+		FROM commits c
+		JOIN branch_commits bc ON bc.commit_id = c.id
+		WHERE bc.position = ? AND bc.branch_id = ?
+	`, position, branchID).Scan(&sha)
+	return sha, err
+}
