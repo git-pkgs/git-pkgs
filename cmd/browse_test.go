@@ -64,8 +64,8 @@ func TestBrowseManagerOverride(t *testing.T) {
 	defer cleanup()
 
 	rootCmd := cmd.NewRootCmd()
-	// Use a manager that doesn't require lockfile detection
-	rootCmd.SetArgs([]string{"browse", "lodash", "-m", "npm"})
+	// Use a manager that doesn't require lockfile detection, use --path to avoid editor
+	rootCmd.SetArgs([]string{"browse", "lodash", "-m", "npm", "--path"})
 
 	var stdout bytes.Buffer
 	rootCmd.SetOut(&stdout)
@@ -103,7 +103,7 @@ func TestBrowseEcosystemFilter(t *testing.T) {
 	defer cleanup()
 
 	rootCmd := cmd.NewRootCmd()
-	rootCmd.SetArgs([]string{"browse", "rails", "-e", "rubygems"})
+	rootCmd.SetArgs([]string{"browse", "rails", "-e", "rubygems", "--path"})
 
 	var stdout bytes.Buffer
 	rootCmd.SetOut(&stdout)
@@ -161,7 +161,7 @@ func TestBrowsePathNotSupported(t *testing.T) {
 	defer cleanup()
 
 	rootCmd := cmd.NewRootCmd()
-	rootCmd.SetArgs([]string{"browse", "junit", "-m", "maven"})
+	rootCmd.SetArgs([]string{"browse", "junit", "-m", "maven", "--path"})
 
 	var stdout bytes.Buffer
 	rootCmd.SetOut(&stdout)
@@ -174,5 +174,42 @@ func TestBrowsePathNotSupported(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "does not support the path operation") {
 		t.Errorf("expected path not supported error, got: %v", err)
+	}
+}
+
+func TestBrowseNoEditor(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "package-lock.json"), []byte("{}"), 0644); err != nil {
+		t.Fatalf("failed to write lockfile: %v", err)
+	}
+
+	// Create a fake node_modules/lodash directory so path lookup succeeds
+	lodashDir := filepath.Join(tmpDir, "node_modules", "lodash")
+	if err := os.MkdirAll(lodashDir, 0755); err != nil {
+		t.Fatalf("failed to create node_modules: %v", err)
+	}
+
+	cleanup := chdir(t, tmpDir)
+	defer cleanup()
+
+	// Unset EDITOR and VISUAL
+	t.Setenv("EDITOR", "")
+	t.Setenv("VISUAL", "")
+
+	rootCmd := cmd.NewRootCmd()
+	rootCmd.SetArgs([]string{"browse", "lodash", "-m", "yarn"}) // yarn uses template, no CLI needed
+
+	var stdout bytes.Buffer
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stdout)
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("expected error when no editor configured")
+	}
+
+	if !strings.Contains(err.Error(), "no editor configured") {
+		t.Errorf("expected 'no editor configured' error, got: %v", err)
 	}
 }

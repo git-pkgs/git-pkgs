@@ -284,19 +284,19 @@ git pkgs add lodash -x --save-exact         # npm --save-exact
 
 ### Browse package source
 
-Get the filesystem path to an installed package's source code:
+Open the source code of an installed package in your editor:
 
 ```bash
-git pkgs browse lodash           # print path to installed package
+git pkgs browse lodash           # open in $EDITOR
+git pkgs browse lodash --path    # just print the path
 git pkgs browse lodash --open    # open in file browser
 git pkgs browse serde -m cargo   # specify manager
-git pkgs browse rails -e rubygems  # filter by ecosystem
 ```
 
-Useful for inspecting source code of dependencies, opening in your editor, or scripting:
+Use `--path` for scripting:
 
 ```bash
-code $(git pkgs browse lodash)   # open in VS Code
+cat $(git pkgs browse lodash --path)/package.json
 ```
 
 Returns exit code 2 if the package manager doesn't support path lookup.

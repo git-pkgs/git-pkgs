@@ -35,14 +35,15 @@ const defaultBrowseTimeout = 30 * time.Second
 func addBrowseCmd(parent *cobra.Command) {
 	browseCmd := &cobra.Command{
 		Use:   "browse <package>",
-		Short: "Get path to installed package source",
-		Long: `Get the filesystem path to an installed package's source code.
+		Short: "Open installed package source in editor",
+		Long: `Open the source code of an installed package in your editor.
 
-Detects the package manager from lockfiles in the current directory
-and returns the path where the package is installed locally.
+Detects the package manager from lockfiles in the current directory,
+finds where the package is installed, and opens it in $EDITOR.
 
 Examples:
-  git-pkgs browse lodash           # print path to lodash
+  git-pkgs browse lodash           # open in $EDITOR
+  git-pkgs browse lodash --path    # just print the path
   git-pkgs browse lodash --open    # open in file browser
   git-pkgs browse lodash -e npm    # specify ecosystem
   git-pkgs browse serde -m cargo   # specify manager`,
@@ -52,7 +53,8 @@ Examples:
 
 	browseCmd.Flags().StringP("manager", "m", "", "Override detected package manager")
 	browseCmd.Flags().StringP("ecosystem", "e", "", "Filter to specific ecosystem")
-	browseCmd.Flags().Bool("open", false, "Open path in file browser")
+	browseCmd.Flags().Bool("path", false, "Print path instead of opening editor")
+	browseCmd.Flags().Bool("open", false, "Open in file browser instead of editor")
 	browseCmd.Flags().DurationP("timeout", "t", defaultBrowseTimeout, "Timeout for path lookup")
 	parent.AddCommand(browseCmd)
 }
@@ -61,7 +63,8 @@ func runBrowse(cmd *cobra.Command, args []string) error {
 	pkg := args[0]
 	managerOverride, _ := cmd.Flags().GetString("manager")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
-	openPath, _ := cmd.Flags().GetBool("open")
+	printPath, _ := cmd.Flags().GetBool("path")
+	openInBrowser, _ := cmd.Flags().GetBool("open")
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 
 	dir, err := getWorkingDir()
@@ -123,15 +126,16 @@ func runBrowse(cmd *cobra.Command, args []string) error {
 		path = filepath.Join(dir, path)
 	}
 
-	if openPath {
-		if err := openInFileBrowser(path); err != nil {
-			return fmt.Errorf("opening path: %w", err)
-		}
+	if printPath {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), path)
 		return nil
 	}
 
-	fmt.Fprintln(cmd.OutOrStdout(), path)
-	return nil
+	if openInBrowser {
+		return openInFileBrowser(path)
+	}
+
+	return openInEditor(path)
 }
 
 func createManager(dir, managerName string) (managers.Manager, error) {
@@ -151,6 +155,22 @@ func createManager(dir, managerName string) (managers.Manager, error) {
 	}
 
 	return detector.Detect(dir, managers.DetectOptions{Manager: managerName})
+}
+
+func openInEditor(path string) error {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = os.Getenv("VISUAL")
+	}
+	if editor == "" {
+		return fmt.Errorf("no editor configured. Set $EDITOR or use --path to print the path")
+	}
+
+	cmd := exec.Command(editor, path)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func openInFileBrowser(path string) error {
