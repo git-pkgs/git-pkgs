@@ -72,6 +72,7 @@ potential security vulnerabilities.`,
 	addAddCmd(cmd)
 	addRemoveCmd(cmd)
 	addUpdateCmd(cmd)
+	addBrowseCmd(cmd)
 
 	return cmd
 }

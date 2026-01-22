@@ -31,8 +31,8 @@ github.com/elazarl/goproxy v1.7.2 h1:Y2o6urb7Eule09PjlhQRGNsqRfPmYI3KKQLFpCAV3+o
 github.com/elazarl/goproxy v1.7.2/go.mod h1:82vkLNir0ALaW14Rc399OTTjyNREgmdL2cVoIbS6XaE=
 github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc=
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
-github.com/git-pkgs/managers v0.3.0 h1:8cID4KmVpZMFKr60IhjMAERCM7jECaBZ3EiR31qZDC4=
-github.com/git-pkgs/managers v0.3.0/go.mod h1:K6B5Z8vd6tfywKzi2JgOB1eDFevmT4F9wxk4Q3VCWXQ=
+github.com/git-pkgs/managers v0.4.0 h1:ydsy8Hq4UpHYrrr33swkfJiR+0HFsFOdlOktsrsaAbY=
+github.com/git-pkgs/managers v0.4.0/go.mod h1:K6B5Z8vd6tfywKzi2JgOB1eDFevmT4F9wxk4Q3VCWXQ=
 github.com/git-pkgs/manifests v0.1.4 h1:65M5OQ57QagEaP+EP7f6jzkGxg+qPjquhJ1w2QK/3AU=
 github.com/git-pkgs/manifests v0.1.4/go.mod h1:1jeaFvqU/idbu9/QQFFh+s0/lEsMGMRvC6G6pX7S7Dw=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e h1:HP9nixDfQIsqSBVYoGA9+FoimW8e2vSUg4cCqXLbX08=
