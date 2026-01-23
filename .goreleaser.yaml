@@ -5,6 +5,7 @@ project_name: git-pkgs
 before:
   hooks:
     - go mod tidy
+    - go run scripts/generate-man.go
 
 builds:
   - main: .
@@ -31,6 +32,7 @@ archives:
     files:
       - LICENSE*
       - README*
+      - man/*
 
 checksum:
   name_template: "checksums.txt"
