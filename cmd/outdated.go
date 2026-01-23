@@ -136,15 +136,12 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Build PURLs for lookup
+	// Build PURLs for lookup (without version for cache key)
 	purls := make([]string, 0, len(lockfileDeps))
 	purlToDep := make(map[string]database.Dependency)
 	for _, d := range lockfileDeps {
-		purlStr := d.PURL
-		if purlStr == "" {
-			// Build PURL from ecosystem and name
-			purlStr = purl.MakePURLString(d.Ecosystem, d.Name, "")
-		}
+		// Build PURL without version for cache lookup
+		purlStr := purl.MakePURLString(d.Ecosystem, d.Name, "")
 		if purlStr != "" {
 			purls = append(purls, purlStr)
 			purlToDep[purlStr] = d
@@ -245,6 +242,7 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 		if err != nil {
 			return nil, err
 		}
+
 		for purl, cp := range cached {
 			result[purl] = &packageInfo{
 				Ecosystem:     cp.Ecosystem,
@@ -278,6 +276,7 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 			return nil, err
 		}
 
+		var toSave []database.PackageEnrichmentData
 		for purl, pkg := range packages {
 			if pkg == nil {
 				continue
@@ -293,11 +292,24 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 			}
 			result[purl] = info
 
-			// Save to cache if DB available
+			// Collect for batch save
 			if db != nil {
 				dep := purlToDep[purl]
-				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, info.LatestVersion, info.License, info.RegistryURL, info.Source)
+				toSave = append(toSave, database.PackageEnrichmentData{
+					PURL:          purl,
+					Ecosystem:     dep.Ecosystem,
+					Name:          dep.Name,
+					LatestVersion: info.LatestVersion,
+					License:       info.License,
+					RegistryURL:   info.RegistryURL,
+					Source:        info.Source,
+				})
 			}
+		}
+
+		// Batch save to cache
+		if db != nil && len(toSave) > 0 {
+			_ = db.SavePackageEnrichmentBatch(toSave)
 		}
 	}
 

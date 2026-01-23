@@ -593,7 +593,7 @@ func (db *DB) GetDatabaseInfo() (*DatabaseInfo, error) {
 	}
 
 	// Row counts for main tables
-	tables := []string{"branches", "commits", "branch_commits", "manifests", "dependency_changes", "dependency_snapshots"}
+	tables := []string{"branches", "commits", "branch_commits", "manifests", "dependency_changes", "dependency_snapshots", "packages", "versions"}
 	for _, table := range tables {
 		var count int
 		err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
@@ -1706,43 +1706,59 @@ func (db *DB) GetCachedPackages(purls []string, staleDuration time.Duration) (ma
 	}
 
 	staleThreshold := time.Now().Add(-staleDuration)
-
-	placeholders := make([]string, len(purls))
-	args := make([]interface{}, len(purls)+1)
-	args[0] = staleThreshold.Format(time.RFC3339)
-	for i, purl := range purls {
-		placeholders[i] = "?"
-		args[i+1] = purl
-	}
-
-	query := `SELECT purl, ecosystem, name, latest_version, license, enriched_at
-		FROM packages
-		WHERE enriched_at >= ? AND purl IN (` + strings.Join(placeholders, ",") + `)`
-
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
 	result := make(map[string]*CachedPackage)
-	for rows.Next() {
-		var cp CachedPackage
-		var latestVersion, license sql.NullString
-		var enrichedAt string
-		if err := rows.Scan(&cp.PURL, &cp.Ecosystem, &cp.Name, &latestVersion, &license, &enrichedAt); err != nil {
+
+	// Process in batches to avoid SQLite parameter limits
+	const batchSize = 500
+	for i := 0; i < len(purls); i += batchSize {
+		end := i + batchSize
+		if end > len(purls) {
+			end = len(purls)
+		}
+		batch := purls[i:end]
+
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch)+1)
+		args[0] = staleThreshold.Format(time.RFC3339)
+		for j, purl := range batch {
+			placeholders[j] = "?"
+			args[j+1] = purl
+		}
+
+		query := `SELECT purl, ecosystem, name, latest_version, license, enriched_at
+			FROM packages
+			WHERE enriched_at >= ? AND purl IN (` + strings.Join(placeholders, ",") + `)`
+
+		rows, err := db.Query(query, args...)
+		if err != nil {
 			return nil, err
 		}
-		if latestVersion.Valid {
-			cp.LatestVersion = latestVersion.String
+
+		for rows.Next() {
+			var cp CachedPackage
+			var latestVersion, license sql.NullString
+			var enrichedAt string
+			if err := rows.Scan(&cp.PURL, &cp.Ecosystem, &cp.Name, &latestVersion, &license, &enrichedAt); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if latestVersion.Valid {
+				cp.LatestVersion = latestVersion.String
+			}
+			if license.Valid {
+				cp.License = license.String
+			}
+			cp.EnrichedAt, _ = time.Parse(time.RFC3339, enrichedAt)
+			result[cp.PURL] = &cp
 		}
-		if license.Valid {
-			cp.License = license.String
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
 		}
-		cp.EnrichedAt, _ = time.Parse(time.RFC3339, enrichedAt)
-		result[cp.PURL] = &cp
+		_ = rows.Close()
 	}
-	return result, rows.Err()
+
+	return result, nil
 }
 
 // SavePackageEnrichment saves or updates enrichment data for a package.
@@ -1760,6 +1776,57 @@ func (db *DB) SavePackageEnrichment(purl, ecosystem, name, latestVersion, licens
 			updated_at = excluded.updated_at`,
 		purl, ecosystem, name, latestVersion, license, registryURL, source, now, now, now)
 	return err
+}
+
+// PackageEnrichmentData holds data for batch saving.
+type PackageEnrichmentData struct {
+	PURL          string
+	Ecosystem     string
+	Name          string
+	LatestVersion string
+	License       string
+	RegistryURL   string
+	Source        string
+}
+
+// SavePackageEnrichmentBatch saves multiple packages in a single transaction.
+func (db *DB) SavePackageEnrichmentBatch(packages []PackageEnrichmentData) error {
+	if len(packages) == 0 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	stmt, err := tx.Prepare(`
+		INSERT INTO packages (purl, ecosystem, name, latest_version, license, registry_url, source, enriched_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(purl) DO UPDATE SET
+			latest_version = excluded.latest_version,
+			license = excluded.license,
+			registry_url = excluded.registry_url,
+			source = excluded.source,
+			enriched_at = excluded.enriched_at,
+			updated_at = excluded.updated_at`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	for _, p := range packages {
+		_, err = stmt.Exec(p.PURL, p.Ecosystem, p.Name, p.LatestVersion, p.License, p.RegistryURL, p.Source, now, now, now)
+		if err != nil {
+			_ = stmt.Close()
+			_ = tx.Rollback()
+			return err
+		}
+	}
+
+	_ = stmt.Close()
+	return tx.Commit()
 }
 
 // GetCachedVersions returns cached version data for a package that isn't stale.
