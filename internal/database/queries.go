@@ -1120,6 +1120,8 @@ func (db *DB) GetWhy(branchID int64, packageName, ecosystem string) (*WhyResult,
 
 func (db *DB) GetBlame(branchID int64, ecosystem string) ([]BlameEntry, error) {
 	// For each current dependency, find the commit that added it
+	// Uses correlated subquery instead of JOIN for branch_commits lookup
+	// to force SQLite to use the (branch_id, position) index properly
 	query := `
 		WITH current_deps AS (
 			SELECT DISTINCT ds.name, ds.ecosystem, ds.requirement, m.path as manifest_path
@@ -1147,8 +1149,10 @@ func (db *DB) GetBlame(branchID int64, ecosystem string) ([]BlameEntry, error) {
 		       c.sha, c.author_name, c.author_email, c.committed_at
 		FROM current_deps cd
 		JOIN first_added fa ON fa.name = cd.name AND fa.manifest_path = cd.manifest_path
-		JOIN branch_commits bc ON bc.branch_id = ? AND bc.position = fa.first_pos
-		JOIN commits c ON c.id = bc.commit_id
+		JOIN commits c ON c.id = (
+			SELECT bc.commit_id FROM branch_commits bc
+			WHERE bc.branch_id = ? AND bc.position = fa.first_pos
+		)
 	`
 	args := []any{branchID, branchID, branchID, branchID}
 
