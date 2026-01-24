@@ -22,9 +22,9 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X github.com/git-pkgs/git-pkgs/cmd.version={{.Version}}
+      - -X github.com/git-pkgs/git-pkgs/cmd.commit={{.Commit}}
+      - -X github.com/git-pkgs/git-pkgs/cmd.date={{.Date}}
 
 archives:
   - format: tar.gz

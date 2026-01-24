@@ -4,8 +4,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var version = "unknown"
+var commit = "unknown"
+var date = "unknown"
+
 var rootCmd = &cobra.Command{
-	Use:   "git-pkgs",
+	Use: "git-pkgs",
+	Version: version +
+		"\n          commit " + commit +
+		"\n            date " + date,
 	Short: "Track package dependencies across git history",
 	Long: `git-pkgs indexes package dependencies from manifest files across your git history,
 enabling you to query what packages were used, when they changed, and identify

@@ -48,7 +48,7 @@ jobs:
           if [ "${{ matrix.goos }}" = "windows" ]; then
             EXT=".exe"
           fi
-          go build -ldflags "-s -w -X main.version=${VERSION}" -o git-pkgs-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} .
+          go build -ldflags "-s -w -X github.com/git-pkgs/git-pkgs/cmd.version=${VERSION}" -o git-pkgs-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
