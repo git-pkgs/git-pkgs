@@ -14,7 +14,7 @@ const hookScript = `#!/bin/sh
 # git-pkgs post-commit/post-merge hook
 # Updates the dependency database after commits/merges
 
-git pkgs update --quiet 2>/dev/null || true
+git pkgs reindex --quiet 2>/dev/null || true
 `
 
 var hookNames = []string{"post-commit", "post-merge"}
@@ -87,7 +87,7 @@ func doInstallHooks(cmd *cobra.Command, hooksDir string) error {
 				return fmt.Errorf("opening %s hook: %w", hookName, openErr)
 			}
 
-			_, writeErr := f.WriteString("\n# git-pkgs hook\ngit pkgs update --quiet 2>/dev/null || true\n")
+			_, writeErr := f.WriteString("\n# git-pkgs hook\ngit pkgs reindex --quiet 2>/dev/null || true\n")
 			_ = f.Close()
 			if writeErr != nil {
 				return fmt.Errorf("appending to %s hook: %w", hookName, writeErr)
@@ -145,7 +145,7 @@ func doUninstallHooks(cmd *cobra.Command, hooksDir string) error {
 					skipNext = true
 					continue
 				}
-				if strings.Contains(line, "git pkgs update") {
+				if strings.Contains(line, "git pkgs reindex") {
 					continue
 				}
 				newLines = append(newLines, line)
@@ -219,7 +219,7 @@ func installHooks(repo *git.Repository) error {
 			if openErr != nil {
 				return openErr
 			}
-			_, writeErr := f.WriteString("\n# git-pkgs hook\ngit pkgs update --quiet 2>/dev/null || true\n")
+			_, writeErr := f.WriteString("\n# git-pkgs hook\ngit pkgs reindex --quiet 2>/dev/null || true\n")
 			_ = f.Close()
 			if writeErr != nil {
 				return writeErr
