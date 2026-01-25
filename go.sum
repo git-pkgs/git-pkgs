@@ -40,6 +40,8 @@ github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e h1:HP9nixDf
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
 github.com/git-pkgs/purl v0.1.1 h1:qArU393mHvk/Swf38XTH6j1wMhvga9PDXrVSUNuPUWI=
 github.com/git-pkgs/purl v0.1.1/go.mod h1:t0rkEc3HYAemHnpXKelDGCKx4vP+OUxpRyetWJyBDhw=
+github.com/git-pkgs/purl v0.1.2 h1:c6u2iN03Jcul4rZD3+IbwAlzIQXXf+i5594lf1xiGa8=
+github.com/git-pkgs/purl v0.1.2/go.mod h1:xTppS50WiiJPGA5DsYwf79CStBhcvznICzdFuRT3sV8=
 github.com/git-pkgs/registries v0.2.2 h1:r6FBAi06w1jg0ub5PQe+dYmb3CGm/0QaK1ut+s5SXIE=
 github.com/git-pkgs/registries v0.2.2/go.mod h1:929ZIS5RSvAZ96CUF+9AGqglVcH5Anb+HlmbY6AuNN0=
 github.com/git-pkgs/spdx v0.1.0 h1:kBcB2iIc3A8qSAU/MtqywKslEo+FRct2daFLX+pwZdU=
