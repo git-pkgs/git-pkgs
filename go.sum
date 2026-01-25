@@ -40,6 +40,8 @@ github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e h1:HP9nixDf
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
 github.com/git-pkgs/purl v0.1.1 h1:qArU393mHvk/Swf38XTH6j1wMhvga9PDXrVSUNuPUWI=
 github.com/git-pkgs/purl v0.1.1/go.mod h1:t0rkEc3HYAemHnpXKelDGCKx4vP+OUxpRyetWJyBDhw=
+github.com/git-pkgs/purl v0.1.2 h1:c6u2iN03Jcul4rZD3+IbwAlzIQXXf+i5594lf1xiGa8=
+github.com/git-pkgs/purl v0.1.2/go.mod h1:xTppS50WiiJPGA5DsYwf79CStBhcvznICzdFuRT3sV8=
 github.com/git-pkgs/registries v0.2.2 h1:r6FBAi06w1jg0ub5PQe+dYmb3CGm/0QaK1ut+s5SXIE=
 github.com/git-pkgs/registries v0.2.2/go.mod h1:929ZIS5RSvAZ96CUF+9AGqglVcH5Anb+HlmbY6AuNN0=
 github.com/git-pkgs/spdx v0.1.0 h1:kBcB2iIc3A8qSAU/MtqywKslEo+FRct2daFLX+pwZdU=
@@ -179,6 +181,8 @@ modernc.org/goabi0 v0.2.0 h1:HvEowk7LxcPd0eq6mVOAEMai46V+i7Jrj13t4AzuNks=
 modernc.org/goabi0 v0.2.0/go.mod h1:CEFRnnJhKvWT1c1JTI3Avm+tgOWbkOu5oPA8eH8LnMI=
 modernc.org/libc v1.67.6 h1:eVOQvpModVLKOdT+LvBPjdQqfrZq+pC39BygcT+E7OI=
 modernc.org/libc v1.67.6/go.mod h1:JAhxUVlolfYDErnwiqaLvUqc8nfb2r6S6slAgZOnaiE=
+modernc.org/libc v1.67.7 h1:H+gYQw2PyidyxwxQsGTwQw6+6H+xUk+plvOKW7+d3TI=
+modernc.org/libc v1.67.7/go.mod h1:UjCSJFl2sYbJbReVQeVpq/MgzlbmDM4cRHIYFelnaDk=
 modernc.org/mathutil v1.7.1 h1:GCZVGXdaN8gTqB1Mf/usp1Y/hSqgI2vAGGP4jZMCxOU=
 modernc.org/mathutil v1.7.1/go.mod h1:4p5IwJITfppl0G4sUEDtCr4DthTaT47/N3aT6MhfgJg=
 modernc.org/memory v1.11.0 h1:o4QC8aMQzmcwCK3t3Ux/ZHmwFPzE6hf2Y5LbkRs+hbI=

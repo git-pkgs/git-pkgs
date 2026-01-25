@@ -172,6 +172,109 @@ func TestOpen(t *testing.T) {
 	})
 }
 
+func TestMultipleVersionsSamePackage(t *testing.T) {
+	// Regression test for https://github.com/git-pkgs/git-pkgs/issues/37
+	// A package can appear multiple times with different versions (e.g., isexe@2.0.0 and isexe@3.1.1)
+	// Both should be stored in the database
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "pkgs.sqlite3")
+
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	writer, err := database.NewWriter(db)
+	if err != nil {
+		t.Fatalf("failed to create writer: %v", err)
+	}
+	defer func() { _ = writer.Close() }()
+
+	if err := writer.CreateBranch("main"); err != nil {
+		t.Fatalf("failed to create branch: %v", err)
+	}
+
+	commitID, _, err := writer.InsertCommit(database.CommitInfo{
+		SHA:     "abc123",
+		Message: "test commit",
+	}, true)
+	if err != nil {
+		t.Fatalf("failed to insert commit: %v", err)
+	}
+
+	manifest := database.ManifestInfo{
+		Path:      "package-lock.json",
+		Ecosystem: "npm",
+		Kind:      "lockfile",
+	}
+
+	// Insert isexe@2.0.0 (runtime)
+	err = writer.InsertSnapshot(commitID, manifest, database.SnapshotInfo{
+		ManifestPath:   "package-lock.json",
+		Name:           "isexe",
+		Ecosystem:      "npm",
+		Requirement:    "2.0.0",
+		DependencyType: "runtime",
+	})
+	if err != nil {
+		t.Fatalf("failed to insert isexe@2.0.0: %v", err)
+	}
+
+	// Insert isexe@3.1.1 (development) - same package name, different version
+	err = writer.InsertSnapshot(commitID, manifest, database.SnapshotInfo{
+		ManifestPath:   "package-lock.json",
+		Name:           "isexe",
+		Ecosystem:      "npm",
+		Requirement:    "3.1.1",
+		DependencyType: "development",
+	})
+	if err != nil {
+		t.Fatalf("failed to insert isexe@3.1.1: %v", err)
+	}
+
+	// Verify both versions are stored
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM dependency_snapshots WHERE name = 'isexe'").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to count: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 isexe entries, got %d", count)
+	}
+
+	// Verify we can retrieve both with correct dependency types
+	rows, err := db.Query("SELECT requirement, dependency_type FROM dependency_snapshots WHERE name = 'isexe' ORDER BY requirement")
+	if err != nil {
+		t.Fatalf("failed to query: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type entry struct {
+		requirement string
+		depType     string
+	}
+	var entries []entry
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.requirement, &e.depType); err != nil {
+			t.Fatalf("failed to scan: %v", err)
+		}
+		entries = append(entries, e)
+	}
+
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+
+	if entries[0].requirement != "2.0.0" || entries[0].depType != "runtime" {
+		t.Errorf("first entry: got %s/%s, want 2.0.0/runtime", entries[0].requirement, entries[0].depType)
+	}
+	if entries[1].requirement != "3.1.1" || entries[1].depType != "development" {
+		t.Errorf("second entry: got %s/%s, want 3.1.1/development", entries[1].requirement, entries[1].depType)
+	}
+}
+
 func TestSchemaIndexes(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "pkgs.sqlite3")

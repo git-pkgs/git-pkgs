@@ -351,3 +351,66 @@ func TestDependenciesAtCommit(t *testing.T) {
 		t.Errorf("expected 1 npm dependency, got %d", ecosystems["npm"])
 	}
 }
+
+func TestMultipleVersionsSamePackage(t *testing.T) {
+	// Regression test for https://github.com/git-pkgs/git-pkgs/issues/37
+	// npm can have multiple versions of the same package (e.g., isexe@2.0.0 runtime, isexe@3.1.1 dev)
+	// Uses real-world fixture from github.com/ericcornelissen/shescape
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	// Use actual shescape package-lock.json fixture
+	packageLock, err := os.ReadFile("testdata/shescape-package-lock.json")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	addFile(t, repoDir, "package-lock.json", string(packageLock))
+	sha := commit(t, repoDir, "Add package-lock.json with multiple isexe versions")
+
+	repo := openRepo(t, repoDir)
+	hash := getCommit(t, repo, sha)
+	c, _ := repo.CommitObject(*hash)
+
+	a := analyzer.New()
+	result, err := a.AnalyzeCommit(c, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Count isexe entries in the snapshot
+	isexeCount := 0
+	var isexeVersions []string
+	for key, entry := range result.Snapshot {
+		if key.Name == "isexe" {
+			isexeCount++
+			isexeVersions = append(isexeVersions, entry.Requirement)
+		}
+	}
+
+	if isexeCount != 2 {
+		t.Errorf("expected 2 isexe entries in snapshot, got %d (versions: %v)", isexeCount, isexeVersions)
+	}
+
+	// Verify both versions are present
+	hasV2 := false
+	hasV3 := false
+	for key, entry := range result.Snapshot {
+		if key.Name == "isexe" {
+			if entry.Requirement == "2.0.0" {
+				hasV2 = true
+			}
+			if entry.Requirement == "3.1.1" {
+				hasV3 = true
+			}
+		}
+	}
+
+	if !hasV2 {
+		t.Error("expected isexe@2.0.0 in snapshot")
+	}
+	if !hasV3 {
+		t.Error("expected isexe@3.1.1 in snapshot")
+	}
+}

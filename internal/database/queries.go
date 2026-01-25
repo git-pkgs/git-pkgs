@@ -170,7 +170,7 @@ func (db *DB) GetLastSnapshot(branchID int64) (map[string]SnapshotInfo, error) {
 			info.Integrity = integrity.String
 		}
 
-		key := path + ":" + name
+		key := path + ":" + name + ":" + info.Requirement
 		result[key] = info
 	}
 

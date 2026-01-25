@@ -37,6 +37,7 @@ type SnapshotEntry struct {
 type SnapshotKey struct {
 	ManifestPath string
 	Name         string
+	Requirement  string
 }
 
 type Snapshot map[SnapshotKey]SnapshotEntry
@@ -244,7 +245,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			}
 			result.Changes = append(result.Changes, change)
 
-			key := SnapshotKey{ManifestPath: path, Name: dep.Name}
+			key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
 			result.Snapshot[key] = SnapshotEntry{
 				Ecosystem:      deps.Ecosystem,
 				Kind:           string(deps.Kind),
@@ -266,27 +267,44 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			continue
 		}
 
-		beforeMap := make(map[string]manifests.Dependency)
+		// Build maps by name for change detection (modified = version changed)
+		// But also track all name+version pairs for snapshot storage
+		beforeByName := make(map[string]manifests.Dependency)
+		beforeByNameVersion := make(map[string]bool)
 		if beforeDeps != nil {
 			for _, dep := range beforeDeps.Dependencies {
-				beforeMap[dep.Name] = dep
+				beforeByName[dep.Name] = dep
+				beforeByNameVersion[dep.Name+"\x00"+dep.Version] = true
 			}
 		}
 
-		afterMap := make(map[string]manifests.Dependency)
+		afterByName := make(map[string]manifests.Dependency)
+		afterByNameVersion := make(map[string]bool)
 		for _, dep := range afterDeps.Dependencies {
-			afterMap[dep.Name] = dep
+			afterByName[dep.Name] = dep
+			afterByNameVersion[dep.Name+"\x00"+dep.Version] = true
 		}
 
-		for name, dep := range afterMap {
-			key := SnapshotKey{ManifestPath: path, Name: name}
-			if before, exists := beforeMap[name]; exists {
-				if before.Version != dep.Version || before.Scope != dep.Scope {
+		// Process all dependencies in after, storing each unique name+version
+		seen := make(map[string]bool)
+		for _, dep := range afterDeps.Dependencies {
+			nameVersion := dep.Name + "\x00" + dep.Version
+			if seen[nameVersion] {
+				continue
+			}
+			seen[nameVersion] = true
+
+			key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
+
+			// Check if this exact name+version existed before
+			if beforeByNameVersion[nameVersion] {
+				// Same name+version exists, check if scope changed
+				if before, ok := beforeByName[dep.Name]; ok && before.Version == dep.Version && before.Scope != dep.Scope {
 					result.Changes = append(result.Changes, Change{
 						ManifestPath:        path,
 						Ecosystem:           afterDeps.Ecosystem,
 						Kind:                string(afterDeps.Kind),
-						Name:                name,
+						Name:                dep.Name,
 						PURL:                dep.PURL,
 						ChangeType:          "modified",
 						Requirement:         dep.Version,
@@ -295,12 +313,27 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 						Integrity:           dep.Integrity,
 					})
 				}
+			} else if before, exists := beforeByName[dep.Name]; exists {
+				// Same name but different version - this is a "modified" change
+				result.Changes = append(result.Changes, Change{
+					ManifestPath:        path,
+					Ecosystem:           afterDeps.Ecosystem,
+					Kind:                string(afterDeps.Kind),
+					Name:                dep.Name,
+					PURL:                dep.PURL,
+					ChangeType:          "modified",
+					Requirement:         dep.Version,
+					PreviousRequirement: before.Version,
+					DependencyType:      string(dep.Scope),
+					Integrity:           dep.Integrity,
+				})
 			} else {
+				// Completely new package
 				result.Changes = append(result.Changes, Change{
 					ManifestPath:   path,
 					Ecosystem:      afterDeps.Ecosystem,
 					Kind:           string(afterDeps.Kind),
-					Name:           name,
+					Name:           dep.Name,
 					PURL:           dep.PURL,
 					ChangeType:     "added",
 					Requirement:    dep.Version,
@@ -319,22 +352,35 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			}
 		}
 
-		for name, dep := range beforeMap {
-			if _, exists := afterMap[name]; !exists {
-				result.Changes = append(result.Changes, Change{
-					ManifestPath:   path,
-					Ecosystem:      beforeDeps.Ecosystem,
-					Kind:           string(beforeDeps.Kind),
-					Name:           name,
-					PURL:           dep.PURL,
-					ChangeType:     "removed",
-					Requirement:    dep.Version,
-					DependencyType: string(dep.Scope),
-					Integrity:      dep.Integrity,
-				})
+		// Check for removed dependencies
+		seenBefore := make(map[string]bool)
+		if beforeDeps != nil {
+			for _, dep := range beforeDeps.Dependencies {
+				nameVersion := dep.Name + "\x00" + dep.Version
+				if seenBefore[nameVersion] {
+					continue
+				}
+				seenBefore[nameVersion] = true
 
-				key := SnapshotKey{ManifestPath: path, Name: name}
-				delete(result.Snapshot, key)
+				if !afterByNameVersion[nameVersion] {
+					// This exact name+version is gone
+					if _, stillExists := afterByName[dep.Name]; !stillExists {
+						// Package completely removed (not just version change)
+						result.Changes = append(result.Changes, Change{
+							ManifestPath:   path,
+							Ecosystem:      beforeDeps.Ecosystem,
+							Kind:           string(beforeDeps.Kind),
+							Name:           dep.Name,
+							PURL:           dep.PURL,
+							ChangeType:     "removed",
+							Requirement:    dep.Version,
+							DependencyType: string(dep.Scope),
+							Integrity:      dep.Integrity,
+						})
+					}
+					key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
+					delete(result.Snapshot, key)
+				}
 			}
 		}
 	}
@@ -361,7 +407,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				Integrity:      dep.Integrity,
 			})
 
-			key := SnapshotKey{ManifestPath: path, Name: dep.Name}
+			key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
 			delete(result.Snapshot, key)
 		}
 	}

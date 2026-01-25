@@ -235,6 +235,7 @@ func convertDBSnapshot(dbSnapshot map[string]database.SnapshotInfo) analyzer.Sna
 		key := analyzer.SnapshotKey{
 			ManifestPath: info.ManifestPath,
 			Name:         info.Name,
+			Requirement:  info.Requirement,
 		}
 		result[key] = analyzer.SnapshotEntry{
 			Ecosystem:      info.Ecosystem,

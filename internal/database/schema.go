@@ -85,7 +85,7 @@ func (db *DB) CreateSchema() error {
 		created_at DATETIME,
 		updated_at DATETIME
 	);
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_unique ON dependency_snapshots(commit_id, manifest_id, name);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshots_unique ON dependency_snapshots(commit_id, manifest_id, name, requirement);
 	CREATE INDEX IF NOT EXISTS idx_dependency_snapshots_name ON dependency_snapshots(name);
 	CREATE INDEX IF NOT EXISTS idx_dependency_snapshots_ecosystem ON dependency_snapshots(ecosystem);
 	CREATE INDEX IF NOT EXISTS idx_dependency_snapshots_purl ON dependency_snapshots(purl);
