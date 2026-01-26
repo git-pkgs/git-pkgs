@@ -8,9 +8,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type ColorOutput int
+
+const (
+	Auto ColorOutput = iota
+	Always
+	Never
+)
+
 var (
-	// NoColor disables color output when true
-	NoColor bool
+	Color ColorOutput
 	// UsePager enables pager for long output
 	UsePager bool
 )
@@ -27,15 +34,39 @@ const (
 	colorDim    = "\033[2m"
 )
 
+func parseColor(s string) ColorOutput {
+	switch s {
+	case "always":
+		return Always
+	case "never":
+		return Never
+	default:
+		return Auto
+	}
+}
+
 // IsColorEnabled returns true if color output should be used
+//
+// precedence:
+// - current command config `--color=always` / `--color=never`
+// - `$NO_COLOR` https://no-color.org/
+// - `$FORCE_COLOR` https://force-color.org/
+// - `$TERM` / stdout detection
 func IsColorEnabled() bool {
-	if NoColor {
+	switch Color {
+	case Always:
+		return true
+	case Never:
 		return false
+	case Auto:
 	}
 
 	// Check NO_COLOR environment variable (standard)
 	if os.Getenv("NO_COLOR") != "" {
 		return false
+	}
+	if os.Getenv("FORCE_COLOR") != "" {
+		return true
 	}
 
 	// Check TERM for dumb terminals

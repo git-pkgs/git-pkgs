@@ -17,12 +17,8 @@ var rootCmd = &cobra.Command{
 	Long: `git-pkgs indexes package dependencies from manifest files across your git history,
 enabling you to query what packages were used, when they changed, and identify
 potential security vulnerabilities.`,
-	SilenceUsage: true,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Update global flags
-		NoColor, _ = cmd.Flags().GetBool("no-color")
-		UsePager, _ = cmd.Flags().GetBool("pager")
-	},
+	SilenceUsage:     true,
+	PersistentPreRun: preRun,
 }
 
 func Execute() error {
@@ -36,15 +32,10 @@ func NewRootCmd() *cobra.Command {
 		Long: `git-pkgs indexes package dependencies from manifest files across your git history,
 enabling you to query what packages were used, when they changed, and identify
 potential security vulnerabilities.`,
-		SilenceUsage: true,
-		PersistentPreRun: func(c *cobra.Command, args []string) {
-			NoColor, _ = c.Flags().GetBool("no-color")
-			UsePager, _ = c.Flags().GetBool("pager")
-		},
+		SilenceUsage:     true,
+		PersistentPreRun: preRun,
 	}
-	cmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output")
-	cmd.PersistentFlags().Bool("no-color", false, "Disable colored output")
-	cmd.PersistentFlags().BoolP("pager", "p", false, "Use pager for output")
+	addPersistentFlags(cmd)
 
 	// Add all subcommands
 	addInitCmd(cmd)
@@ -86,8 +77,19 @@ potential security vulnerabilities.`,
 	return cmd
 }
 
+func preRun(cmd *cobra.Command, args []string) {
+	c, _ := cmd.Flags().GetString("color")
+	Color = parseColor(c)
+	UsePager, _ = cmd.Flags().GetBool("pager")
+}
+
+func addPersistentFlags(cmd *cobra.Command) {
+	flags := cmd.PersistentFlags()
+	flags.BoolP("quiet", "q", false, "Suppress non-essential output")
+	flags.BoolP("pager", "p", false, "Use pager for output")
+	flags.String("color", "auto", "When to colorize output: auto, always, never")
+}
+
 func init() {
-	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Suppress non-essential output")
-	rootCmd.PersistentFlags().Bool("no-color", false, "Disable colored output")
-	rootCmd.PersistentFlags().BoolP("pager", "p", false, "Use pager for output")
+	addPersistentFlags(rootCmd)
 }
