@@ -87,6 +87,18 @@ func runCmd(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	return stdoutBuf.String(), stderrBuf.String(), err
 }
 
+// getLastCommitSHA returns the SHA of the most recent commit
+func getLastCommitSHA(t *testing.T, repoDir string) string {
+	t.Helper()
+	gitCmd := exec.Command("git", "rev-parse", "HEAD")
+	gitCmd.Dir = repoDir
+	out, err := gitCmd.Output()
+	if err != nil {
+		t.Fatalf("failed to get commit SHA: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func TestInitCommand(t *testing.T) {
 	t.Run("creates database in .git directory", func(t *testing.T) {
 		repoDir := createTestRepo(t)
