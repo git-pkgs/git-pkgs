@@ -12,10 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addBisectCmd(rootCmd)
-}
-
 func addBisectCmd(parent *cobra.Command) {
 	bisectCmd := &cobra.Command{
 		Use:   "bisect",

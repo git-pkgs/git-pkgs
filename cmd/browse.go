@@ -26,10 +26,6 @@ func (e *PathNotSupportedError) ExitCode() int {
 	return 2
 }
 
-func init() {
-	addBrowseCmd(rootCmd)
-}
-
 const defaultBrowseTimeout = 30 * time.Second
 
 func addBrowseCmd(parent *cobra.Command) {

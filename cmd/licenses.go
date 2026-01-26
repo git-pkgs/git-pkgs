@@ -17,10 +17,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addLicensesCmd(rootCmd)
-}
-
 func addLicensesCmd(parent *cobra.Command) {
 	licensesCmd := &cobra.Command{
 		Use:   "licenses",

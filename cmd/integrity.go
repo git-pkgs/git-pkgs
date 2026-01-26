@@ -15,10 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addIntegrityCmd(rootCmd)
-}
-
 func addIntegrityCmd(parent *cobra.Command) {
 	integrityCmd := &cobra.Command{
 		Use:   "integrity",

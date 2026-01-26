@@ -7,31 +7,25 @@ import (
 var version = "unknown"
 var commit = "unknown"
 var date = "unknown"
+var versionStr = version +
+	"\n          commit " + commit +
+	"\n            date " + date
 
-var rootCmd = &cobra.Command{
-	Use: "git-pkgs",
-	Version: version +
-		"\n          commit " + commit +
-		"\n            date " + date,
-	Short: "Track package dependencies across git history",
-	Long: `git-pkgs indexes package dependencies from manifest files across your git history,
+const shortDesc = "Track package dependencies across git history"
+const longDesc = `git-pkgs indexes package dependencies from manifest files across your git history,
 enabling you to query what packages were used, when they changed, and identify
-potential security vulnerabilities.`,
-	SilenceUsage:     true,
-	PersistentPreRun: preRun,
-}
+potential security vulnerabilities.`
 
 func Execute() error {
-	return rootCmd.Execute()
+	return NewRootCmd().Execute()
 }
 
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "git-pkgs",
-		Short: "Track package dependencies across git history",
-		Long: `git-pkgs indexes package dependencies from manifest files across your git history,
-enabling you to query what packages were used, when they changed, and identify
-potential security vulnerabilities.`,
+		Use:              "git-pkgs",
+		Version:          versionStr,
+		Short:            shortDesc,
+		Long:             longDesc,
 		SilenceUsage:     true,
 		PersistentPreRun: preRun,
 	}
@@ -88,8 +82,4 @@ func addPersistentFlags(cmd *cobra.Command) {
 	flags.BoolP("quiet", "q", false, "Suppress non-essential output")
 	flags.BoolP("pager", "p", false, "Use pager for output")
 	flags.String("color", "auto", "When to colorize output: auto, always, never")
-}
-
-func init() {
-	addPersistentFlags(rootCmd)
 }

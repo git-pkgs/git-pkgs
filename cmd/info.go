@@ -11,10 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addInfoCmd(rootCmd)
-}
-
 func addInfoCmd(parent *cobra.Command) {
 	infoCmd := &cobra.Command{
 		Use:   "info",

@@ -33,10 +33,6 @@ var lockfilePatterns = []string{
 	"*.resolved",
 }
 
-func init() {
-	addDiffDriverCmd(rootCmd)
-}
-
 func addDiffDriverCmd(parent *cobra.Command) {
 	diffDriverCmd := &cobra.Command{
 		Use:   "diff-driver [file]",

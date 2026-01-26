@@ -9,10 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addBranchCmd(rootCmd)
-}
-
 func addBranchCmd(parent *cobra.Command) {
 	branchCmd := &cobra.Command{
 		Use:   "branch",

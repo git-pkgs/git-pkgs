@@ -9,10 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addSearchCmd(rootCmd)
-}
-
 func addSearchCmd(parent *cobra.Command) {
 	searchCmd := &cobra.Command{
 		Use:   "search <pattern>",

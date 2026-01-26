@@ -11,10 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addInitCmd(rootCmd)
-}
-
 func addInitCmd(parent *cobra.Command) {
 	initCmd := &cobra.Command{
 		Use:   "init",

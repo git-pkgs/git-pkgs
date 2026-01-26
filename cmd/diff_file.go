@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addDiffFileCmd(rootCmd)
-}
-
 func addDiffFileCmd(parent *cobra.Command) {
 	diffFileCmd := &cobra.Command{
 		Use:   "diff-file [from] [to]",

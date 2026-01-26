@@ -14,10 +14,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addSBOMCmd(rootCmd)
-}
-
 func addSBOMCmd(parent *cobra.Command) {
 	sbomCmd := &cobra.Command{
 		Use:   "sbom",

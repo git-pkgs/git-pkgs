@@ -9,10 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addInstallCmd(rootCmd)
-}
-
 const defaultInstallTimeout = 10 * time.Minute
 
 func addInstallCmd(parent *cobra.Command) {

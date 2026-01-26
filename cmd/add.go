@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addAddCmd(rootCmd)
-}
-
 const defaultAddTimeout = 5 * time.Minute
 
 func addAddCmd(parent *cobra.Command) {

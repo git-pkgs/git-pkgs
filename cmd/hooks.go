@@ -19,10 +19,6 @@ git pkgs reindex --quiet 2>/dev/null || true
 
 var hookNames = []string{"post-commit", "post-merge"}
 
-func init() {
-	addHooksCmd(rootCmd)
-}
-
 func addHooksCmd(parent *cobra.Command) {
 	hooksCmd := &cobra.Command{
 		Use:   "hooks",

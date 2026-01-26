@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addSchemaCmd(rootCmd)
-}
-
 func addSchemaCmd(parent *cobra.Command) {
 	schemaCmd := &cobra.Command{
 		Use:   "schema",

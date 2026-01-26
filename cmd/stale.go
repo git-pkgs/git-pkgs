@@ -9,10 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addStaleCmd(rootCmd)
-}
-
 func addStaleCmd(parent *cobra.Command) {
 	staleCmd := &cobra.Command{
 		Use:   "stale",

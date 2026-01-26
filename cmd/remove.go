@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addRemoveCmd(rootCmd)
-}
-
 const defaultRemoveTimeout = 5 * time.Minute
 
 func addRemoveCmd(parent *cobra.Command) {

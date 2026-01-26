@@ -11,10 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addDiffCmd(rootCmd)
-}
-
 func addDiffCmd(parent *cobra.Command) {
 	diffCmd := &cobra.Command{
 		Use:   "diff [from..to]",

@@ -9,10 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addReindexCmd(rootCmd)
-}
-
 func addReindexCmd(parent *cobra.Command) {
 	reindexCmd := &cobra.Command{
 		Use:   "reindex",

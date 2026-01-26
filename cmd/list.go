@@ -11,10 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addListCmd(rootCmd)
-}
-
 func addListCmd(parent *cobra.Command) {
 	listCmd := &cobra.Command{
 		Use:   "list",

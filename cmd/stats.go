@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addStatsCmd(rootCmd)
-}
-
 func addStatsCmd(parent *cobra.Command) {
 	statsCmd := &cobra.Command{
 		Use:   "stats",

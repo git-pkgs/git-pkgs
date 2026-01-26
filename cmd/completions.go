@@ -7,10 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addCompletionsCmd(rootCmd)
-}
-
 func addCompletionsCmd(parent *cobra.Command) {
 	completionCmd := &cobra.Command{
 		Use:   "completion [shell]",

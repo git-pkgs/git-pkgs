@@ -15,10 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addOutdatedCmd(rootCmd)
-}
-
 func addOutdatedCmd(parent *cobra.Command) {
 	outdatedCmd := &cobra.Command{
 		Use:   "outdated",

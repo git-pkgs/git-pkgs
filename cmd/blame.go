@@ -9,10 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addBlameCmd(rootCmd)
-}
-
 func addBlameCmd(parent *cobra.Command) {
 	blameCmd := &cobra.Command{
 		Use:   "blame",

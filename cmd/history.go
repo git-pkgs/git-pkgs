@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addHistoryCmd(rootCmd)
-}
-
 func addHistoryCmd(parent *cobra.Command) {
 	historyCmd := &cobra.Command{
 		Use:   "history [package]",

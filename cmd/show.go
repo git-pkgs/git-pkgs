@@ -11,10 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addShowCmd(rootCmd)
-}
-
 func addShowCmd(parent *cobra.Command) {
 	showCmd := &cobra.Command{
 		Use:   "show [commit]",

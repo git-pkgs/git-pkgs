@@ -9,10 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addUpgradeCmd(rootCmd)
-}
-
 func addUpgradeCmd(parent *cobra.Command) {
 	upgradeCmd := &cobra.Command{
 		Use:   "upgrade",

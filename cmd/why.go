@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addWhyCmd(rootCmd)
-}
-
 func addWhyCmd(parent *cobra.Command) {
 	whyCmd := &cobra.Command{
 		Use:   "why <package>",

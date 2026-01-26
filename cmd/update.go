@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addUpdateCmd(rootCmd)
-}
-
 const defaultUpdateTimeout = 10 * time.Minute
 
 func addUpdateCmd(parent *cobra.Command) {

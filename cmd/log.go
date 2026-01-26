@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addLogCmd(rootCmd)
-}
-
 func addLogCmd(parent *cobra.Command) {
 	logCmd := &cobra.Command{
 		Use:   "log",

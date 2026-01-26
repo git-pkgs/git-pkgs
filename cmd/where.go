@@ -13,10 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addWhereCmd(rootCmd)
-}
-
 func addWhereCmd(parent *cobra.Command) {
 	whereCmd := &cobra.Command{
 		Use:   "where <package>",

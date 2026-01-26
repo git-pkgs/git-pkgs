@@ -15,10 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func init() {
-	addVulnsCmd(rootCmd)
-}
-
 func addVulnsCmd(parent *cobra.Command) {
 	vulnsCmd := &cobra.Command{
 		Use:   "vulns",
