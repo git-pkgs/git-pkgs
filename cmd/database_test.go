@@ -400,7 +400,7 @@ func TestReindexCommand(t *testing.T) {
 		cleanup := chdir(t, repoDir)
 		defer cleanup()
 
-		_, _, err := runCmd(t, "init")
+		_, _, err := runCmd(t, "init", "--no-hooks")
 		if err != nil {
 			t.Fatalf("init failed: %v", err)
 		}
@@ -423,7 +423,7 @@ func TestReindexCommand(t *testing.T) {
 		cleanup := chdir(t, repoDir)
 		defer cleanup()
 
-		_, _, err := runCmd(t, "init")
+		_, _, err := runCmd(t, "init", "--no-hooks")
 		if err != nil {
 			t.Fatalf("init failed: %v", err)
 		}
