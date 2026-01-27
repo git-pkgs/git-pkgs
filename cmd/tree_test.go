@@ -61,6 +61,59 @@ func TestTreeMultipleVersionsSamePackage(t *testing.T) {
 	}
 }
 
+func TestTreeGoSumNotSeparateManifest(t *testing.T) {
+	// go.sum should not appear as a separate manifest in tree output.
+	// Instead, its integrity hashes should be merged into go.mod dependencies.
+
+	repoDir := createTestRepo(t)
+
+	goMod, err := os.ReadFile("testdata/ades-go.mod")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	goSum, err := os.ReadFile("testdata/ades-go.sum")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	addFileAndCommit(t, repoDir, "go.mod", string(goMod), "Add go.mod")
+	addFileAndCommit(t, repoDir, "go.sum", string(goSum), "Add go.sum")
+
+	cleanup := chdir(t, repoDir)
+	defer cleanup()
+
+	rootCmd := cmd.NewRootCmd()
+	rootCmd.SetArgs([]string{"init"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	rootCmd = cmd.NewRootCmd()
+	rootCmd.SetArgs([]string{"tree"})
+	rootCmd.SetOut(&stdout)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tree failed: %v", err)
+	}
+
+	output := stdout.String()
+
+	// go.sum should NOT appear as a separate manifest section
+	if strings.Contains(output, "go.sum") {
+		t.Errorf("go.sum should not appear as a separate manifest in tree output\nOutput:\n%s", output)
+	}
+
+	// go.mod should appear
+	if !strings.Contains(output, "go.mod") {
+		t.Errorf("expected go.mod in tree output\nOutput:\n%s", output)
+	}
+
+	// Dependencies should still be present
+	if !strings.Contains(output, "golang.org/x/mod") {
+		t.Errorf("expected golang.org/x/mod in tree output\nOutput:\n%s", output)
+	}
+}
+
 func TestTreeGoToolDependencies(t *testing.T) {
 	// Regression test for https://github.com/git-pkgs/git-pkgs/issues/38
 	// Go tool dependencies should be classified as "development" not "runtime"

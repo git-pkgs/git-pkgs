@@ -85,9 +85,7 @@ var ecosystemConfigs = []ecosystemConfig{
 		Ecosystem: "go",
 		Manifest:  "go.mod",
 		Default:   "gomod",
-		Lockfiles: []lockfileMapping{
-			{"go.sum", "gomod"},
-		},
+		Lockfiles: []lockfileMapping{},
 	},
 	{
 		Ecosystem: "pypi",

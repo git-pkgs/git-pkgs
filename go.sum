@@ -34,8 +34,8 @@ github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
 github.com/git-pkgs/managers v0.4.0 h1:ydsy8Hq4UpHYrrr33swkfJiR+0HFsFOdlOktsrsaAbY=
 github.com/git-pkgs/managers v0.4.0/go.mod h1:K6B5Z8vd6tfywKzi2JgOB1eDFevmT4F9wxk4Q3VCWXQ=
-github.com/git-pkgs/manifests v0.1.6 h1:rmVblp6U/KR0VX3Gw0byc/EDiGZO0CXSf6lO/8XlSrc=
-github.com/git-pkgs/manifests v0.1.6/go.mod h1:1jeaFvqU/idbu9/QQFFh+s0/lEsMGMRvC6G6pX7S7Dw=
+github.com/git-pkgs/manifests v0.2.0 h1:0YKZJnrihl9+g3YXlmWUePlE4vzzWd1D09BfJOoXrS4=
+github.com/git-pkgs/manifests v0.2.0/go.mod h1:1jeaFvqU/idbu9/QQFFh+s0/lEsMGMRvC6G6pX7S7Dw=
 github.com/git-pkgs/purl v0.1.2 h1:c6u2iN03Jcul4rZD3+IbwAlzIQXXf+i5594lf1xiGa8=
 github.com/git-pkgs/purl v0.1.2/go.mod h1:xTppS50WiiJPGA5DsYwf79CStBhcvznICzdFuRT3sV8=
 github.com/git-pkgs/registries v0.2.2 h1:r6FBAi06w1jg0ub5PQe+dYmb3CGm/0QaK1ut+s5SXIE=

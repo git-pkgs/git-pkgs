@@ -65,7 +65,7 @@ func TestDetectManagers(t *testing.T) {
 			expected: []string{"cargo"},
 		},
 		{
-			name: "gomod from go.sum",
+			name: "gomod from go.mod (go.sum is not a lockfile)",
 			files: map[string]string{
 				"go.mod": "module test",
 				"go.sum": "",
@@ -232,10 +232,8 @@ func writeManifestForLockfile(t *testing.T, tmpDir, lockfile string) {
 		if err := os.WriteFile(filepath.Join(tmpDir, "Cargo.toml"), []byte("[package]"), 0644); err != nil {
 			t.Fatalf("failed to write Cargo.toml: %v", err)
 		}
-	case "go.sum":
-		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test"), 0644); err != nil {
-			t.Fatalf("failed to write go.mod: %v", err)
-		}
+	case "go.mod":
+		// go.mod is both manifest and detection target; no extra files needed
 	}
 }
 
@@ -284,8 +282,8 @@ func TestInstallDryRun(t *testing.T) {
 		},
 		{
 			name:           "go mod download",
-			lockfile:       "go.sum",
-			lockContent:    "",
+			lockfile:       "go.mod",
+			lockContent:    "module test",
 			flags:          []string{},
 			expectedOutput: "[go mod download]",
 		},
@@ -501,7 +499,7 @@ func TestUpdateDryRun(t *testing.T) {
 		},
 		{
 			name:           "go update all",
-			lockfile:       "go.sum",
+			lockfile:       "go.mod",
 			args:           []string{},
 			expectedOutput: "[go get -u]",
 		},

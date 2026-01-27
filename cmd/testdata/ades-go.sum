@@ -1,0 +1,14 @@
+github.com/ericcornelissen/go-gha-models v0.8.0 h1:abc123def456=
+github.com/ericcornelissen/go-gha-models v0.8.0/go.mod h1:xyz789=
+github.com/gtramontina/ooze v0.2.0 h1:ooze123hash=
+github.com/gtramontina/ooze v0.2.0/go.mod h1:oozemod=
+github.com/rogpeppe/go-internal v1.14.1 h1:rogpeppe123=
+github.com/rogpeppe/go-internal v1.14.1/go.mod h1:rogmod=
+github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 h1:jsonschema123=
+github.com/santhosh-tekuri/jsonschema/v6 v6.0.2/go.mod h1:jsonmod=
+golang.org/x/mod v0.32.0 h1:xmodhash123=
+golang.org/x/mod v0.32.0/go.mod h1:xmodmodhash=
+4d63.com/gochecknoinits v0.0.0-20210416043744-25bb07f6e4e3 h1:gocheckhash=
+4d63.com/gochecknoinits v0.0.0-20210416043744-25bb07f6e4e3/go.mod h1:gocheckmod=
+mvdan.cc/unparam v0.0.0-20251027182757-5beb8c8f8f15 h1:unparamhash=
+mvdan.cc/unparam v0.0.0-20251027182757-5beb8c8f8f15/go.mod h1:unparammod=

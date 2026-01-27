@@ -24,7 +24,6 @@ var lockfilePatterns = []string{
 	"Pipfile.lock",
 	"poetry.lock",
 	"composer.lock",
-	"go.sum",
 	"pubspec.lock",
 	"Podfile.lock",
 	"mix.lock",

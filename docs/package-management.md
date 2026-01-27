@@ -14,7 +14,7 @@ git-pkgs looks for lockfiles in the current directory and maps them to package m
 | package-lock.json | npm |
 | Gemfile.lock | bundler |
 | Cargo.lock | cargo |
-| go.sum | gomod |
+| go.mod | gomod |
 | uv.lock | uv |
 | poetry.lock | poetry |
 | composer.lock | composer |

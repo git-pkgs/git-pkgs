@@ -12,6 +12,11 @@ import (
 	"github.com/go-git/go-git/v5/utils/merkletrie"
 )
 
+func isSupplementFile(path string) bool {
+	_, kind, ok := manifests.Identify(filepath.Base(path))
+	return ok && kind == manifests.Supplement
+}
+
 type Change struct {
 	ManifestPath        string
 	Ecosystem           string
@@ -226,12 +231,24 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 	}
 
 	for _, path := range added {
+		if isSupplementFile(path) {
+			continue
+		}
 		deps, err := a.parseManifestInTree(tree, path)
 		if err != nil || deps == nil {
 			continue
 		}
 
+		// Merge integrity hashes from supplement files in same directory
+		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(path))
+
 		for _, dep := range deps.Dependencies {
+			integrity := dep.Integrity
+			if integrity == "" {
+				if h, ok := supHashes[supplementKey{dep.Name, dep.Version}]; ok {
+					integrity = h
+				}
+			}
 			change := Change{
 				ManifestPath:   path,
 				Ecosystem:      deps.Ecosystem,
@@ -241,7 +258,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				ChangeType:     "added",
 				Requirement:    dep.Version,
 				DependencyType: string(dep.Scope),
-				Integrity:      dep.Integrity,
+				Integrity:      integrity,
 			}
 			result.Changes = append(result.Changes, change)
 
@@ -252,12 +269,15 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				PURL:           dep.PURL,
 				Requirement:    dep.Version,
 				DependencyType: string(dep.Scope),
-				Integrity:      dep.Integrity,
+				Integrity:      integrity,
 			}
 		}
 	}
 
 	for _, path := range modified {
+		if isSupplementFile(path) {
+			continue
+		}
 		var beforeDeps *manifests.ParseResult
 		if parentTree != nil {
 			beforeDeps, _ = a.parseManifestInTree(parentTree, path)
@@ -266,6 +286,9 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		if err != nil || afterDeps == nil {
 			continue
 		}
+
+		// Merge integrity hashes from supplement files in same directory
+		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(path))
 
 		// Build maps by name for change detection (modified = version changed)
 		// But also track all name+version pairs for snapshot storage
@@ -294,6 +317,13 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			}
 			seen[nameVersion] = true
 
+			integrity := dep.Integrity
+			if integrity == "" {
+				if h, ok := supHashes[supplementKey{dep.Name, dep.Version}]; ok {
+					integrity = h
+				}
+			}
+
 			key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
 
 			// Check if this exact name+version existed before
@@ -310,7 +340,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 						Requirement:         dep.Version,
 						PreviousRequirement: before.Version,
 						DependencyType:      string(dep.Scope),
-						Integrity:           dep.Integrity,
+						Integrity:           integrity,
 					})
 				}
 			} else if before, exists := beforeByName[dep.Name]; exists {
@@ -325,7 +355,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 					Requirement:         dep.Version,
 					PreviousRequirement: before.Version,
 					DependencyType:      string(dep.Scope),
-					Integrity:           dep.Integrity,
+					Integrity:           integrity,
 				})
 			} else {
 				// Completely new package
@@ -338,7 +368,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 					ChangeType:     "added",
 					Requirement:    dep.Version,
 					DependencyType: string(dep.Scope),
-					Integrity:      dep.Integrity,
+					Integrity:      integrity,
 				})
 			}
 
@@ -348,7 +378,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				PURL:           dep.PURL,
 				Requirement:    dep.Version,
 				DependencyType: string(dep.Scope),
-				Integrity:      dep.Integrity,
+				Integrity:      integrity,
 			}
 		}
 
@@ -386,6 +416,9 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 	}
 
 	for _, path := range deleted {
+		if isSupplementFile(path) {
+			continue
+		}
 		var deps *manifests.ParseResult
 		if parentTree != nil {
 			deps, _ = a.parseManifestInTree(parentTree, path)
@@ -454,13 +487,24 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 		if !ok {
 			return nil
 		}
+		if isSupplementFile(f.Name) {
+			return nil
+		}
 
 		result, err := a.parseManifestInTree(tree, f.Name)
 		if err != nil || result == nil {
 			return nil
 		}
 
+		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(f.Name))
+
 		for _, dep := range result.Dependencies {
+			integrity := dep.Integrity
+			if integrity == "" {
+				if h, ok := supHashes[supplementKey{dep.Name, dep.Version}]; ok {
+					integrity = h
+				}
+			}
 			deps = append(deps, Change{
 				ManifestPath:   f.Name,
 				Ecosystem:      result.Ecosystem,
@@ -469,7 +513,7 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 				PURL:           dep.PURL,
 				Requirement:    dep.Version,
 				DependencyType: string(dep.Scope),
-				Integrity:      dep.Integrity,
+				Integrity:      integrity,
 			})
 		}
 
@@ -477,6 +521,52 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 	})
 
 	return deps, err
+}
+
+// supplementKey identifies a dependency for supplement hash matching.
+type supplementKey struct {
+	name    string
+	version string
+}
+
+// parseSupplementsInDir reads all supplement files in the same directory as the given path
+// from the tree, and returns a map of name+version to integrity hash.
+func (a *Analyzer) parseSupplementsInDir(tree *object.Tree, dir string) map[supplementKey]string {
+	if tree == nil {
+		return nil
+	}
+
+	hashes := make(map[supplementKey]string)
+
+	_ = tree.Files().ForEach(func(f *object.File) error {
+		fileDir := filepath.Dir(f.Name)
+		if fileDir == "." {
+			fileDir = ""
+		}
+		if dir == "." {
+			dir = ""
+		}
+		if fileDir != dir {
+			return nil
+		}
+		if !isSupplementFile(f.Name) {
+			return nil
+		}
+
+		result, err := a.parseManifestInTree(tree, f.Name)
+		if err != nil || result == nil {
+			return nil
+		}
+
+		for _, dep := range result.Dependencies {
+			if dep.Integrity != "" {
+				hashes[supplementKey{dep.Name, dep.Version}] = dep.Integrity
+			}
+		}
+		return nil
+	})
+
+	return hashes
 }
 
 func copySnapshot(s Snapshot) Snapshot {

@@ -248,7 +248,7 @@ Vulnerability scanning works for ecosystems with lockfiles and OSV coverage:
 | rubygems | Gemfile.lock |
 | pypi | Pipfile.lock, poetry.lock, uv.lock |
 | cargo | Cargo.lock |
-| go | go.sum |
+| go | go.mod |
 | maven | pom.xml (with versions) |
 | nuget | packages.lock.json |
 | packagist | composer.lock |
