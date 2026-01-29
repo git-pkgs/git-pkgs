@@ -294,6 +294,64 @@ func TestSpdxNormalization(t *testing.T) {
 	}
 }
 
+// TestLicensesDockerPURLCanonicalization tests that docker images show proper
+// names even when the API returns a canonicalized PURL different from the input.
+// For example, pkg:docker/postgres becomes pkg:docker/library%2Fpostgres in the response.
+func TestLicensesDockerPURLCanonicalization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Docker compose file with official images (no library/ prefix)
+	const dockerCompose = `version: '3'
+services:
+  db:
+    image: postgres:16-alpine
+  cache:
+    image: redis:7-alpine
+`
+	repoDir := createTestRepo(t)
+	addFileAndCommit(t, repoDir, "docker-compose.yml", dockerCompose, "Add docker-compose")
+
+	cleanup := chdir(t, repoDir)
+	defer cleanup()
+
+	rootCmd := cmd.NewRootCmd()
+	rootCmd.SetArgs([]string{"init"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	rootCmd = cmd.NewRootCmd()
+	rootCmd.SetArgs([]string{"licenses", "--format", "json"})
+	rootCmd.SetOut(&stdout)
+	rootCmd.SetErr(&stderr)
+	_ = rootCmd.Execute()
+
+	output := stdout.String()
+	if output == "" {
+		t.Fatal("expected JSON output, got empty string")
+	}
+
+	var results []cmd.LicenseInfo
+	if err := json.Unmarshal([]byte(output), &results); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nOutput: %s", err, output)
+	}
+
+	// Find docker packages and verify they have names
+	for _, r := range results {
+		if strings.Contains(r.PURL, "docker") {
+			if r.Name == "" {
+				t.Errorf("docker package %s has empty name", r.PURL)
+			}
+			if r.Ecosystem == "" {
+				t.Errorf("docker package %s has empty ecosystem", r.PURL)
+			}
+		}
+	}
+}
+
 func TestSpdxDenyListMatching(t *testing.T) {
 	// Simulate the deny list logic from licenses.go
 	denyList := []string{"GPL v3", "LGPL"}

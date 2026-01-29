@@ -182,9 +182,17 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	for purl, data := range packageData {
 		dep := purlToDep[purl]
 
+		// Use API data when dep lookup failed (PURL mismatch)
+		name := dep.Name
+		ecosystem := dep.Ecosystem
+		if name == "" && data.Name != "" {
+			name = data.Name
+			ecosystem = data.Ecosystem
+		}
+
 		info := LicenseInfo{
-			Name:         dep.Name,
-			Ecosystem:    dep.Ecosystem,
+			Name:         name,
+			Ecosystem:    ecosystem,
 			Version:      dep.Requirement,
 			ManifestPath: dep.ManifestPath,
 			PURL:         purl,
@@ -286,7 +294,9 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 }
 
 type licenseData struct {
-	License string
+	License   string
+	Name      string
+	Ecosystem string
 }
 
 func getLicenseData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]*licenseData, error) {
@@ -300,7 +310,11 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 			return nil, err
 		}
 		for purl, cp := range cached {
-			result[purl] = &licenseData{License: cp.License}
+			result[purl] = &licenseData{
+				License:   cp.License,
+				Name:      cp.Name,
+				Ecosystem: cp.Ecosystem,
+			}
 		}
 		// Find uncached PURLs
 		for _, purl := range purls {
@@ -330,6 +344,8 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 		for purl, pkg := range packages {
 			data := &licenseData{}
 			if pkg != nil {
+				data.Name = pkg.Name
+				data.Ecosystem = pkg.Ecosystem
 				// Normalize license to SPDX identifier
 				if pkg.License != "" {
 					if normalized, err := spdx.Normalize(pkg.License); err == nil {
@@ -343,8 +359,8 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 
 			// Save to cache if DB available
 			if db != nil && pkg != nil {
-				dep := purlToDep[purl]
-				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, pkg.LatestVersion, pkg.License, pkg.RegistryURL, pkg.Source)
+				// Use API data for ecosystem/name (in case PURL was canonicalized)
+				_ = db.SavePackageEnrichment(purl, pkg.Ecosystem, pkg.Name, pkg.LatestVersion, pkg.License, pkg.RegistryURL, pkg.Source)
 			}
 		}
 	}
