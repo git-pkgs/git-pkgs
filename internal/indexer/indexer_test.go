@@ -667,3 +667,90 @@ gem "puma"
 		t.Errorf("expected 2 snapshots (rails and puma), got %d", snapshotCount)
 	}
 }
+
+func TestIndexerStoresSnapshotsAtTagsAndBranches(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	// Commit 1: add Gemfile
+	gemfile1 := `source "https://rubygems.org"
+gem "rails", "~> 7.0"
+`
+	addFileAndCommit(t, repoDir, "Gemfile", gemfile1, "Add Gemfile")
+	gitRun(t, repoDir, "tag", "v1.0.0")
+
+	// Commit 2: update Gemfile
+	gemfile2 := `source "https://rubygems.org"
+gem "rails", "~> 7.1"
+gem "puma"
+`
+	addFileAndCommit(t, repoDir, "Gemfile", gemfile2, "Update deps")
+
+	// Commit 3: non-manifest change (no dep changes)
+	addFileAndCommit(t, repoDir, "README.md", "# Test", "Add readme")
+	gitRun(t, repoDir, "tag", "v1.1.0")
+
+	// Create a feature branch at this point
+	gitRun(t, repoDir, "checkout", "-b", "feature")
+	addFileAndCommit(t, repoDir, "feature.txt", "feature", "Add feature file")
+
+	// Go back to main
+	gitRun(t, repoDir, "checkout", "main")
+
+	repo, err := gitpkg.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("failed to open repo: %v", err)
+	}
+
+	dbPath := filepath.Join(repoDir, ".git", "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create db: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	idx := indexer.New(repo, db, indexer.Options{Quiet: true})
+
+	_, err = idx.Run()
+	if err != nil {
+		t.Fatalf("indexer failed: %v", err)
+	}
+
+	// Count unique commits with snapshots
+	var snapshotCommitCount int
+	if err := db.QueryRow("SELECT COUNT(DISTINCT commit_id) FROM dependency_snapshots").Scan(&snapshotCommitCount); err != nil {
+		t.Fatalf("failed to count snapshot commits: %v", err)
+	}
+
+	// We should have snapshots at:
+	// 1. v1.0.0 tag (commit 1) - has dep changes
+	// 2. commit 2 - has dep changes
+	// 3. v1.1.0 tag (commit 3) - no dep changes but tagged, should still have snapshot
+	// 4. main branch head (commit 3 in this case, same as v1.1.0)
+	// So at least 3 distinct commits should have snapshots
+	if snapshotCommitCount < 3 {
+		t.Errorf("expected at least 3 commits with snapshots (tags and branch heads), got %d", snapshotCommitCount)
+	}
+
+	// Verify we have a snapshot at the tagged commit without dep changes (v1.1.0)
+	// Get the SHA for v1.1.0
+	cmd := exec.Command("git", "rev-parse", "v1.1.0")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("failed to get v1.1.0 SHA: %v", err)
+	}
+	v110SHA := strings.TrimSpace(string(out))
+
+	var v110SnapshotCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM dependency_snapshots ds
+		JOIN commits c ON c.id = ds.commit_id
+		WHERE c.sha = ?
+	`, v110SHA).Scan(&v110SnapshotCount); err != nil {
+		t.Fatalf("failed to count v1.1.0 snapshots: %v", err)
+	}
+
+	if v110SnapshotCount != 2 {
+		t.Errorf("expected 2 snapshots at v1.1.0 (rails and puma), got %d", v110SnapshotCount)
+	}
+}

@@ -256,3 +256,116 @@ func TestLog(t *testing.T) {
 		t.Errorf("expected 3 commits, got %d", count)
 	}
 }
+
+func gitRun(t *testing.T, repoDir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+}
+
+func TestTags(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	addFile(t, repoDir, "README.md", "# Test")
+	sha1 := commit(t, repoDir, "First commit")
+	gitRun(t, repoDir, "tag", "v1.0.0")
+
+	addFile(t, repoDir, "file.txt", "content")
+	sha2 := commit(t, repoDir, "Second commit")
+	gitRun(t, repoDir, "tag", "v1.1.0")
+	gitRun(t, repoDir, "tag", "release-1.1") // second tag on same commit
+
+	repo, err := git.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tags, err := repo.Tags()
+	if err != nil {
+		t.Fatalf("failed to get tags: %v", err)
+	}
+
+	// Check v1.0.0
+	if _, ok := tags[sha1]; !ok {
+		t.Errorf("expected tag at sha %s", sha1)
+	}
+	found := false
+	for _, name := range tags[sha1] {
+		if name == "v1.0.0" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected v1.0.0 in tags at sha1, got %v", tags[sha1])
+	}
+
+	// Check v1.1.0 and release-1.1 are both at sha2
+	if _, ok := tags[sha2]; !ok {
+		t.Errorf("expected tags at sha %s", sha2)
+	}
+	if len(tags[sha2]) != 2 {
+		t.Errorf("expected 2 tags at sha2, got %d: %v", len(tags[sha2]), tags[sha2])
+	}
+}
+
+func TestLocalBranches(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "First commit")
+
+	// Create feature branch
+	gitRun(t, repoDir, "checkout", "-b", "feature")
+	addFile(t, repoDir, "feature.txt", "feature")
+	featureSHA := commit(t, repoDir, "Feature commit")
+
+	// Go back to main and add another commit
+	gitRun(t, repoDir, "checkout", "main")
+	addFile(t, repoDir, "main.txt", "main")
+	mainSHA := commit(t, repoDir, "Main commit")
+
+	repo, err := git.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	branches, err := repo.LocalBranches()
+	if err != nil {
+		t.Fatalf("failed to get branches: %v", err)
+	}
+
+	// Check main branch
+	if _, ok := branches[mainSHA]; !ok {
+		t.Errorf("expected branch at sha %s", mainSHA)
+	}
+	found := false
+	for _, name := range branches[mainSHA] {
+		if name == "main" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected main in branches at mainSHA, got %v", branches[mainSHA])
+	}
+
+	// Check feature branch
+	if _, ok := branches[featureSHA]; !ok {
+		t.Errorf("expected branch at sha %s", featureSHA)
+	}
+	found = false
+	for _, name := range branches[featureSHA] {
+		if name == "feature" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected feature in branches at featureSHA, got %v", branches[featureSHA])
+	}
+}

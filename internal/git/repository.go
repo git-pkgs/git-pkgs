@@ -99,3 +99,53 @@ func (r *Repository) FileAtCommit(commit *object.Commit, path string) (string, e
 
 	return file.Contents()
 }
+
+// Tags returns a map of commit SHA to tag names for all tags in the repository.
+func (r *Repository) Tags() (map[string][]string, error) {
+	result := make(map[string][]string)
+
+	iter, err := r.repo.Tags()
+	if err != nil {
+		return nil, fmt.Errorf("getting tags: %w", err)
+	}
+
+	err = iter.ForEach(func(ref *plumbing.Reference) error {
+		// Resolve the tag to get the commit SHA (handles both lightweight and annotated tags)
+		hash, err := r.repo.ResolveRevision(plumbing.Revision(ref.Name()))
+		if err != nil {
+			// Skip tags that can't be resolved
+			return nil
+		}
+		sha := hash.String()
+		tagName := ref.Name().Short()
+		result[sha] = append(result[sha], tagName)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// LocalBranches returns a map of commit SHA to branch names for all local branch heads.
+func (r *Repository) LocalBranches() (map[string][]string, error) {
+	result := make(map[string][]string)
+
+	iter, err := r.repo.Branches()
+	if err != nil {
+		return nil, fmt.Errorf("getting branches: %w", err)
+	}
+
+	err = iter.ForEach(func(ref *plumbing.Reference) error {
+		sha := ref.Hash().String()
+		branchName := ref.Name().Short()
+		result[sha] = append(result[sha], branchName)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}

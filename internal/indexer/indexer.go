@@ -56,6 +56,19 @@ func (idx *Indexer) Run() (*Result, error) {
 		return nil, fmt.Errorf("optimizing database: %w", err)
 	}
 
+	// Collect SHAs that should always have snapshots (tags and branch heads)
+	importantSHAs := make(map[string]bool)
+	if tags, err := idx.repo.Tags(); err == nil {
+		for sha := range tags {
+			importantSHAs[sha] = true
+		}
+	}
+	if branches, err := idx.repo.LocalBranches(); err == nil {
+		for sha := range branches {
+			importantSHAs[sha] = true
+		}
+	}
+
 	writer := database.NewBatchWriter(idx.db)
 	if idx.opts.BatchSize > 0 {
 		writer.SetBatchSize(idx.opts.BatchSize)
@@ -160,8 +173,8 @@ func (idx *Indexer) Run() (*Result, error) {
 				writer.AddChange(sha, manifest, changeInfo)
 			}
 
-			// Store snapshot at intervals
-			if writer.ShouldStoreSnapshot() {
+			// Store snapshot at intervals or for important commits (tags, branch heads)
+			if writer.ShouldStoreSnapshot() || importantSHAs[sha] {
 				for key, entry := range analysisResult.Snapshot {
 					manifest := database.ManifestInfo{
 						Path:      key.ManifestPath,
@@ -179,6 +192,25 @@ func (idx *Indexer) Run() (*Result, error) {
 					}
 					writer.AddSnapshot(sha, manifest, snapshotInfo)
 				}
+			}
+		} else if importantSHAs[sha] && len(snapshot) > 0 {
+			// Store snapshot for important commits (tags, branch heads) even without changes
+			for key, entry := range snapshot {
+				manifest := database.ManifestInfo{
+					Path:      key.ManifestPath,
+					Ecosystem: entry.Ecosystem,
+					Kind:      entry.Kind,
+				}
+				snapshotInfo := database.SnapshotInfo{
+					ManifestPath:   key.ManifestPath,
+					Name:           key.Name,
+					Ecosystem:      entry.Ecosystem,
+					PURL:           entry.PURL,
+					Requirement:    entry.Requirement,
+					DependencyType: entry.DependencyType,
+					Integrity:      entry.Integrity,
+				}
+				writer.AddSnapshot(sha, manifest, snapshotInfo)
 			}
 		}
 
