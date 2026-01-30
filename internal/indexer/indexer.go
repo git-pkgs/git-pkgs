@@ -57,16 +57,13 @@ func (idx *Indexer) Run() (*Result, error) {
 	}
 
 	// Collect SHAs that should always have snapshots (tags and branch heads)
-	importantSHAs := make(map[string]bool)
+	tagsBySHA := make(map[string][]string)
+	branchesBySHA := make(map[string][]string)
 	if tags, err := idx.repo.Tags(); err == nil {
-		for sha := range tags {
-			importantSHAs[sha] = true
-		}
+		tagsBySHA = tags
 	}
 	if branches, err := idx.repo.LocalBranches(); err == nil {
-		for sha := range branches {
-			importantSHAs[sha] = true
-		}
+		branchesBySHA = branches
 	}
 
 	writer := database.NewBatchWriter(idx.db)
@@ -174,7 +171,8 @@ func (idx *Indexer) Run() (*Result, error) {
 			}
 
 			// Store snapshot at intervals or for important commits (tags, branch heads)
-			if writer.ShouldStoreSnapshot() || importantSHAs[sha] {
+			isImportant := len(tagsBySHA[sha]) > 0 || len(branchesBySHA[sha]) > 0
+			if writer.ShouldStoreSnapshot() || isImportant {
 				for key, entry := range analysisResult.Snapshot {
 					manifest := database.ManifestInfo{
 						Path:      key.ManifestPath,
@@ -192,8 +190,11 @@ func (idx *Indexer) Run() (*Result, error) {
 					}
 					writer.AddSnapshot(sha, manifest, snapshotInfo)
 				}
+				if isImportant {
+					idx.logImportantSnapshot(sha, tagsBySHA[sha], branchesBySHA[sha])
+				}
 			}
-		} else if importantSHAs[sha] && len(snapshot) > 0 {
+		} else if len(snapshot) > 0 && (len(tagsBySHA[sha]) > 0 || len(branchesBySHA[sha]) > 0) {
 			// Store snapshot for important commits (tags, branch heads) even without changes
 			for key, entry := range snapshot {
 				manifest := database.ManifestInfo{
@@ -212,6 +213,7 @@ func (idx *Indexer) Run() (*Result, error) {
 				}
 				writer.AddSnapshot(sha, manifest, snapshotInfo)
 			}
+			idx.logImportantSnapshot(sha, tagsBySHA[sha], branchesBySHA[sha])
 		}
 
 		if writer.ShouldFlush() {
@@ -313,3 +315,16 @@ func (idx *Indexer) collectCommits(branch string, sinceSHA string) ([]*object.Co
 }
 
 var errStopIteration = fmt.Errorf("stop iteration")
+
+func (idx *Indexer) logImportantSnapshot(sha string, tags, branches []string) {
+	if idx.opts.Quiet || idx.opts.Output == nil {
+		return
+	}
+	shortSHA := sha[:7]
+	for _, tag := range tags {
+		_, _ = fmt.Fprintf(idx.opts.Output, "  Snapshot at tag %s (%s)\n", tag, shortSHA)
+	}
+	for _, branch := range branches {
+		_, _ = fmt.Fprintf(idx.opts.Output, "  Snapshot at branch %s (%s)\n", branch, shortSHA)
+	}
+}
