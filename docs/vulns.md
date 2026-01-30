@@ -28,7 +28,6 @@ $ git pkgs vulns main
 -s, --severity=LEVEL    Minimum severity (critical, high, medium, low)
 -f, --format=FORMAT     Output format (text, json, sarif)
 -b, --branch=NAME       Branch context for database queries
-    --stateless         Parse manifests directly without database
     --no-pager          Do not pipe output into a pager
 ```
 
@@ -61,7 +60,7 @@ $ git pkgs vulns -f sarif > results.sarif
 SARIF (Static Analysis Results Interchange Format) is supported by GitHub Advanced Security, VS Code, and many CI/CD platforms. Upload to GitHub:
 
 ```yaml
-- run: git pkgs vulns --stateless -f sarif > results.sarif
+- run: git pkgs vulns -f sarif > results.sarif
 - uses: github/codeql-action/upload-sarif@v3
   with:
     sarif_file: results.sarif
@@ -266,17 +265,9 @@ Vulnerability data comes from the [OSV database](https://osv.dev), which aggrega
 - Go Vulnerability Database
 - And many more
 
-## Stateless Mode
+## On-Demand Indexing
 
-By default, the vulns command uses the git-pkgs database. If the database doesn't exist, it falls back to stateless mode automatically.
-
-Force stateless mode (useful in CI):
-
-```
-$ git pkgs vulns --stateless
-```
-
-Stateless mode parses manifest files directly from git, which works without running `git pkgs init` first but provides limited historical context.
+The vulns command automatically creates and indexes the database if it doesn't exist. You don't need to run `git pkgs init` first. The database is created in `.git/pkgs.sqlite3` and indexes only the commits you query.
 
 ## Caching
 

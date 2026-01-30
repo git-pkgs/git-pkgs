@@ -100,7 +100,6 @@ git pkgs list
 git pkgs list --commit=abc123
 git pkgs list --ecosystem=rubygems
 git pkgs list --manifest=Gemfile
-git pkgs list --stateless           # parse manifests directly, no database needed
 ```
 
 Example output:
@@ -251,7 +250,6 @@ git pkgs outdated --major       # only major version updates
 git pkgs outdated --minor       # minor and major updates (skip patch)
 git pkgs outdated --at v2.0     # what was outdated when we released v2.0?
 git pkgs outdated --at 2024-03-01  # what was outdated on this date?
-git pkgs outdated --stateless   # no database needed
 ```
 
 Checks package registries (via [ecosyste.ms](https://packages.ecosyste.ms/)) to find dependencies with newer versions available. Major updates are shown in red, minor in yellow, patch in cyan.
@@ -309,7 +307,6 @@ git pkgs licenses               # show license for each dependency
 git pkgs licenses --permissive  # flag copyleft licenses
 git pkgs licenses --allow=MIT,Apache-2.0  # explicit allow list
 git pkgs licenses --group       # group output by license
-git pkgs licenses --stateless   # no database needed
 ```
 
 Fetches license information from package registries. Exits with code 1 if violations are found, making it suitable for CI.
@@ -343,7 +340,7 @@ git pkgs vulns show CVE-2024-1234  # details about a specific CVE
 Output formats: `text` (default), `json`, and `sarif`. SARIF integrates with GitHub Advanced Security:
 
 ```yaml
-- run: git pkgs vulns --stateless -f sarif > results.sarif
+- run: git pkgs vulns -f sarif > results.sarif
 - uses: github/codeql-action/upload-sarif@v3
   with:
     sarif_file: results.sarif
@@ -359,7 +356,6 @@ Show SHA256 hashes from lockfiles. Modern lockfiles include checksums that verif
 git pkgs integrity              # show hashes for current dependencies
 git pkgs integrity --drift      # detect same version with different hashes
 git pkgs integrity -f json      # JSON output
-git pkgs integrity --stateless  # no database needed
 ```
 
 The `--drift` flag scans your history for packages where the same version has different integrity hashes, which could indicate a supply chain issue.
@@ -373,7 +369,6 @@ git pkgs sbom                      # CycloneDX JSON (default)
 git pkgs sbom --type spdx          # SPDX JSON
 git pkgs sbom -f xml               # XML instead of JSON
 git pkgs sbom --name my-project    # custom project name
-git pkgs sbom --stateless          # no database needed
 ```
 
 Includes package URLs (purls), versions, and licenses (fetched from registries). Use `--skip-enrichment` to omit license lookups.
@@ -384,7 +379,7 @@ Includes package URLs (purls), versions, and licenses (fetched from registries).
 git pkgs diff                             # HEAD vs working tree
 git pkgs diff --from=abc123 --to=def456   # between two commits
 git pkgs diff --from=HEAD~10              # HEAD~10 vs working tree
-git pkgs diff main..feature --stateless   # no database needed
+git pkgs diff main..feature               # compare branches
 ```
 
 With no arguments, compares HEAD against the working tree (like `git diff`). Shows added, removed, and modified packages with version info.
@@ -408,7 +403,6 @@ Useful for comparing dependencies across different projects, archived source cod
 git pkgs show              # show dependency changes in HEAD
 git pkgs show abc123       # specific commit
 git pkgs show HEAD~5       # relative ref
-git pkgs show --stateless  # no database needed
 ```
 
 Like `git show` but for dependencies. Shows what was added, modified, or removed in a single commit.
@@ -467,7 +461,7 @@ Find when a GPL license was introduced:
 
 ```bash
 git pkgs bisect start HEAD v1.0.0
-git pkgs bisect run sh -c 'git pkgs licenses --allow=MIT,Apache-2.0 --stateless >/dev/null 2>&1'
+git pkgs bisect run sh -c 'git pkgs licenses --allow=MIT,Apache-2.0 >/dev/null 2>&1'
 ```
 
 Narrow the search with filters:
@@ -517,7 +511,7 @@ git pkgs schema --format=markdown # markdown tables
 
 ### CI usage
 
-You can run git-pkgs in CI to show dependency changes in pull requests. Use `--stateless` to skip database initialization for faster runs:
+You can run git-pkgs in CI to show dependency changes in pull requests:
 
 ```yaml
 # .github/workflows/deps.yml
@@ -535,7 +529,7 @@ jobs:
       - run: |
           curl -L https://github.com/git-pkgs/git-pkgs/releases/latest/download/git-pkgs-linux-amd64 -o git-pkgs
           chmod +x git-pkgs
-      - run: ./git-pkgs diff --from=origin/${{ github.base_ref }} --to=HEAD --stateless
+      - run: ./git-pkgs diff --from=origin/${{ github.base_ref }} --to=HEAD
 ```
 
 ### Diff driver

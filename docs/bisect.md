@@ -126,7 +126,7 @@ Find when a vulnerable version of a package was added:
 
 ```bash
 git pkgs bisect start HEAD v1.0.0
-git pkgs bisect run sh -c 'git pkgs vulns --stateless 2>/dev/null | grep -q CVE-2024-1234 && exit 1 || exit 0'
+git pkgs bisect run sh -c 'git pkgs vulns 2>/dev/null | grep -q CVE-2024-1234 && exit 1 || exit 0'
 ```
 
 ### Finding when bundle size increased
@@ -153,14 +153,14 @@ Find when a copyleft license was introduced into a project that needs to stay pe
 
 ```bash
 git pkgs bisect start HEAD v1.0.0
-git pkgs bisect run sh -c 'git pkgs licenses --stateless 2>/dev/null | grep -qE "GPL|AGPL|LGPL" && exit 1 || exit 0'
+git pkgs bisect run sh -c 'git pkgs licenses 2>/dev/null | grep -qE "GPL|AGPL|LGPL" && exit 1 || exit 0'
 ```
 
 Or with a specific allow list:
 
 ```bash
 git pkgs bisect start HEAD v1.0.0
-git pkgs bisect run sh -c 'git pkgs licenses --allow=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause --stateless >/dev/null 2>&1'
+git pkgs bisect run sh -c 'git pkgs licenses --allow=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause >/dev/null 2>&1'
 ```
 
 The `licenses --allow` command exits with code 1 if any dependency has a license not in the allow list, making it work directly with bisect run.
