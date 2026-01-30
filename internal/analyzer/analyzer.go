@@ -128,16 +128,21 @@ func (a *Analyzer) PrefetchDiffs(commits []*object.Commit, numWorkers int) {
 			continue
 		}
 
-		// Name-status line (starts with A, M, D followed by tab)
-		if currentDiff != nil && len(line) >= 2 && (line[0] == 'A' || line[0] == 'M' || line[0] == 'D') && line[1] == '\t' {
-			status := line[0]
-			path := line[2:] // Skip status and tab
+		// Name-status line: A/M/D followed by tab, or R/C followed by digits and tab
+		if currentDiff == nil || len(line) < 2 {
+			continue
+		}
 
-			_, _, ok := manifests.Identify(path)
-			if !ok {
+		status := line[0]
+		switch status {
+		case 'A', 'M', 'D':
+			if line[1] != '\t' {
 				continue
 			}
-
+			path := line[2:]
+			if _, _, ok := manifests.Identify(path); !ok {
+				continue
+			}
 			switch status {
 			case 'A':
 				currentDiff.added = append(currentDiff.added, path)
@@ -145,6 +150,29 @@ func (a *Analyzer) PrefetchDiffs(commits []*object.Commit, numWorkers int) {
 				currentDiff.modified = append(currentDiff.modified, path)
 			case 'D':
 				currentDiff.deleted = append(currentDiff.deleted, path)
+			}
+
+		case 'R', 'C':
+			// Rename/Copy: R063\told_path\tnew_path or C063\told_path\tnew_path
+			// Find the first tab to skip the status+percentage
+			firstTab := strings.Index(line, "\t")
+			if firstTab == -1 {
+				continue
+			}
+			rest := line[firstTab+1:]
+			secondTab := strings.Index(rest, "\t")
+			if secondTab == -1 {
+				continue
+			}
+			oldPath := rest[:secondTab]
+			newPath := rest[secondTab+1:]
+
+			// Treat rename as delete old + add new
+			if _, _, ok := manifests.Identify(oldPath); ok {
+				currentDiff.deleted = append(currentDiff.deleted, oldPath)
+			}
+			if _, _, ok := manifests.Identify(newPath); ok {
+				currentDiff.added = append(currentDiff.added, newPath)
 			}
 		}
 	}

@@ -121,7 +121,7 @@ func diffBetweenCommits(repo *git.Repository, fromRef, toRef string) (*DiffResul
 
 // diffWithWorkingTree compares dependencies between a commit and the working tree.
 func diffWithWorkingTree(repo *git.Repository, fromRef string) (*DiffResult, error) {
-	fromDeps, err := repo.GetDependencies( fromRef, "")
+	fromDeps, err := repo.GetDependencies(fromRef, "")
 	if err != nil {
 		return nil, fmt.Errorf("getting deps at %s: %w", fromRef, err)
 	}
