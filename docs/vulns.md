@@ -265,10 +265,6 @@ Vulnerability data comes from the [OSV database](https://osv.dev), which aggrega
 - Go Vulnerability Database
 - And many more
 
-## On-Demand Indexing
-
-The vulns command automatically creates and indexes the database if it doesn't exist. You don't need to run `git pkgs init` first. The database is created in `.git/pkgs.sqlite3` and indexes only the commits you query.
-
 ## Caching
 
 Vulnerability data is cached in the database to avoid repeated API calls. Each package tracks when its vulnerabilities were last fetched. Packages are automatically refreshed if their data is more than 24 hours old.
