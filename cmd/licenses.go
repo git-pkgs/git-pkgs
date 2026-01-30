@@ -27,7 +27,7 @@ Licenses are normalized to SPDX identifiers when possible.`,
 	}
 
 	licensesCmd.Flags().StringP("commit", "c", "", "Check licenses at specific commit (default: HEAD)")
-	licensesCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
+	licensesCmd.Flags().StringP("branch", "b", "", "Branch to query (default: current branch)")
 	licensesCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	licensesCmd.Flags().StringP("format", "f", "text", "Output format: text, json, csv")
 	licensesCmd.Flags().StringSlice("allow", nil, "Only allow these licenses (exit 1 on violation)")
@@ -36,7 +36,6 @@ Licenses are normalized to SPDX identifiers when possible.`,
 	licensesCmd.Flags().Bool("copyleft", false, "Flag copyleft licenses (GPL, AGPL)")
 	licensesCmd.Flags().Bool("unknown", false, "Flag packages with unknown licenses")
 	licensesCmd.Flags().Bool("group", false, "Group output by license")
-	licensesCmd.Flags().Bool("stateless", false, "Parse manifests directly without database")
 	parent.AddCommand(licensesCmd)
 }
 
@@ -64,54 +63,18 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	flagCopyleft, _ := cmd.Flags().GetBool("copyleft")
 	flagUnknown, _ := cmd.Flags().GetBool("unknown")
 	groupBy, _ := cmd.Flags().GetBool("group")
-	stateless, _ := cmd.Flags().GetBool("stateless")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	var deps []database.Dependency
-	var db *database.DB
-
-	if stateless {
-		deps, err = listStateless(repo, commit)
-		if err != nil {
-			return err
-		}
-	} else {
-		dbPath := repo.DatabasePath()
-		if !database.Exists(dbPath) {
-			return fmt.Errorf("database not found. Run 'git pkgs init' first")
-		}
-
-		db, err = database.Open(dbPath)
-		if err != nil {
-			return fmt.Errorf("opening database: %w", err)
-		}
+	deps, db, err := getDependenciesWithDB(repo, commit, branchName)
+	if db != nil {
 		defer func() { _ = db.Close() }()
-
-		var branch *database.BranchInfo
-		if branchName != "" {
-			branch, err = db.GetBranch(branchName)
-			if err != nil {
-				return fmt.Errorf("branch %q not found: %w", branchName, err)
-			}
-		} else {
-			branch, err = db.GetDefaultBranch()
-			if err != nil {
-				return fmt.Errorf("getting branch: %w", err)
-			}
-		}
-
-		if commit != "" {
-			deps, err = db.GetDependenciesAtRef(commit, branch.ID)
-		} else {
-			deps, err = db.GetLatestDependencies(branch.ID)
-		}
-		if err != nil {
-			return fmt.Errorf("getting dependencies: %w", err)
-		}
+	}
+	if err != nil {
+		return err
 	}
 
 	if ecosystem != "" {

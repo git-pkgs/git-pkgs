@@ -26,12 +26,11 @@ The SBOM includes all dependencies and optionally enriched license information.`
 	sbomCmd.Flags().StringP("type", "t", "cyclonedx", "SBOM type: cyclonedx, spdx")
 	sbomCmd.Flags().StringP("format", "f", "json", "Output format: json, xml")
 	sbomCmd.Flags().StringP("commit", "c", "", "Generate SBOM at specific commit (default: HEAD)")
-	sbomCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
+	sbomCmd.Flags().StringP("branch", "b", "", "Branch to query (default: current branch)")
 	sbomCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	sbomCmd.Flags().String("name", "", "Project name (default: git directory name)")
 	sbomCmd.Flags().String("version", "", "Project version")
 	sbomCmd.Flags().Bool("skip-enrichment", false, "Skip license enrichment from ecosyste.ms")
-	sbomCmd.Flags().Bool("stateless", false, "Parse manifests directly without database")
 	parent.AddCommand(sbomCmd)
 }
 
@@ -128,54 +127,18 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 	projectName, _ := cmd.Flags().GetString("name")
 	projectVersion, _ := cmd.Flags().GetString("version")
 	skipEnrichment, _ := cmd.Flags().GetBool("skip-enrichment")
-	stateless, _ := cmd.Flags().GetBool("stateless")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	var deps []database.Dependency
-	var db *database.DB
-
-	if stateless {
-		deps, err = listStateless(repo, commit)
-		if err != nil {
-			return err
-		}
-	} else {
-		dbPath := repo.DatabasePath()
-		if !database.Exists(dbPath) {
-			return fmt.Errorf("database not found. Run 'git pkgs init' first")
-		}
-
-		db, err = database.Open(dbPath)
-		if err != nil {
-			return fmt.Errorf("opening database: %w", err)
-		}
+	deps, db, err := getDependenciesWithDB(repo, commit, branchName)
+	if db != nil {
 		defer func() { _ = db.Close() }()
-
-		var branch *database.BranchInfo
-		if branchName != "" {
-			branch, err = db.GetBranch(branchName)
-			if err != nil {
-				return fmt.Errorf("branch %q not found: %w", branchName, err)
-			}
-		} else {
-			branch, err = db.GetDefaultBranch()
-			if err != nil {
-				return fmt.Errorf("getting branch: %w", err)
-			}
-		}
-
-		if commit != "" {
-			deps, err = db.GetDependenciesAtRef(commit, branch.ID)
-		} else {
-			deps, err = db.GetLatestDependencies(branch.ID)
-		}
-		if err != nil {
-			return fmt.Errorf("getting dependencies: %w", err)
-		}
+	}
+	if err != nil {
+		return err
 	}
 
 	if ecosystem != "" {

@@ -275,6 +275,103 @@ func TestMultipleVersionsSamePackage(t *testing.T) {
 	}
 }
 
+func TestStoreSnapshotWithDuplicates(t *testing.T) {
+	// Test that StoreSnapshot handles duplicate entries gracefully.
+	// This can happen when a manifest parser returns the same dependency
+	// multiple times (e.g., different platforms or groups in Gemfile.lock).
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "pkgs.sqlite3")
+
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Create a branch
+	branch, err := db.GetOrCreateBranch("main")
+	if err != nil {
+		t.Fatalf("failed to create branch: %v", err)
+	}
+
+	// Create snapshots with duplicates (same manifest, name, requirement)
+	snapshots := []database.SnapshotInfo{
+		{
+			ManifestPath:   "Gemfile.lock",
+			Name:           "rails",
+			Ecosystem:      "rubygems",
+			Requirement:    "7.0.0",
+			DependencyType: "runtime",
+		},
+		{
+			ManifestPath:   "Gemfile.lock",
+			Name:           "rails",
+			Ecosystem:      "rubygems",
+			Requirement:    "7.0.0",
+			DependencyType: "runtime",
+		},
+		{
+			ManifestPath:   "Gemfile.lock",
+			Name:           "rails",
+			Ecosystem:      "rubygems",
+			Requirement:    "7.0.0",
+			DependencyType: "development", // Different dep type, same key
+		},
+		{
+			ManifestPath:   "Gemfile.lock",
+			Name:           "puma",
+			Ecosystem:      "rubygems",
+			Requirement:    "6.0.0",
+			DependencyType: "runtime",
+		},
+	}
+
+	commit := database.CommitInfo{
+		SHA:     "abc123def456",
+		Message: "test commit",
+	}
+
+	// This should not fail even with duplicates
+	err = db.StoreSnapshot(branch.ID, commit, snapshots)
+	if err != nil {
+		t.Fatalf("StoreSnapshot failed with duplicates: %v", err)
+	}
+
+	// Verify only unique entries were stored
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM dependency_snapshots WHERE name = 'rails'").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 rails entry (deduplicated), got %d", count)
+	}
+
+	// Verify puma was also stored
+	err = db.QueryRow("SELECT COUNT(*) FROM dependency_snapshots WHERE name = 'puma'").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to count puma: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 puma entry, got %d", count)
+	}
+
+	// Calling StoreSnapshot again for the same commit should be a no-op
+	err = db.StoreSnapshot(branch.ID, commit, snapshots)
+	if err != nil {
+		t.Fatalf("StoreSnapshot failed on second call: %v", err)
+	}
+
+	// Count should still be 1
+	err = db.QueryRow("SELECT COUNT(*) FROM dependency_snapshots WHERE name = 'rails'").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to count after second call: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 rails entry after second call, got %d", count)
+	}
+}
+
 func TestSchemaIndexes(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "pkgs.sqlite3")

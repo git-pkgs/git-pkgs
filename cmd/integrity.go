@@ -25,12 +25,11 @@ drift where the same version has different hashes across manifests.`,
 	}
 
 	integrityCmd.Flags().StringP("commit", "c", "", "Check integrity at specific commit (default: HEAD)")
-	integrityCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
+	integrityCmd.Flags().StringP("branch", "b", "", "Branch to query (default: current branch)")
 	integrityCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	integrityCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	integrityCmd.Flags().Bool("drift", false, "Only show packages with integrity drift")
 	integrityCmd.Flags().Bool("registry", false, "Check integrity against package registry")
-	integrityCmd.Flags().Bool("stateless", false, "Parse manifests directly without database")
 	parent.AddCommand(integrityCmd)
 }
 
@@ -69,53 +68,18 @@ func runIntegrity(cmd *cobra.Command, args []string) error {
 	format, _ := cmd.Flags().GetString("format")
 	driftOnly, _ := cmd.Flags().GetBool("drift")
 	checkRegistry, _ := cmd.Flags().GetBool("registry")
-	stateless, _ := cmd.Flags().GetBool("stateless")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	var deps []database.Dependency
-
-	if stateless {
-		deps, err = listStateless(repo, commit)
-		if err != nil {
-			return err
-		}
-	} else {
-		dbPath := repo.DatabasePath()
-		if !database.Exists(dbPath) {
-			return fmt.Errorf("database not found. Run 'git pkgs init' first")
-		}
-
-		db, err := database.Open(dbPath)
-		if err != nil {
-			return fmt.Errorf("opening database: %w", err)
-		}
+	deps, db, err := getDependenciesWithDB(repo, commit, branchName)
+	if db != nil {
 		defer func() { _ = db.Close() }()
-
-		var branch *database.BranchInfo
-		if branchName != "" {
-			branch, err = db.GetBranch(branchName)
-			if err != nil {
-				return fmt.Errorf("branch %q not found: %w", branchName, err)
-			}
-		} else {
-			branch, err = db.GetDefaultBranch()
-			if err != nil {
-				return fmt.Errorf("getting branch: %w", err)
-			}
-		}
-
-		if commit != "" {
-			deps, err = db.GetDependenciesAtRef(commit, branch.ID)
-		} else {
-			deps, err = db.GetLatestDependencies(branch.ID)
-		}
-		if err != nil {
-			return fmt.Errorf("getting dependencies: %w", err)
-		}
+	}
+	if err != nil {
+		return err
 	}
 
 	// Filter by ecosystem

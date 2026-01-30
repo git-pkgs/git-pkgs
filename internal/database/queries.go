@@ -53,6 +53,48 @@ func (db *DB) GetDefaultBranch() (*BranchInfo, error) {
 	return &info, nil
 }
 
+// GetOrCreateBranch returns the branch with the given name, creating it if it doesn't exist.
+func (db *DB) GetOrCreateBranch(name string) (*BranchInfo, error) {
+	info, err := db.GetBranch(name)
+	if err == nil {
+		return info, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+
+	// Branch doesn't exist, create it
+	now := time.Now()
+	result, err := db.Exec(
+		"INSERT INTO branches (name, created_at, updated_at) VALUES (?, ?, ?)",
+		name, now, now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating branch: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	return &BranchInfo{ID: id, Name: name}, nil
+}
+
+// HasSnapshotForCommit checks if we have snapshot data stored for a specific commit.
+func (db *DB) HasSnapshotForCommit(sha string) (bool, error) {
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM dependency_snapshots ds
+		JOIN commits c ON c.id = ds.commit_id
+		WHERE c.sha = ?
+	`, sha).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (db *DB) GetBranches() ([]BranchInfo, error) {
 	rows, err := db.Query(`
 		SELECT b.id, b.name, b.last_analyzed_sha, COUNT(bc.id) as commit_count
@@ -2068,3 +2110,103 @@ func (db *DB) GetCommitAtPosition(position int, branchID int64) (string, error) 
 	`, position, branchID).Scan(&sha)
 	return sha, err
 }
+
+// StoreSnapshot stores dependency snapshot data for a commit.
+// Creates the commit and branch_commit records if they don't exist.
+func (db *DB) StoreSnapshot(branchID int64, commit CommitInfo, snapshots []SnapshotInfo) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now()
+
+	// Get or create the commit
+	var commitID int64
+	err = tx.QueryRow("SELECT id FROM commits WHERE sha = ?", commit.SHA).Scan(&commitID)
+	if err == sql.ErrNoRows {
+		result, err := tx.Exec(`
+			INSERT INTO commits (sha, message, author_name, author_email, committed_at, has_dependency_changes, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+		`, commit.SHA, commit.Message, commit.AuthorName, commit.AuthorEmail, commit.CommittedAt, now, now)
+		if err != nil {
+			return fmt.Errorf("inserting commit: %w", err)
+		}
+		commitID, err = result.LastInsertId()
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return fmt.Errorf("checking commit: %w", err)
+	}
+
+	// Check if already linked to this branch
+	var existingLink int
+	err = tx.QueryRow("SELECT 1 FROM branch_commits WHERE branch_id = ? AND commit_id = ?", branchID, commitID).Scan(&existingLink)
+	if err == sql.ErrNoRows {
+		// Get next position
+		var maxPos sql.NullInt64
+		_ = tx.QueryRow("SELECT MAX(position) FROM branch_commits WHERE branch_id = ?", branchID).Scan(&maxPos)
+		pos := 1
+		if maxPos.Valid {
+			pos = int(maxPos.Int64) + 1
+		}
+		_, err = tx.Exec("INSERT INTO branch_commits (branch_id, commit_id, position) VALUES (?, ?, ?)", branchID, commitID, pos)
+		if err != nil {
+			return fmt.Errorf("linking commit to branch: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("checking branch_commit: %w", err)
+	}
+
+	// Check if we already have snapshots for this commit
+	var snapshotCount int
+	_ = tx.QueryRow("SELECT COUNT(*) FROM dependency_snapshots WHERE commit_id = ?", commitID).Scan(&snapshotCount)
+	if snapshotCount > 0 {
+		// Already have snapshots, nothing to do
+		return tx.Commit()
+	}
+
+	// Create manifests and snapshots
+	manifestCache := make(map[string]int64)
+	for _, s := range snapshots {
+		// Get or create manifest
+		manifestID, ok := manifestCache[s.ManifestPath]
+		if !ok {
+			err = tx.QueryRow("SELECT id FROM manifests WHERE path = ?", s.ManifestPath).Scan(&manifestID)
+			if err == sql.ErrNoRows {
+				kind := "manifest"
+				if s.Integrity != "" {
+					kind = "lockfile"
+				}
+				result, err := tx.Exec(
+					"INSERT INTO manifests (path, ecosystem, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+					s.ManifestPath, s.Ecosystem, kind, now, now,
+				)
+				if err != nil {
+					return fmt.Errorf("inserting manifest: %w", err)
+				}
+				manifestID, err = result.LastInsertId()
+				if err != nil {
+					return err
+				}
+			} else if err != nil {
+				return fmt.Errorf("checking manifest: %w", err)
+			}
+			manifestCache[s.ManifestPath] = manifestID
+		}
+
+		// Insert snapshot (use OR IGNORE to handle duplicates within the same manifest)
+		_, err = tx.Exec(`
+			INSERT OR IGNORE INTO dependency_snapshots (commit_id, manifest_id, name, ecosystem, purl, requirement, dependency_type, integrity, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, commitID, manifestID, s.Name, s.Ecosystem, s.PURL, s.Requirement, s.DependencyType, s.Integrity, now, now)
+		if err != nil {
+			return fmt.Errorf("inserting snapshot: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+

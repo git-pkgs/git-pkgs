@@ -113,20 +113,21 @@ func TestIntegrityCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("stateless mode works", func(t *testing.T) {
+	t.Run("on-demand indexing without init", func(t *testing.T) {
 		repoDir := createTestRepo(t)
 		addFileAndCommit(t, repoDir, "package-lock.json", packageLockJSON, "Add lockfile")
 
 		cleanup := chdir(t, repoDir)
 		defer cleanup()
 
+		// Don't init - should create database on demand
 		var stdout bytes.Buffer
 		rootCmd := cmd.NewRootCmd()
-		rootCmd.SetArgs([]string{"integrity", "--stateless"})
+		rootCmd.SetArgs([]string{"integrity"})
 		rootCmd.SetOut(&stdout)
 
 		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("integrity --stateless failed: %v", err)
+			t.Fatalf("integrity with on-demand indexing failed: %v", err)
 		}
 	})
 }

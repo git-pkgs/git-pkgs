@@ -182,26 +182,59 @@ func TestListCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("stateless mode works without database", func(t *testing.T) {
+	t.Run("on-demand indexing without init", func(t *testing.T) {
 		repoDir := createTestRepo(t)
 		addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add package.json")
 
 		cleanup := chdir(t, repoDir)
 		defer cleanup()
 
-		// Don't init - use stateless mode
+		// Don't init - should create database on demand
 		var stdout bytes.Buffer
 		rootCmd := cmd.NewRootCmd()
-		rootCmd.SetArgs([]string{"list", "--stateless"})
+		rootCmd.SetArgs([]string{"list"})
 		rootCmd.SetOut(&stdout)
 
 		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("list --stateless failed: %v", err)
+			t.Fatalf("list with on-demand indexing failed: %v", err)
 		}
 
 		output := stdout.String()
 		if !strings.Contains(output, "express") {
 			t.Error("expected output to contain 'express'")
+		}
+	})
+
+	t.Run("on-demand indexing with manifest and lockfile", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+		// Add both package.json and package-lock.json which have overlapping dependencies
+		addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add package.json")
+		addFileAndCommit(t, repoDir, "package-lock.json", packageLockJSON, "Add package-lock.json")
+
+		cleanup := chdir(t, repoDir)
+		defer cleanup()
+
+		// Don't init - should create database on demand
+		var stdout bytes.Buffer
+		rootCmd := cmd.NewRootCmd()
+		rootCmd.SetArgs([]string{"list"})
+		rootCmd.SetOut(&stdout)
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("list with on-demand indexing failed: %v", err)
+		}
+
+		output := stdout.String()
+		if !strings.Contains(output, "express") {
+			t.Error("expected output to contain 'express'")
+		}
+		if !strings.Contains(output, "lodash") {
+			t.Error("expected output to contain 'lodash'")
+		}
+
+		// Verify database was created
+		if _, err := os.Stat(filepath.Join(repoDir, ".git", "pkgs.sqlite3")); os.IsNotExist(err) {
+			t.Error("expected database to be created on demand")
 		}
 	})
 }
@@ -283,7 +316,7 @@ func TestShowCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("stateless mode works", func(t *testing.T) {
+	t.Run("on-demand indexing without init", func(t *testing.T) {
 		repoDir := createTestRepo(t)
 		addFileAndCommit(t, repoDir, "README.md", "# Test", "Initial commit")
 		addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add dependencies")
@@ -291,13 +324,14 @@ func TestShowCommand(t *testing.T) {
 		cleanup := chdir(t, repoDir)
 		defer cleanup()
 
+		// Don't init - should create database on demand
 		var stdout bytes.Buffer
 		rootCmd := cmd.NewRootCmd()
-		rootCmd.SetArgs([]string{"show", "--stateless"})
+		rootCmd.SetArgs([]string{"show"})
 		rootCmd.SetOut(&stdout)
 
 		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("show --stateless failed: %v", err)
+			t.Fatalf("show with on-demand indexing failed: %v", err)
 		}
 	})
 }
@@ -337,30 +371,6 @@ func TestDiffCommand(t *testing.T) {
 
 		if err := rootCmd.Execute(); err != nil {
 			t.Fatalf("diff failed: %v", err)
-		}
-
-		output := stdout.String()
-		if !strings.Contains(output, "No dependency changes") {
-			t.Errorf("expected 'No dependency changes' for clean working tree, got: %s", output)
-		}
-	})
-
-	t.Run("clean working tree shows no changes stateless", func(t *testing.T) {
-		repoDir := createTestRepo(t)
-		addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add deps")
-		addFileAndCommit(t, repoDir, "package-lock.json", packageLockJSON, "Add lockfile")
-
-		cleanup := chdir(t, repoDir)
-		defer cleanup()
-
-		// Run diff with no args (HEAD vs working tree) - working tree is clean
-		var stdout bytes.Buffer
-		rootCmd := cmd.NewRootCmd()
-		rootCmd.SetArgs([]string{"diff", "--stateless"})
-		rootCmd.SetOut(&stdout)
-
-		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("diff --stateless failed: %v", err)
 		}
 
 		output := stdout.String()
@@ -422,7 +432,7 @@ jobs:
 
 		var stdout bytes.Buffer
 		rootCmd := cmd.NewRootCmd()
-		rootCmd.SetArgs([]string{"diff", "--stateless"})
+		rootCmd.SetArgs([]string{"diff"})
 		rootCmd.SetOut(&stdout)
 
 		if err := rootCmd.Execute(); err != nil {
@@ -445,7 +455,7 @@ jobs:
 
 		var stdout bytes.Buffer
 		rootCmd := cmd.NewRootCmd()
-		rootCmd.SetArgs([]string{"diff", "HEAD~1..HEAD", "--stateless"})
+		rootCmd.SetArgs([]string{"diff", "HEAD~1..HEAD"})
 		rootCmd.SetOut(&stdout)
 
 		if err := rootCmd.Execute(); err != nil {
@@ -545,7 +555,7 @@ jobs:
 		}
 	})
 
-	t.Run("stateless mode works", func(t *testing.T) {
+	t.Run("on-demand indexing without init", func(t *testing.T) {
 		repoDir := createTestRepo(t)
 		addFileAndCommit(t, repoDir, "package.json", `{"dependencies":{"lodash":"^4.17.0"}}`, "Initial deps")
 		addFileAndCommit(t, repoDir, "package.json", packageJSON, "Update deps")
@@ -553,13 +563,14 @@ jobs:
 		cleanup := chdir(t, repoDir)
 		defer cleanup()
 
+		// Don't init - should create database on demand
 		var stdout bytes.Buffer
 		rootCmd := cmd.NewRootCmd()
-		rootCmd.SetArgs([]string{"diff", "HEAD~1..HEAD", "--stateless"})
+		rootCmd.SetArgs([]string{"diff", "HEAD~1..HEAD"})
 		rootCmd.SetOut(&stdout)
 
 		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("diff --stateless failed: %v", err)
+			t.Fatalf("diff with on-demand indexing failed: %v", err)
 		}
 	})
 }
@@ -909,7 +920,7 @@ func TestBranchBehavior(t *testing.T) {
 		// Diff main..feature should show axios added
 		var stdout bytes.Buffer
 		rootCmd = cmd.NewRootCmd()
-		rootCmd.SetArgs([]string{"diff", "main..feature", "--stateless"})
+		rootCmd.SetArgs([]string{"diff", "main..feature"})
 		rootCmd.SetOut(&stdout)
 
 		if err := rootCmd.Execute(); err != nil {

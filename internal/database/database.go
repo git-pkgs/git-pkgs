@@ -40,6 +40,27 @@ func Create(path string) (*DB, error) {
 	return db, nil
 }
 
+// OpenOrCreate opens an existing database or creates a new one if it doesn't exist.
+func OpenOrCreate(path string) (*DB, bool, error) {
+	existed := Exists(path)
+	if existed {
+		db, err := Open(path)
+		return db, true, err
+	}
+
+	db, err := Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if err := db.CreateSchema(); err != nil {
+		_ = db.Close()
+		return nil, false, fmt.Errorf("creating schema: %w", err)
+	}
+
+	return db, false, nil
+}
+
 func Open(path string) (*DB, error) {
 	sqlDB, err := sql.Open("sqlite", path)
 	if err != nil {

@@ -335,11 +335,10 @@ Use --live to always query OSV directly.`,
 	}
 
 	scanCmd.Flags().StringP("commit", "c", "", "Scan dependencies at specific commit (default: HEAD)")
-	scanCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
+	scanCmd.Flags().StringP("branch", "b", "", "Branch to query (default: current branch)")
 	scanCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	scanCmd.Flags().StringP("severity", "s", "", "Minimum severity to report: critical, high, medium, low")
 	scanCmd.Flags().StringP("format", "f", "text", "Output format: text, json, sarif")
-	scanCmd.Flags().Bool("stateless", false, "Parse manifests directly without database")
 	scanCmd.Flags().Bool("live", false, "Query OSV directly instead of using cached data")
 	parent.AddCommand(scanCmd)
 }
@@ -350,7 +349,6 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	severity, _ := cmd.Flags().GetString("severity")
 	format, _ := cmd.Flags().GetString("format")
-	stateless, _ := cmd.Flags().GetBool("stateless")
 	live, _ := cmd.Flags().GetBool("live")
 
 	repo, err := git.OpenRepository(".")
@@ -358,49 +356,12 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	var deps []database.Dependency
-	var db *database.DB
-
-	if stateless {
-		deps, err = listStateless(repo, commit)
-		if err != nil {
-			return err
-		}
-		// Stateless mode implies live queries
-		live = true
-	} else {
-		dbPath := repo.DatabasePath()
-		if !database.Exists(dbPath) {
-			return fmt.Errorf("database not found. Run 'git pkgs init' first")
-		}
-
-		db, err = database.Open(dbPath)
-		if err != nil {
-			return fmt.Errorf("opening database: %w", err)
-		}
+	deps, db, err := getDependenciesWithDB(repo, commit, branchName)
+	if db != nil {
 		defer func() { _ = db.Close() }()
-
-		var branch *database.BranchInfo
-		if branchName != "" {
-			branch, err = db.GetBranch(branchName)
-			if err != nil {
-				return fmt.Errorf("branch %q not found: %w", branchName, err)
-			}
-		} else {
-			branch, err = db.GetDefaultBranch()
-			if err != nil {
-				return fmt.Errorf("getting branch: %w", err)
-			}
-		}
-
-		if commit != "" {
-			deps, err = db.GetDependenciesAtRef(commit, branch.ID)
-		} else {
-			deps, err = db.GetLatestDependencies(branch.ID)
-		}
-		if err != nil {
-			return fmt.Errorf("getting dependencies: %w", err)
-		}
+	}
+	if err != nil {
+		return err
 	}
 
 	// Filter by ecosystem

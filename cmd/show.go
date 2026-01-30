@@ -23,7 +23,6 @@ Defaults to HEAD if no commit is specified.`,
 
 	showCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	showCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
-	showCmd.Flags().Bool("stateless", false, "Parse manifests directly without database")
 	parent.AddCommand(showCmd)
 }
 
@@ -35,20 +34,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	format, _ := cmd.Flags().GetString("format")
-	stateless, _ := cmd.Flags().GetBool("stateless")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	var changes []database.Change
-
-	if stateless {
-		changes, err = showStateless(repo, commitRef)
-	} else {
-		changes, err = showFromDB(repo, commitRef)
-	}
+	changes, err := getChangesForCommit(repo, commitRef)
 	if err != nil {
 		return err
 	}
@@ -78,33 +70,29 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func showFromDB(repo *git.Repository, commitRef string) ([]database.Change, error) {
+// getChangesForCommit returns the dependency changes introduced in a specific commit.
+// It first checks the database, falling back to direct analysis if needed.
+func getChangesForCommit(repo *git.Repository, commitRef string) ([]database.Change, error) {
+	hash, err := repo.ResolveRevision(commitRef)
+	if err != nil {
+		return nil, fmt.Errorf("resolving %q: %w", commitRef, err)
+	}
+	sha := hash.String()
+
+	// Try database first
 	dbPath := repo.DatabasePath()
-	if !database.Exists(dbPath) {
-		return nil, fmt.Errorf("database not found. Run 'git pkgs init' first")
+	if database.Exists(dbPath) {
+		db, err := database.Open(dbPath)
+		if err == nil {
+			defer func() { _ = db.Close() }()
+			changes, err := db.GetChangesForCommit(sha)
+			if err == nil && len(changes) > 0 {
+				return changes, nil
+			}
+		}
 	}
 
-	db, err := database.Open(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("opening database: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	// Resolve the ref to a full SHA
-	hash, err := repo.ResolveRevision(commitRef)
-	if err != nil {
-		return nil, fmt.Errorf("resolving %q: %w", commitRef, err)
-	}
-
-	return db.GetChangesForCommit(hash.String())
-}
-
-func showStateless(repo *git.Repository, commitRef string) ([]database.Change, error) {
-	hash, err := repo.ResolveRevision(commitRef)
-	if err != nil {
-		return nil, fmt.Errorf("resolving %q: %w", commitRef, err)
-	}
-
+	// Fall back to direct analysis
 	commit, err := repo.CommitObject(*hash)
 	if err != nil {
 		return nil, fmt.Errorf("getting commit: %w", err)
