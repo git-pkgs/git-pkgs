@@ -356,7 +356,7 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	deps, db, err := getDependenciesWithDB(repo, commit, branchName)
+	deps, db, err := repo.GetDependenciesWithDB(commit, branchName)
 	if db != nil {
 		defer func() { _ = db.Close() }()
 	}

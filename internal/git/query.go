@@ -1,40 +1,39 @@
-package cmd
+package git
 
 import (
 	"fmt"
 
 	"github.com/git-pkgs/git-pkgs/internal/analyzer"
 	"github.com/git-pkgs/git-pkgs/internal/database"
-	"github.com/git-pkgs/git-pkgs/internal/git"
 )
 
-// getDependencies returns dependencies at the specified commit, indexing on demand if needed.
+// GetDependencies returns dependencies at the specified commit, indexing on demand if needed.
 // The database is closed before returning.
-func getDependencies(repo *git.Repository, commitRef, branchName string) ([]database.Dependency, error) {
-	deps, db, err := getDependenciesWithDB(repo, commitRef, branchName)
+func (r *Repository) GetDependencies(commitRef, branchName string) ([]database.Dependency, error) {
+	deps, db, err := r.GetDependenciesWithDB(commitRef, branchName)
 	if db != nil {
 		_ = db.Close()
 	}
 	return deps, err
 }
 
-// getDependenciesWithDB returns dependencies at the specified commit along with an open
+// GetDependenciesWithDB returns dependencies at the specified commit along with an open
 // database handle. The caller is responsible for closing the database.
 // This is useful for commands that need to cache enrichment data.
-func getDependenciesWithDB(repo *git.Repository, commitRef, branchName string) ([]database.Dependency, *database.DB, error) {
+func (r *Repository) GetDependenciesWithDB(commitRef, branchName string) ([]database.Dependency, *database.DB, error) {
 	if commitRef == "" {
 		commitRef = "HEAD"
 	}
 
 	// Resolve the commit
-	hash, err := repo.ResolveRevision(commitRef)
+	hash, err := r.ResolveRevision(commitRef)
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolving %q: %w", commitRef, err)
 	}
 	sha := hash.String()
 
 	// Open or create database
-	dbPath := repo.DatabasePath()
+	dbPath := r.DatabasePath()
 	db, existed, err := database.OpenOrCreate(dbPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening database: %w", err)
@@ -50,7 +49,7 @@ func getDependenciesWithDB(repo *git.Repository, commitRef, branchName string) (
 		}
 		if branchName == "" {
 			// Fall back to current git branch
-			branchName, err = repo.CurrentBranch()
+			branchName, err = r.CurrentBranch()
 			if err != nil {
 				branchName = "main" // Last resort default
 			}
@@ -73,7 +72,7 @@ func getDependenciesWithDB(repo *git.Repository, commitRef, branchName string) (
 
 	if !hasSnapshot {
 		// Index this commit on demand
-		if err := indexCommitSnapshot(repo, db, branchInfo.ID, sha); err != nil {
+		if err := r.IndexCommitSnapshot(db, branchInfo.ID, sha); err != nil {
 			_ = db.Close()
 			return nil, nil, fmt.Errorf("indexing commit: %w", err)
 		}
@@ -89,14 +88,14 @@ func getDependenciesWithDB(repo *git.Repository, commitRef, branchName string) (
 	return deps, db, nil
 }
 
-// indexCommitSnapshot analyzes a single commit and stores its snapshot.
-func indexCommitSnapshot(repo *git.Repository, db *database.DB, branchID int64, sha string) error {
-	hash, err := repo.ResolveRevision(sha)
+// IndexCommitSnapshot analyzes a single commit and stores its snapshot.
+func (r *Repository) IndexCommitSnapshot(db *database.DB, branchID int64, sha string) error {
+	hash, err := r.ResolveRevision(sha)
 	if err != nil {
 		return fmt.Errorf("resolving %q: %w", sha, err)
 	}
 
-	commit, err := repo.CommitObject(*hash)
+	commit, err := r.CommitObject(*hash)
 	if err != nil {
 		return fmt.Errorf("getting commit: %w", err)
 	}

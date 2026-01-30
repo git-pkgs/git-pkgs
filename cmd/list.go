@@ -41,7 +41,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	deps, db, err := getDependenciesWithDB(repo, commitRef, branchName)
+	deps, db, err := repo.GetDependenciesWithDB(commitRef, branchName)
 	if db != nil {
 		defer func() { _ = db.Close() }()
 	}
