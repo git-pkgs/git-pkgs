@@ -21,9 +21,11 @@ type Options struct {
 }
 
 type Result struct {
-	CommitsAnalyzed int
+	CommitsAnalyzed    int
 	CommitsWithChanges int
-	TotalChanges int
+	TotalChanges       int
+	TagSnapshots       int
+	BranchSnapshots    int
 }
 
 type Indexer struct {
@@ -192,6 +194,8 @@ func (idx *Indexer) Run() (*Result, error) {
 				}
 				if isImportant {
 					idx.logImportantSnapshot(sha, tagsBySHA[sha], branchesBySHA[sha])
+					result.TagSnapshots += len(tagsBySHA[sha])
+					result.BranchSnapshots += len(branchesBySHA[sha])
 				}
 			}
 		} else if len(snapshot) > 0 && (len(tagsBySHA[sha]) > 0 || len(branchesBySHA[sha]) > 0) {
@@ -214,6 +218,8 @@ func (idx *Indexer) Run() (*Result, error) {
 				writer.AddSnapshot(sha, manifest, snapshotInfo)
 			}
 			idx.logImportantSnapshot(sha, tagsBySHA[sha], branchesBySHA[sha])
+			result.TagSnapshots += len(tagsBySHA[sha])
+			result.BranchSnapshots += len(branchesBySHA[sha])
 		}
 
 		if writer.ShouldFlush() {

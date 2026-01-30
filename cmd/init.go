@@ -94,6 +94,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if !quiet {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nDone! Analyzed %d commits, found %d with dependency changes (%d total changes)\n",
 			result.CommitsAnalyzed, result.CommitsWithChanges, result.TotalChanges)
+		if result.TagSnapshots > 0 || result.BranchSnapshots > 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Snapshots: %d tags, %d branches\n",
+				result.TagSnapshots, result.BranchSnapshots)
+		}
 	}
 
 	if !noHooks {
