@@ -157,10 +157,8 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 		purls := make([]string, 0, len(deps))
 		purlToDep := make(map[string]database.Dependency)
 		for _, d := range deps {
-			purlStr := d.PURL
-			if purlStr == "" {
-				purlStr = purl.MakePURLString(d.Ecosystem, d.Name, "")
-			}
+			// Use versionless PURL for cache lookup
+			purlStr := purl.MakePURLString(d.Ecosystem, d.Name, "")
 			if purlStr != "" {
 				purls = append(purls, purlStr)
 				purlToDep[purlStr] = d
@@ -270,10 +268,13 @@ func generateCycloneDX(cmd *cobra.Command, deps []database.Dependency, licenseMa
 	}
 
 	for _, dep := range deps {
+		// Full PURL with version for the component
 		purlStr := dep.PURL
 		if purlStr == "" {
-			purlStr = purl.MakePURLString(dep.Ecosystem, dep.Name, "")
+			purlStr = purl.MakePURLString(dep.Ecosystem, dep.Name, dep.Requirement)
 		}
+		// Versionless PURL for license lookup (matches cache key)
+		licensePurl := purl.MakePURLString(dep.Ecosystem, dep.Name, "")
 
 		comp := CycloneDXComponent{
 			Type:    "library",
@@ -283,7 +284,7 @@ func generateCycloneDX(cmd *cobra.Command, deps []database.Dependency, licenseMa
 			PURL:    purlStr,
 		}
 
-		if licenses, ok := licenseMap[purlStr]; ok {
+		if licenses, ok := licenseMap[licensePurl]; ok {
 			for _, lic := range licenses {
 				comp.Licenses = append(comp.Licenses, CycloneDXLicense{ID: lic})
 			}
@@ -327,10 +328,13 @@ func generateSPDX(cmd *cobra.Command, deps []database.Dependency, licenseMap map
 	sbom.Packages = append(sbom.Packages, rootPkg)
 
 	for i, dep := range deps {
+		// Full PURL with version for the package reference
 		purlStr := dep.PURL
 		if purlStr == "" {
-			purlStr = purl.MakePURLString(dep.Ecosystem, dep.Name, "")
+			purlStr = purl.MakePURLString(dep.Ecosystem, dep.Name, dep.Requirement)
 		}
+		// Versionless PURL for license lookup (matches cache key)
+		licensePurl := purl.MakePURLString(dep.Ecosystem, dep.Name, "")
 
 		pkg := SPDXPackage{
 			SPDXID:           fmt.Sprintf("SPDXRef-Package-%d", i),
@@ -339,7 +343,7 @@ func generateSPDX(cmd *cobra.Command, deps []database.Dependency, licenseMap map
 			DownloadLocation: "NOASSERTION",
 		}
 
-		if licenses, ok := licenseMap[purlStr]; ok && len(licenses) > 0 {
+		if licenses, ok := licenseMap[licensePurl]; ok && len(licenses) > 0 {
 			pkg.LicenseConcluded = licenses[0]
 			pkg.LicenseDeclared = licenses[0]
 		} else {
