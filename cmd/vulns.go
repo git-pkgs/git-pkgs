@@ -1144,52 +1144,8 @@ func getVulnsAtRef(db *database.DB, branchID int64, ref, ecosystem string) ([]Vu
 		return nil, nil
 	}
 
-	client := osv.NewClient()
-	queries := make([]osv.QueryRequest, len(lockfileDeps))
-	for i, d := range lockfileDeps {
-		queries[i] = osv.QueryRequest{
-			Version: d.Requirement,
-			Package: osv.Package{
-				Ecosystem: d.Ecosystem,
-				Name:      d.Name,
-			},
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-
-	results, err := client.BatchQuery(ctx, queries)
-	if err != nil {
-		return nil, err
-	}
-
-	var vulnResults []VulnResult
-	for i, vulns := range results {
-		dep := lockfileDeps[i]
-		for _, v := range vulns {
-			fixedVersion := ""
-			for _, aff := range v.Affected {
-				if strings.EqualFold(aff.Package.Name, dep.Name) {
-					fixedVersion = osv.GetFixedVersion(aff)
-					break
-				}
-			}
-
-			vulnResults = append(vulnResults, VulnResult{
-				ID:           v.ID,
-				Summary:      v.Summary,
-				Severity:     osv.GetSeverityLevel(&v),
-				Package:      dep.Name,
-				Ecosystem:    dep.Ecosystem,
-				Version:      dep.Requirement,
-				FixedVersion: fixedVersion,
-				ManifestPath: dep.ManifestPath,
-			})
-		}
-	}
-
-	return vulnResults, nil
+	// Use cached vulnerability data from the database
+	return scanCached(db, lockfileDeps, 4) // 4 = include all severities
 }
 
 // getAllTimeVulns gets all vulnerabilities that have ever affected the codebase
