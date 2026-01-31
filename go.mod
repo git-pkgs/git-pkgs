@@ -5,8 +5,8 @@ go 1.25.6
 require (
 	github.com/ecosyste-ms/ecosystems-go v0.0.0-20260115154313-d5f3879b6ec0
 	github.com/git-pkgs/managers v0.4.0
-	github.com/git-pkgs/manifests v0.3.0
-	github.com/git-pkgs/purl v0.1.3
+	github.com/git-pkgs/manifests v0.3.1
+	github.com/git-pkgs/purl v0.1.4
 	github.com/git-pkgs/registries v0.2.3
 	github.com/git-pkgs/spdx v0.1.0
 	github.com/git-pkgs/vers v0.2.1
