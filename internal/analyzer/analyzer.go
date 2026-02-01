@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/git-pkgs/manifests"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/utils/merkletrie"
 )
@@ -610,15 +612,18 @@ func (a *Analyzer) parseSupplementsInDir(tree *object.Tree, dir string) map[supp
 func (a *Analyzer) DependenciesInWorkingDir(root string) ([]Change, error) {
 	var deps []Change
 
+	// Load gitignore patterns
+	var matcher gitignore.Matcher
+	if repo, err := git.PlainOpenWithOptions(root, &git.PlainOpenOptions{DetectDotGit: true}); err == nil {
+		if wt, err := repo.Worktree(); err == nil {
+			if patterns, err := gitignore.ReadPatterns(wt.Filesystem, nil); err == nil {
+				matcher = gitignore.NewMatcher(patterns)
+			}
+		}
+	}
+
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil
-		}
-		if info.IsDir() {
-			base := filepath.Base(path)
-			if base == ".git" || base == "node_modules" || base == "vendor" {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 
@@ -628,6 +633,23 @@ func (a *Analyzer) DependenciesInWorkingDir(root string) ([]Change, error) {
 		}
 		// Normalize to forward slashes for cross-platform consistency with git paths
 		relPath = filepath.ToSlash(relPath)
+
+		if info.IsDir() {
+			// Always skip .git
+			if info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			// Skip directories that match gitignore patterns
+			if matcher != nil && matcher.Match(strings.Split(relPath, "/"), true) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip files that match gitignore patterns
+		if matcher != nil && matcher.Match(strings.Split(relPath, "/"), false) {
+			return nil
+		}
 
 		_, _, ok := manifests.Identify(relPath)
 		if !ok {

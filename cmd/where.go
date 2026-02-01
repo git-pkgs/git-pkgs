@@ -50,6 +50,12 @@ func runWhere(cmd *cobra.Command, args []string) error {
 
 	workDir := repo.WorkDir()
 
+	ignoreMatcher, err := repo.LoadIgnoreMatcher()
+	if err != nil {
+		// Continue without gitignore support if loading fails
+		ignoreMatcher = nil
+	}
+
 	var matches []WhereMatch
 
 	// Walk the working directory looking for manifest files
@@ -58,19 +64,27 @@ func runWhere(cmd *cobra.Command, args []string) error {
 			return nil // Skip files we can't read
 		}
 
+		// Get relative path for manifest identification
+		relPath, _ := filepath.Rel(workDir, path)
+		// Normalize to forward slashes for cross-platform consistency
+		relPath = filepath.ToSlash(relPath)
+
 		if info.IsDir() {
-			// Skip common non-project directories
-			name := info.Name()
-			if name == ".git" || name == "node_modules" || name == "vendor" {
+			// Always skip .git
+			if info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			// Skip directories that match gitignore patterns
+			if ignoreMatcher != nil && ignoreMatcher.IsIgnored(relPath, true) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		// Get relative path for manifest identification
-		relPath, _ := filepath.Rel(workDir, path)
-		// Normalize to forward slashes for cross-platform consistency
-		relPath = filepath.ToSlash(relPath)
+		// Skip files that match gitignore patterns
+		if ignoreMatcher != nil && ignoreMatcher.IsIgnored(relPath, false) {
+			return nil
+		}
 
 		// Check if this is a manifest file
 		eco, _, ok := manifests.Identify(relPath)

@@ -419,6 +419,54 @@ func TestDependenciesInWorkingDirUncommitted(t *testing.T) {
 	}
 }
 
+func TestDependenciesInWorkingDirRespectsGitignore(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	// Create .gitignore that ignores vendor/ and a specific file
+	addFile(t, repoDir, ".gitignore", "vendor/\nignored-Gemfile\n")
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	// Add a tracked manifest
+	if err := os.WriteFile(filepath.Join(repoDir, "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"rails": "~> 7.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// Add an ignored manifest in vendor/
+	if err := os.MkdirAll(filepath.Join(repoDir, "vendor"), 0755); err != nil {
+		t.Fatalf("failed to create vendor dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "vendor", "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"sinatra": "~> 3.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// Add an ignored manifest by name
+	if err := os.WriteFile(filepath.Join(repoDir, "ignored-Gemfile"), []byte(sampleGemfile(map[string]string{
+		"puma": "~> 6.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	a := analyzer.New()
+	deps, err := a.DependenciesInWorkingDir(repoDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should only see rails from the non-ignored Gemfile
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 dependency, got %d: %+v", len(deps), deps)
+	}
+
+	if deps[0].Name != "rails" {
+		t.Errorf("expected rails, got %s", deps[0].Name)
+	}
+}
+
 func TestAnalyzeCommitWithGitHubActionsWorkflow(t *testing.T) {
 	repoDir := createTestRepo(t)
 	addFile(t, repoDir, "README.md", "# Test")

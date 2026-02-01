@@ -3,9 +3,11 @@ package git
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -148,4 +150,32 @@ func (r *Repository) LocalBranches() (map[string][]string, error) {
 	}
 
 	return result, nil
+}
+
+// IgnoreMatcher checks paths against .gitignore patterns.
+type IgnoreMatcher struct {
+	matcher gitignore.Matcher
+}
+
+// LoadIgnoreMatcher loads .gitignore patterns from the repository.
+func (r *Repository) LoadIgnoreMatcher() (*IgnoreMatcher, error) {
+	wt, err := r.repo.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("getting worktree: %w", err)
+	}
+
+	patterns, err := gitignore.ReadPatterns(wt.Filesystem, nil)
+	if err != nil {
+		return nil, fmt.Errorf("reading gitignore patterns: %w", err)
+	}
+
+	return &IgnoreMatcher{
+		matcher: gitignore.NewMatcher(patterns),
+	}, nil
+}
+
+// IsIgnored checks if the given path (relative to repo root) is ignored.
+func (m *IgnoreMatcher) IsIgnored(relPath string, isDir bool) bool {
+	parts := strings.Split(filepath.ToSlash(relPath), "/")
+	return m.matcher.Match(parts, isDir)
 }
