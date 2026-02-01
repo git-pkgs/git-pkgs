@@ -11,10 +11,11 @@ import (
 
 func addBlameCmd(parent *cobra.Command) {
 	blameCmd := &cobra.Command{
-		Use:   "blame",
-		Short: "Show who added each dependency",
-		Long:  `Show the commit and author that first added each current dependency.`,
-		RunE:  runBlame,
+		Use:     "blame",
+		Aliases: []string{"praise"},
+		Short:   "Show who added each dependency",
+		Long:    `Show the commit and author that first added each current dependency.`,
+		RunE:    runBlame,
 	}
 
 	blameCmd.Flags().StringP("branch", "b", "", "Branch to query (default: first tracked branch)")
