@@ -26,6 +26,7 @@ Supports range syntax (main..feature) or explicit --from/--to flags.`,
 	diffCmd.Flags().String("from", "", "Starting commit (default: HEAD)")
 	diffCmd.Flags().String("to", "", "Ending commit (default: working tree)")
 	diffCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
+	diffCmd.Flags().StringP("type", "t", "", "Filter by dependency type (runtime, development, etc.)")
 	diffCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	parent.AddCommand(diffCmd)
 }
@@ -40,6 +41,7 @@ type DiffEntry struct {
 	Name            string `json:"name"`
 	Ecosystem       string `json:"ecosystem,omitempty"`
 	ManifestPath    string `json:"manifest_path"`
+	DependencyType  string `json:"dependency_type,omitempty"`
 	FromRequirement string `json:"from_requirement,omitempty"`
 	ToRequirement   string `json:"to_requirement,omitempty"`
 }
@@ -48,6 +50,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	fromRef, _ := cmd.Flags().GetString("from")
 	toRef, _ := cmd.Flags().GetString("to")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
+	depType, _ := cmd.Flags().GetString("type")
 	format, _ := cmd.Flags().GetString("format")
 
 	// Parse range syntax if provided
@@ -85,9 +88,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Apply ecosystem filter
-	if ecosystem != "" {
-		result = filterDiffResult(result, ecosystem)
+	// Apply filters
+	if ecosystem != "" || depType != "" {
+		result = filterDiffResult(result, ecosystem, depType)
 	}
 
 	if len(result.Added) == 0 && len(result.Modified) == 0 && len(result.Removed) == 0 {
@@ -176,16 +179,18 @@ func computeDiff(fromDeps, toDeps []database.Dependency) *DiffResult {
 					Name:            toDep.Name,
 					Ecosystem:       toDep.Ecosystem,
 					ManifestPath:    toDep.ManifestPath,
+					DependencyType:  toDep.DependencyType,
 					FromRequirement: fromDep.Requirement,
 					ToRequirement:   toDep.Requirement,
 				})
 			}
 		} else {
 			result.Added = append(result.Added, DiffEntry{
-				Name:          toDep.Name,
-				Ecosystem:     toDep.Ecosystem,
-				ManifestPath:  toDep.ManifestPath,
-				ToRequirement: toDep.Requirement,
+				Name:           toDep.Name,
+				Ecosystem:      toDep.Ecosystem,
+				ManifestPath:   toDep.ManifestPath,
+				DependencyType: toDep.DependencyType,
+				ToRequirement:  toDep.Requirement,
 			})
 		}
 	}
@@ -197,6 +202,7 @@ func computeDiff(fromDeps, toDeps []database.Dependency) *DiffResult {
 				Name:            fromDep.Name,
 				Ecosystem:       fromDep.Ecosystem,
 				ManifestPath:    fromDep.ManifestPath,
+				DependencyType:  fromDep.DependencyType,
 				FromRequirement: fromDep.Requirement,
 			})
 		}
@@ -219,23 +225,35 @@ func sortDiffEntries(entries []DiffEntry) {
 	})
 }
 
-func filterDiffResult(result *DiffResult, ecosystem string) *DiffResult {
+func filterDiffResult(result *DiffResult, ecosystem, depType string) *DiffResult {
 	filtered := &DiffResult{}
 
 	for _, e := range result.Added {
-		if strings.EqualFold(e.Ecosystem, ecosystem) {
-			filtered.Added = append(filtered.Added, e)
+		if ecosystem != "" && !strings.EqualFold(e.Ecosystem, ecosystem) {
+			continue
 		}
+		if depType != "" && !strings.EqualFold(e.DependencyType, depType) {
+			continue
+		}
+		filtered.Added = append(filtered.Added, e)
 	}
 	for _, e := range result.Modified {
-		if strings.EqualFold(e.Ecosystem, ecosystem) {
-			filtered.Modified = append(filtered.Modified, e)
+		if ecosystem != "" && !strings.EqualFold(e.Ecosystem, ecosystem) {
+			continue
 		}
+		if depType != "" && !strings.EqualFold(e.DependencyType, depType) {
+			continue
+		}
+		filtered.Modified = append(filtered.Modified, e)
 	}
 	for _, e := range result.Removed {
-		if strings.EqualFold(e.Ecosystem, ecosystem) {
-			filtered.Removed = append(filtered.Removed, e)
+		if ecosystem != "" && !strings.EqualFold(e.Ecosystem, ecosystem) {
+			continue
 		}
+		if depType != "" && !strings.EqualFold(e.DependencyType, depType) {
+			continue
+		}
+		filtered.Removed = append(filtered.Removed, e)
 	}
 
 	return filtered
@@ -255,6 +273,9 @@ func outputDiffText(cmd *cobra.Command, result *DiffResult) error {
 			if e.ToRequirement != "" {
 				line += fmt.Sprintf(" %s", e.ToRequirement)
 			}
+			if e.DependencyType != "" && e.DependencyType != "runtime" {
+				line += fmt.Sprintf(" [%s]", e.DependencyType)
+			}
 			line += fmt.Sprintf(" %s", Dim("("+e.ManifestPath+")"))
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)
 		}
@@ -265,6 +286,9 @@ func outputDiffText(cmd *cobra.Command, result *DiffResult) error {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), Bold("Modified:"))
 		for _, e := range result.Modified {
 			line := fmt.Sprintf("  %s %s %s -> %s", Yellow("~"), Yellow(e.Name), Dim(e.FromRequirement), e.ToRequirement)
+			if e.DependencyType != "" && e.DependencyType != "runtime" {
+				line += fmt.Sprintf(" [%s]", e.DependencyType)
+			}
 			line += fmt.Sprintf(" %s", Dim("("+e.ManifestPath+")"))
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)
 		}
@@ -277,6 +301,9 @@ func outputDiffText(cmd *cobra.Command, result *DiffResult) error {
 			line := fmt.Sprintf("  %s %s", Red("-"), Red(e.Name))
 			if e.FromRequirement != "" {
 				line += fmt.Sprintf(" %s", e.FromRequirement)
+			}
+			if e.DependencyType != "" && e.DependencyType != "runtime" {
+				line += fmt.Sprintf(" [%s]", e.DependencyType)
 			}
 			line += fmt.Sprintf(" %s", Dim("("+e.ManifestPath+")"))
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)

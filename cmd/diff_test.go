@@ -241,6 +241,119 @@ jobs:
 	}
 }
 
+func TestDiff_TypeFilter(t *testing.T) {
+	// Create a temp repo
+	dir := t.TempDir()
+
+	// Initialize git
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	run("init")
+	run("config", "user.email", "test@test.com")
+	run("config", "user.name", "Test")
+
+	// Create package.json with both runtime and dev dependencies
+	pkgJSON := `{
+  "name": "test",
+  "dependencies": {
+    "lodash": "^4.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkgJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	run("add", "package.json")
+	run("commit", "-m", "Initial")
+
+	// Update both dependencies
+	pkgJSON2 := `{
+  "name": "test",
+  "dependencies": {
+    "lodash": "^4.1.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.1.0"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkgJSON2), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Change to repo dir
+	oldDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldDir) }()
+
+	// Run diff with --type=runtime (should only show lodash)
+	rootCmd := NewRootCmd()
+	rootCmd.SetArgs([]string{"diff", "--type=runtime"})
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&bytes.Buffer{})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("diff command failed: %v", err)
+	}
+	out := buf.String()
+
+	if !containsString(out, "lodash") {
+		t.Errorf("expected lodash (runtime) to be shown, got:\n%s", out)
+	}
+	if containsString(out, "eslint") {
+		t.Errorf("expected eslint (development) to NOT be shown, got:\n%s", out)
+	}
+
+	// Run diff with --type=development (should only show eslint)
+	rootCmd = NewRootCmd()
+	rootCmd.SetArgs([]string{"diff", "--type=development"})
+
+	buf.Reset()
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&bytes.Buffer{})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("diff command failed: %v", err)
+	}
+	out = buf.String()
+
+	if containsString(out, "lodash") {
+		t.Errorf("expected lodash (runtime) to NOT be shown, got:\n%s", out)
+	}
+	if !containsString(out, "eslint") {
+		t.Errorf("expected eslint (development) to be shown, got:\n%s", out)
+	}
+
+	// Run diff without filter (should show both)
+	rootCmd = NewRootCmd()
+	rootCmd.SetArgs([]string{"diff"})
+
+	buf.Reset()
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&bytes.Buffer{})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("diff command failed: %v", err)
+	}
+	out = buf.String()
+
+	if !containsString(out, "lodash") {
+		t.Errorf("expected lodash to be shown, got:\n%s", out)
+	}
+	if !containsString(out, "eslint") {
+		t.Errorf("expected eslint to be shown, got:\n%s", out)
+	}
+}
+
 func containsString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
