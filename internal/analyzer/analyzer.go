@@ -578,24 +578,41 @@ func (a *Analyzer) parseSupplementsInDir(tree *object.Tree, dir string) map[supp
 
 	hashes := make(map[supplementKey]string)
 
-	_ = tree.Files().ForEach(func(f *object.File) error {
-		fileDir := filepath.Dir(f.Name)
-		if fileDir == "." {
-			fileDir = ""
+	// Get the target directory's tree directly instead of iterating all files
+	var targetTree *object.Tree
+	if dir == "" || dir == "." {
+		targetTree = tree
+	} else {
+		var err error
+		targetTree, err = tree.Tree(dir)
+		if err != nil {
+			// Directory doesn't exist in this tree
+			return hashes
 		}
-		if dir == "." {
-			dir = ""
-		}
-		if fileDir != dir {
-			return nil
-		}
-		if !isSupplementFile(f.Name) {
-			return nil
+	}
+
+	// Iterate only direct entries in this directory (not recursive)
+	for _, entry := range targetTree.Entries {
+		// Skip subdirectories and non-regular files
+		if !entry.Mode.IsFile() {
+			continue
 		}
 
-		result, err := a.parseManifestInTree(tree, f.Name)
+		// Build the full path for identification
+		var fullPath string
+		if dir == "" || dir == "." {
+			fullPath = entry.Name
+		} else {
+			fullPath = dir + "/" + entry.Name
+		}
+
+		if !isSupplementFile(fullPath) {
+			continue
+		}
+
+		result, err := a.parseManifestInTree(tree, fullPath)
 		if err != nil || result == nil {
-			return nil
+			continue
 		}
 
 		for _, dep := range result.Dependencies {
@@ -603,8 +620,7 @@ func (a *Analyzer) parseSupplementsInDir(tree *object.Tree, dir string) map[supp
 				hashes[supplementKey{dep.Name, dep.Version}] = dep.Integrity
 			}
 		}
-		return nil
-	})
+	}
 
 	return hashes
 }
