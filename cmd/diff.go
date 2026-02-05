@@ -49,6 +49,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	toRef, _ := cmd.Flags().GetString("to")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	format, _ := cmd.Flags().GetString("format")
+	includeSubmodules, _ := cmd.Flags().GetBool("include-submodules")
 
 	// Parse range syntax if provided
 	if len(args) > 0 {
@@ -77,7 +78,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	// When comparing to working tree, use direct parsing since there's
 	// no database state for uncommitted changes
 	if toRef == "" {
-		result, err = diffWithWorkingTree(repo, fromRef)
+		result, err = diffWithWorkingTree(repo, fromRef, includeSubmodules)
 	} else {
 		result, err = diffBetweenCommits(repo, fromRef, toRef)
 	}
@@ -120,7 +121,7 @@ func diffBetweenCommits(repo *git.Repository, fromRef, toRef string) (*DiffResul
 }
 
 // diffWithWorkingTree compares dependencies between a commit and the working tree.
-func diffWithWorkingTree(repo *git.Repository, fromRef string) (*DiffResult, error) {
+func diffWithWorkingTree(repo *git.Repository, fromRef string, includeSubmodules bool) (*DiffResult, error) {
 	fromDeps, err := repo.GetDependencies(fromRef, "")
 	if err != nil {
 		return nil, fmt.Errorf("getting deps at %s: %w", fromRef, err)
@@ -128,7 +129,7 @@ func diffWithWorkingTree(repo *git.Repository, fromRef string) (*DiffResult, err
 
 	// Parse working tree directly
 	a := analyzer.New()
-	toChanges, err := a.DependenciesInWorkingDir(repo.WorkDir())
+	toChanges, err := a.DependenciesInWorkingDir(repo.WorkDir(), includeSubmodules)
 	if err != nil {
 		return nil, fmt.Errorf("reading working tree: %w", err)
 	}

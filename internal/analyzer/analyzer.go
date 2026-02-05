@@ -609,15 +609,28 @@ func (a *Analyzer) parseSupplementsInDir(tree *object.Tree, dir string) map[supp
 	return hashes
 }
 
-func (a *Analyzer) DependenciesInWorkingDir(root string) ([]Change, error) {
+func (a *Analyzer) DependenciesInWorkingDir(root string, includeSubmodules bool) ([]Change, error) {
 	var deps []Change
 
-	// Load gitignore patterns
+	// Load gitignore patterns and submodule paths
 	var matcher gitignore.Matcher
+	var submodulePaths map[string]bool
 	if repo, err := git.PlainOpenWithOptions(root, &git.PlainOpenOptions{DetectDotGit: true}); err == nil {
 		if wt, err := repo.Worktree(); err == nil {
 			if patterns, err := gitignore.ReadPatterns(wt.Filesystem, nil); err == nil {
 				matcher = gitignore.NewMatcher(patterns)
+			}
+
+			// Load submodule paths only if we need to skip them
+			if !includeSubmodules {
+				if submodules, err := wt.Submodules(); err == nil {
+					submodulePaths = make(map[string]bool, len(submodules))
+					for _, submodule := range submodules {
+						config := submodule.Config()
+						path := filepath.ToSlash(config.Path)
+						submodulePaths[path] = true
+					}
+				}
 			}
 		}
 	}
@@ -641,6 +654,10 @@ func (a *Analyzer) DependenciesInWorkingDir(root string) ([]Change, error) {
 			}
 			// Skip directories that match gitignore patterns
 			if matcher != nil && matcher.Match(strings.Split(relPath, "/"), true) {
+				return filepath.SkipDir
+			}
+			// Skip git submodule directories
+			if submodulePaths != nil && submodulePaths[relPath] {
 				return filepath.SkipDir
 			}
 			return nil

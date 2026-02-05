@@ -179,3 +179,26 @@ func (m *IgnoreMatcher) IsIgnored(relPath string, isDir bool) bool {
 	parts := strings.Split(filepath.ToSlash(relPath), "/")
 	return m.matcher.Match(parts, isDir)
 }
+
+// GetSubmodulePaths returns a list of submodule paths using go-git's submodule support.
+func (r *Repository) GetSubmodulePaths() ([]string, error) {
+	wt, err := r.repo.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("getting worktree: %w", err)
+	}
+
+	submodules, err := wt.Submodules()
+	if err != nil {
+		return nil, nil // No submodules or can't read them, return empty list
+	}
+
+	paths := make([]string, 0, len(submodules))
+	for _, submodule := range submodules {
+		config := submodule.Config()
+		// Normalize to forward slashes for cross-platform consistency
+		path := filepath.ToSlash(config.Path)
+		paths = append(paths, path)
+	}
+
+	return paths, nil
+}

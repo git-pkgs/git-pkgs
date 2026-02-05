@@ -111,4 +111,5 @@ func addPersistentFlags(cmd *cobra.Command) {
 	flags.BoolP("quiet", "q", false, "Suppress non-essential output")
 	flags.BoolP("pager", "p", false, "Use pager for output")
 	flags.String("color", "auto", "When to colorize output: auto, always, never")
+	flags.Bool("include-submodules", false, "Include git submodules when scanning for manifests")
 }

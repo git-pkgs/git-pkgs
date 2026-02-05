@@ -369,7 +369,7 @@ func TestDependenciesInWorkingDir(t *testing.T) {
 	commit(t, repoDir, "Add manifests")
 
 	a := analyzer.New()
-	deps, err := a.DependenciesInWorkingDir(repoDir)
+	deps, err := a.DependenciesInWorkingDir(repoDir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestDependenciesInWorkingDirUncommitted(t *testing.T) {
 	}
 
 	a := analyzer.New()
-	deps, err := a.DependenciesInWorkingDir(repoDir)
+	deps, err := a.DependenciesInWorkingDir(repoDir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestDependenciesInWorkingDirRespectsGitignore(t *testing.T) {
 	}
 
 	a := analyzer.New()
-	deps, err := a.DependenciesInWorkingDir(repoDir)
+	deps, err := a.DependenciesInWorkingDir(repoDir, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -464,6 +464,135 @@ func TestDependenciesInWorkingDirRespectsGitignore(t *testing.T) {
 
 	if deps[0].Name != "rails" {
 		t.Errorf("expected rails, got %s", deps[0].Name)
+	}
+}
+
+func TestDependenciesInWorkingDirIgnoresSubmodules(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	// Create .gitmodules with submodules
+	gitmodulesContent := `[submodule "vendor/lib"]
+	path = vendor/lib
+	url = https://github.com/example/lib.git
+[submodule "external/tool"]
+	path = external/tool
+	url = https://github.com/example/tool.git
+`
+	addFile(t, repoDir, ".gitmodules", gitmodulesContent)
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	// Add a tracked manifest at root
+	if err := os.WriteFile(filepath.Join(repoDir, "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"rails": "~> 7.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// Add manifests in submodule directories (should be ignored)
+	if err := os.MkdirAll(filepath.Join(repoDir, "vendor", "lib"), 0755); err != nil {
+		t.Fatalf("failed to create vendor/lib dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "vendor", "lib", "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"sinatra": "~> 3.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(repoDir, "external", "tool"), 0755); err != nil {
+		t.Fatalf("failed to create external/tool dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "external", "tool", "package.json"), []byte(`{
+		"name": "test",
+		"dependencies": {
+			"lodash": "^4.17.21"
+		}
+	}`), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	a := analyzer.New()
+	deps, err := a.DependenciesInWorkingDir(repoDir, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should only see rails from the root Gemfile, not dependencies from submodules
+	if len(deps) != 1 {
+		t.Fatalf("expected 1 dependency, got %d: %+v", len(deps), deps)
+	}
+
+	if deps[0].Name != "rails" {
+		t.Errorf("expected rails, got %s", deps[0].Name)
+	}
+}
+
+func TestDependenciesInWorkingDirIncludesSubmodules(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	// Create .gitmodules with submodules
+	gitmodulesContent := `[submodule "vendor/lib"]
+	path = vendor/lib
+	url = https://github.com/example/lib.git
+[submodule "external/tool"]
+	path = external/tool
+	url = https://github.com/example/tool.git
+`
+	addFile(t, repoDir, ".gitmodules", gitmodulesContent)
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	// Add a tracked manifest at root
+	if err := os.WriteFile(filepath.Join(repoDir, "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"rails": "~> 7.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// Add manifests in submodule directories (should be included when flag is true)
+	if err := os.MkdirAll(filepath.Join(repoDir, "vendor", "lib"), 0755); err != nil {
+		t.Fatalf("failed to create vendor/lib dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "vendor", "lib", "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"sinatra": "~> 3.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(repoDir, "external", "tool"), 0755); err != nil {
+		t.Fatalf("failed to create external/tool dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "external", "tool", "package.json"), []byte(`{
+		"name": "test",
+		"dependencies": {
+			"lodash": "^4.17.21"
+		}
+	}`), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	a := analyzer.New()
+	deps, err := a.DependenciesInWorkingDir(repoDir, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should see all dependencies including those from submodules
+	if len(deps) != 3 {
+		t.Fatalf("expected 3 dependencies, got %d: %+v", len(deps), deps)
+	}
+
+	// Verify we have deps from all three manifests
+	names := make(map[string]bool)
+	for _, dep := range deps {
+		names[dep.Name] = true
+	}
+
+	expected := []string{"rails", "sinatra", "lodash"}
+	for _, name := range expected {
+		if !names[name] {
+			t.Errorf("expected to find %s in dependencies", name)
+		}
 	}
 }
 

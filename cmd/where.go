@@ -42,6 +42,7 @@ func runWhere(cmd *cobra.Command, args []string) error {
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	context, _ := cmd.Flags().GetInt("context")
 	format, _ := cmd.Flags().GetString("format")
+	includeSubmodules, _ := cmd.Flags().GetBool("include-submodules")
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -54,6 +55,20 @@ func runWhere(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		// Continue without gitignore support if loading fails
 		ignoreMatcher = nil
+	}
+
+	// Load submodule paths only if we need to skip them
+	var submoduleMap map[string]bool
+	if !includeSubmodules {
+		submodulePaths, err := repo.GetSubmodulePaths()
+		if err != nil {
+			// Continue without submodule filtering if loading fails
+			submodulePaths = nil
+		}
+		submoduleMap = make(map[string]bool, len(submodulePaths))
+		for _, p := range submodulePaths {
+			submoduleMap[p] = true
+		}
 	}
 
 	var matches []WhereMatch
@@ -76,6 +91,10 @@ func runWhere(cmd *cobra.Command, args []string) error {
 			}
 			// Skip directories that match gitignore patterns
 			if ignoreMatcher != nil && ignoreMatcher.IsIgnored(relPath, true) {
+				return filepath.SkipDir
+			}
+			// Skip git submodule directories
+			if submoduleMap[relPath] {
 				return filepath.SkipDir
 			}
 			return nil

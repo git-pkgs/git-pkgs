@@ -579,6 +579,13 @@ git-pkgs respects [standard git configuration](https://git-scm.com/docs/git-conf
 
 **Pager** follows git's precedence: `GIT_PAGER` env, `core.pager` config, `PAGER` env, then `less -FRSX`. Use `--no-pager` flag or `git config core.pager cat` to disable.
 
+**Submodules** are ignored by default when scanning the working directory to prevent reporting their dependencies as part of the main repository. Use `--include-submodules` to scan submodules:
+
+```bash
+git pkgs diff --include-submodules       # include submodule dependencies
+git pkgs where lodash --include-submodules
+```
+
 **Ecosystem filtering** lets you limit which package ecosystems are tracked:
 
 ```bash

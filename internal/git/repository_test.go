@@ -369,3 +369,69 @@ func TestLocalBranches(t *testing.T) {
 		t.Errorf("expected feature in branches at featureSHA, got %v", branches[featureSHA])
 	}
 }
+
+func TestGetSubmodulePaths(t *testing.T) {
+	t.Run("returns empty list when no submodules", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+		addFile(t, repoDir, "README.md", "# Test")
+		commit(t, repoDir, "Initial commit")
+
+		repo, err := git.OpenRepository(repoDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		paths, err := repo.GetSubmodulePaths()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(paths) != 0 {
+			t.Errorf("expected empty list, got %d submodules: %v", len(paths), paths)
+		}
+	})
+
+	t.Run("returns submodule paths when present", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+		addFile(t, repoDir, "README.md", "# Test")
+		commit(t, repoDir, "Initial commit")
+
+		// Manually create .gitmodules file
+		gitmodulesContent := `[submodule "vendor/lib"]
+	path = vendor/lib
+	url = https://github.com/example/lib.git
+[submodule "external/tool"]
+	path = external/tool
+	url = https://github.com/example/tool.git
+`
+		addFile(t, repoDir, ".gitmodules", gitmodulesContent)
+		commit(t, repoDir, "Add submodules config")
+
+		repo, err := git.OpenRepository(repoDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		paths, err := repo.GetSubmodulePaths()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(paths) != 2 {
+			t.Fatalf("expected 2 submodules, got %d: %v", len(paths), paths)
+		}
+
+		// Check that both paths are present
+		pathMap := make(map[string]bool)
+		for _, p := range paths {
+			pathMap[p] = true
+		}
+
+		if !pathMap["vendor/lib"] {
+			t.Errorf("expected submodule path 'vendor/lib', got %v", paths)
+		}
+		if !pathMap["external/tool"] {
+			t.Errorf("expected submodule path 'external/tool', got %v", paths)
+		}
+	})
+}

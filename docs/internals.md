@@ -19,7 +19,7 @@ internal/
 
 ## Entry Point
 
-The CLI uses [cobra](https://github.com/spf13/cobra). Each command is registered in `cmd/` via `init()` functions. The root command handles global flags (`--quiet`, `--color=auto`, `--no-pager`) and dispatches to subcommands.
+The CLI uses [cobra](https://github.com/spf13/cobra). Each command is registered in `cmd/` via `init()` functions. The root command handles global flags (`--quiet`, `--color=auto`, `--no-pager`, `--include-submodules`) and dispatches to subcommands.
 
 ## Database
 
