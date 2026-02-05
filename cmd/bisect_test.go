@@ -492,4 +492,73 @@ func TestBisectDatabaseQueries(t *testing.T) {
 			t.Errorf("expected no rubygems candidates, got %d", len(candidates))
 		}
 	})
+
+	t.Run("printCulprit resolves author via mailmap", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+
+		// Create .mailmap file first
+		mailmapContent := `Canonical Author <canonical@example.com> <test@example.com>
+`
+		addFileAndCommit(t, repoDir, ".mailmap", mailmapContent, "Add mailmap")
+
+		// Now create commits with dependency changes
+		addFileAndCommit(t, repoDir, "package.json", `{
+  "name": "test-project",
+  "dependencies": {
+    "lodash": "4.17.0"
+  }
+}`, "Initial commit with lodash")
+
+		addFileAndCommit(t, repoDir, "package.json", `{
+  "name": "test-project",
+  "dependencies": {
+    "lodash": "4.17.0",
+    "express": "4.18.0"
+  }
+}`, "Add express")
+
+		addFileAndCommit(t, repoDir, "package.json", `{
+  "name": "test-project",
+  "dependencies": {
+    "lodash": "4.17.21",
+    "express": "4.18.0"
+  }
+}`, "Update lodash")
+
+		cleanup := chdir(t, repoDir)
+		defer cleanup()
+
+		// Initialize git-pkgs database
+		rootCmd := cmd.NewRootCmd()
+		rootCmd.SetArgs([]string{"init", "--no-hooks"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("failed to init git-pkgs: %v", err)
+		}
+
+		// Start bisect with first and last dependency commit
+		firstSHA := getGitSHA(t, repoDir, "HEAD~2") // First dep commit
+		headSHA := getGitSHA(t, repoDir, "HEAD")
+
+		_, _, err := runCmd(t, "bisect", "start", headSHA[:7], firstSHA[:7])
+		if err != nil {
+			t.Fatalf("bisect start failed: %v", err)
+		}
+
+		// Mark everything as bad to force finding the first commit
+		stdout, _, err := runCmd(t, "bisect", "run", "false")
+		if err != nil {
+			t.Fatalf("bisect run failed: %v", err)
+		}
+
+		// Check that the output contains the canonical author name from .mailmap
+		if !strings.Contains(stdout, "Canonical Author") {
+			t.Errorf("expected canonical author name from mailmap, got: %s", stdout)
+		}
+		if !strings.Contains(stdout, "canonical@example.com") {
+			t.Errorf("expected canonical email from mailmap, got: %s", stdout)
+		}
+
+		// Clean up
+		_, _, _ = runCmd(t, "bisect", "reset")
+	})
 }

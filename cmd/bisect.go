@@ -659,9 +659,16 @@ func printCulprit(cmd *cobra.Command, repo *git.Repository, sha string) error {
 		return nil
 	}
 
+	// Resolve author through mailmap
+	authorName := commit.Author.Name
+	authorEmail := commit.Author.Email
+	if err := repo.LoadMailmap(); err == nil {
+		authorName, authorEmail = repo.ResolveAuthor(commit.Author.Name, commit.Author.Email)
+	}
+
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "commit %s\n", sha)
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Author: %s <%s>\n", commit.Author.Name, commit.Author.Email)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Author: %s <%s>\n", authorName, authorEmail)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Date:   %s\n", commit.Author.When.Format("Mon Jan 2 15:04:05 2006 -0700"))
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
 
