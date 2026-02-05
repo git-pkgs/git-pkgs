@@ -2,9 +2,11 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/git-pkgs/git-pkgs/internal/mailmap"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
@@ -17,6 +19,7 @@ type Repository struct {
 	repo    *git.Repository
 	gitDir  string
 	workDir string
+	mailmap *mailmap.Mailmap
 }
 
 func OpenRepository(path string) (*Repository, error) {
@@ -201,4 +204,37 @@ func (r *Repository) GetSubmodulePaths() ([]string, error) {
 	}
 
 	return paths, nil
+}
+
+// LoadMailmap loads the .mailmap file from the repository root if it exists.
+// This enables author identity remapping via ResolveAuthor.
+func (r *Repository) LoadMailmap() error {
+	mailmapPath := filepath.Join(r.workDir, ".mailmap")
+	f, err := os.Open(mailmapPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No .mailmap file - this is fine, just use empty mailmap
+			r.mailmap = mailmap.New()
+			return nil
+		}
+		return fmt.Errorf("opening .mailmap: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	mm, err := mailmap.Parse(f)
+	if err != nil {
+		return fmt.Errorf("parsing .mailmap: %w", err)
+	}
+	r.mailmap = mm
+	return nil
+}
+
+// ResolveAuthor maps an author's name and email to their canonical identity
+// using the loaded .mailmap file. If no .mailmap was loaded or no mapping
+// exists, the original values are returned unchanged.
+func (r *Repository) ResolveAuthor(name, email string) (string, string) {
+	if r.mailmap == nil {
+		return name, email
+	}
+	return r.mailmap.Resolve(name, email)
 }

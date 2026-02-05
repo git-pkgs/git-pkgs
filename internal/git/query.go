@@ -100,6 +100,13 @@ func (r *Repository) IndexCommitSnapshot(db *database.DB, branchID int64, sha st
 		return fmt.Errorf("getting commit: %w", err)
 	}
 
+	// Load mailmap if not already loaded
+	if r.mailmap == nil {
+		if err := r.LoadMailmap(); err != nil {
+			return fmt.Errorf("loading mailmap: %w", err)
+		}
+	}
+
 	a := analyzer.New()
 	changes, err := a.DependenciesAtCommit(commit)
 	if err != nil {
@@ -120,11 +127,14 @@ func (r *Repository) IndexCommitSnapshot(db *database.DB, branchID int64, sha st
 		})
 	}
 
+	// Resolve author identity via .mailmap
+	authorName, authorEmail := r.ResolveAuthor(commit.Author.Name, commit.Author.Email)
+
 	commitInfo := database.CommitInfo{
 		SHA:         sha,
 		Message:     commit.Message,
-		AuthorName:  commit.Author.Name,
-		AuthorEmail: commit.Author.Email,
+		AuthorName:  authorName,
+		AuthorEmail: authorEmail,
 		CommittedAt: commit.Committer.When,
 	}
 

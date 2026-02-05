@@ -54,6 +54,11 @@ func (idx *Indexer) Run() (*Result, error) {
 		}
 	}
 
+	// Load .mailmap for author identity resolution
+	if err := idx.repo.LoadMailmap(); err != nil {
+		return nil, fmt.Errorf("loading mailmap: %w", err)
+	}
+
 	if err := idx.db.OptimizeForBulkWrites(); err != nil {
 		return nil, fmt.Errorf("optimizing database: %w", err)
 	}
@@ -135,11 +140,14 @@ func (idx *Indexer) Run() (*Result, error) {
 		hasChanges := analysisResult != nil && len(analysisResult.Changes) > 0
 		sha := commit.Hash.String()
 
+		// Resolve author identity via .mailmap
+		authorName, authorEmail := idx.repo.ResolveAuthor(commit.Author.Name, commit.Author.Email)
+
 		commitInfo := database.CommitInfo{
 			SHA:         sha,
 			Message:     commit.Message,
-			AuthorName:  commit.Author.Name,
-			AuthorEmail: commit.Author.Email,
+			AuthorName:  authorName,
+			AuthorEmail: authorEmail,
 			CommittedAt: commit.Committer.When,
 		}
 

@@ -631,6 +631,8 @@ Commands that run package managers (`install`, `add`, `remove`, `update`) delega
 - `GIT_PKGS_DB` - database path (default: `.git/pkgs.sqlite3`)
 - `GIT_PKGS_DIRECT` - set to `1` to query registries directly (skip ecosyste.ms)
 
+**Author mapping** via `.mailmap` is supported. If your repository has a [`.mailmap` file](https://git-scm.com/docs/gitmailmap), author identities are resolved to their canonical names when indexing commits. This helps deduplicate contributors in `blame`, `history`, and `stats` output.
+
 ## Supported ecosystems
 
 git-pkgs uses [github.com/git-pkgs/manifests](https://github.com/git-pkgs/manifests) for parsing, supporting:

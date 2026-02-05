@@ -370,6 +370,81 @@ func TestLocalBranches(t *testing.T) {
 	}
 }
 
+func TestLoadMailmap(t *testing.T) {
+	t.Run("resolves author with mailmap", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+
+		// Create .mailmap file
+		mailmapContent := `Canonical Name <canonical@example.com> <test@example.com>
+`
+		addFile(t, repoDir, ".mailmap", mailmapContent)
+		addFile(t, repoDir, "README.md", "# Test")
+		commit(t, repoDir, "Initial commit")
+
+		repo, err := git.OpenRepository(repoDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if err := repo.LoadMailmap(); err != nil {
+			t.Fatalf("failed to load mailmap: %v", err)
+		}
+
+		// Resolve the test user's identity
+		name, email := repo.ResolveAuthor("Test User", "test@example.com")
+		if name != "Canonical Name" {
+			t.Errorf("expected name 'Canonical Name', got %q", name)
+		}
+		if email != "canonical@example.com" {
+			t.Errorf("expected email 'canonical@example.com', got %q", email)
+		}
+	})
+
+	t.Run("passthrough when no mailmap", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+		addFile(t, repoDir, "README.md", "# Test")
+		commit(t, repoDir, "Initial commit")
+
+		repo, err := git.OpenRepository(repoDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if err := repo.LoadMailmap(); err != nil {
+			t.Fatalf("failed to load mailmap: %v", err)
+		}
+
+		// Should passthrough unchanged when no mailmap
+		name, email := repo.ResolveAuthor("Test User", "test@example.com")
+		if name != "Test User" {
+			t.Errorf("expected name 'Test User', got %q", name)
+		}
+		if email != "test@example.com" {
+			t.Errorf("expected email 'test@example.com', got %q", email)
+		}
+	})
+
+	t.Run("ResolveAuthor works without LoadMailmap call", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+		addFile(t, repoDir, "README.md", "# Test")
+		commit(t, repoDir, "Initial commit")
+
+		repo, err := git.OpenRepository(repoDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Don't call LoadMailmap - should still work (passthrough)
+		name, email := repo.ResolveAuthor("Test User", "test@example.com")
+		if name != "Test User" {
+			t.Errorf("expected name 'Test User', got %q", name)
+		}
+		if email != "test@example.com" {
+			t.Errorf("expected email 'test@example.com', got %q", email)
+		}
+	})
+}
+
 func TestGetSubmodulePaths(t *testing.T) {
 	t.Run("returns empty list when no submodules", func(t *testing.T) {
 		repoDir := createTestRepo(t)

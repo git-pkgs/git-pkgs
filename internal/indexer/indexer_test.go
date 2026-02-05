@@ -754,3 +754,100 @@ gem "puma"
 		t.Errorf("expected 2 snapshots at v1.1.0 (rails and puma), got %d", v110SnapshotCount)
 	}
 }
+
+func TestIndexerWithMailmap(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	// Add .mailmap file that maps the test user to a canonical identity
+	mailmapContent := `Canonical Author <canonical@example.com> <test@example.com>
+`
+	addFileAndCommit(t, repoDir, ".mailmap", mailmapContent, "Add mailmap")
+
+	// Add a dependency (commit will be attributed to test@example.com)
+	gemfile := `source "https://rubygems.org"
+gem "rails", "~> 7.0"
+`
+	addFileAndCommit(t, repoDir, "Gemfile", gemfile, "Add Gemfile")
+
+	repo, err := gitpkg.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("failed to open repo: %v", err)
+	}
+
+	dbPath := filepath.Join(repoDir, ".git", "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create db: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	idx := indexer.New(repo, db, indexer.Options{Quiet: true})
+
+	_, err = idx.Run()
+	if err != nil {
+		t.Fatalf("indexer failed: %v", err)
+	}
+
+	// Query the commits table to verify author was remapped
+	var authorName, authorEmail string
+	err = db.QueryRow(`
+		SELECT author_name, author_email FROM commits
+		WHERE message LIKE '%Add Gemfile%'
+	`).Scan(&authorName, &authorEmail)
+	if err != nil {
+		t.Fatalf("failed to query commit: %v", err)
+	}
+
+	if authorName != "Canonical Author" {
+		t.Errorf("expected author_name 'Canonical Author', got %q", authorName)
+	}
+	if authorEmail != "canonical@example.com" {
+		t.Errorf("expected author_email 'canonical@example.com', got %q", authorEmail)
+	}
+}
+
+func TestIndexerWithoutMailmap(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	// No .mailmap file - authors should remain unchanged
+	gemfile := `source "https://rubygems.org"
+gem "rails", "~> 7.0"
+`
+	addFileAndCommit(t, repoDir, "Gemfile", gemfile, "Add Gemfile")
+
+	repo, err := gitpkg.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("failed to open repo: %v", err)
+	}
+
+	dbPath := filepath.Join(repoDir, ".git", "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create db: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	idx := indexer.New(repo, db, indexer.Options{Quiet: true})
+
+	_, err = idx.Run()
+	if err != nil {
+		t.Fatalf("indexer failed: %v", err)
+	}
+
+	// Query the commits table - should have original author info
+	var authorName, authorEmail string
+	err = db.QueryRow(`
+		SELECT author_name, author_email FROM commits
+		WHERE message LIKE '%Add Gemfile%'
+	`).Scan(&authorName, &authorEmail)
+	if err != nil {
+		t.Fatalf("failed to query commit: %v", err)
+	}
+
+	if authorName != "Test User" {
+		t.Errorf("expected author_name 'Test User', got %q", authorName)
+	}
+	if authorEmail != "test@example.com" {
+		t.Errorf("expected author_email 'test@example.com', got %q", authorEmail)
+	}
+}
