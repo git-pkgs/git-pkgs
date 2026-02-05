@@ -26,6 +26,14 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
+      # Windows Defender real-time scanning causes significant slowdown for
+      # I/O-heavy operations (temp file creation, process spawning, etc.)
+      # See: https://github.com/golang/go/issues/26055
+      - name: Disable Windows Defender real-time monitoring
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+
       - name: Build
         run: go build -v ./...
 
