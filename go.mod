@@ -3,7 +3,7 @@ module github.com/git-pkgs/git-pkgs
 go 1.25.6
 
 require (
-	github.com/ecosyste-ms/ecosystems-go v0.0.0-20260115154313-d5f3879b6ec0
+	github.com/ecosyste-ms/ecosystems-go v0.1.0
 	github.com/git-pkgs/managers v0.4.0
 	github.com/git-pkgs/manifests v0.3.2
 	github.com/git-pkgs/purl v0.1.4
