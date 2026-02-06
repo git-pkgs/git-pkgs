@@ -95,6 +95,7 @@ func NewRootCmd() *cobra.Command {
 	addRemoveCmd(cmd)
 	addUpdateCmd(cmd)
 	addBrowseCmd(cmd)
+	addWebCmd(cmd)
 
 	return cmd
 }

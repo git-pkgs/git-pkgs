@@ -1,0 +1,122 @@
+{{define "title"}}{{.Name}} - git-pkgs{{end}}
+
+{{define "content"}}
+<div class="mb-6">
+    <div class="flex items-center gap-3">
+        {{template "ecosystem_badge" .Ecosystem}}
+        <h1 class="text-2xl font-bold">{{.Name}}</h1>
+    </div>
+    {{if .CurrentRequirement}}
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 font-mono">{{.CurrentRequirement}}</p>
+    {{end}}
+</div>
+
+{{if .CurrentDeps}}
+<!-- Current Info -->
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 mb-8">
+    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <h2 class="text-lg font-semibold">Current</h2>
+    </div>
+    <div class="divide-y divide-gray-200 dark:divide-gray-800">
+        {{range .CurrentDeps}}
+        <div class="px-6 py-4 flex items-center justify-between">
+            <div>
+                <span class="text-sm font-mono">{{.Requirement}}</span>
+                <span class="text-sm text-gray-500 dark:text-gray-400 ml-2">{{.ManifestPath}}</span>
+            </div>
+            <span class="text-xs text-gray-400 dark:text-gray-500">{{.ManifestKind}}</span>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}
+
+{{if .Vulnerabilities}}
+<!-- Vulnerabilities -->
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 mb-8">
+    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <h2 class="text-lg font-semibold text-red-600 dark:text-red-400">Vulnerabilities</h2>
+    </div>
+    <div class="divide-y divide-gray-200 dark:divide-gray-800">
+        {{range .Vulnerabilities}}
+        <div class="px-6 py-4">
+            <div class="flex items-center gap-3 mb-2">
+                <span class="font-medium">{{.ID}}</span>
+                {{if .Severity}}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                    {{if eq .Severity "CRITICAL"}}bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300
+                    {{else if eq .Severity "HIGH"}}bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300
+                    {{else if eq .Severity "MEDIUM"}}bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300
+                    {{else}}bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300{{end}}">
+                    {{.Severity}}
+                </span>
+                {{end}}
+                {{if .CVSSScore}}
+                <span class="text-xs text-gray-500 dark:text-gray-400">CVSS {{.CVSSScore}}</span>
+                {{end}}
+            </div>
+            {{if .Summary}}
+            <p class="text-sm text-gray-600 dark:text-gray-400">{{.Summary}}</p>
+            {{end}}
+            {{if .PublishedAt}}
+            <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Published {{.PublishedAt}}</p>
+            {{end}}
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}
+
+{{if .Notes}}
+<!-- Notes -->
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 mb-8">
+    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <h2 class="text-lg font-semibold">Notes</h2>
+    </div>
+    <div class="divide-y divide-gray-200 dark:divide-gray-800">
+        {{range .Notes}}
+        <div class="px-6 py-4">
+            <p class="text-sm">{{.Message}}</p>
+            <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">{{.Namespace}} &middot; {{.UpdatedAt}}</p>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}
+
+<!-- Change History -->
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
+    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <h2 class="text-lg font-semibold">Change History</h2>
+    </div>
+    <div class="divide-y divide-gray-200 dark:divide-gray-800">
+        {{range .History}}
+        <div class="px-6 py-4">
+            <div class="flex items-center gap-3 mb-1">
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                    {{if eq .ChangeType "added"}}bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300
+                    {{else if eq .ChangeType "modified"}}bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300
+                    {{else if eq .ChangeType "removed"}}bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300
+                    {{else}}bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300{{end}}">
+                    {{.ChangeType}}
+                </span>
+                <span class="text-sm font-mono text-gray-500 dark:text-gray-400">{{shortSHA .SHA}}</span>
+                <span class="text-sm text-gray-500 dark:text-gray-400">{{.CommittedAt}}</span>
+            </div>
+            <p class="text-sm">{{.Message}}</p>
+            <div class="flex items-center gap-2 mt-1 text-xs text-gray-400 dark:text-gray-500">
+                <span>{{.AuthorName}}</span>
+                {{if .Requirement}}
+                <span class="font-mono">{{.Requirement}}</span>
+                {{end}}
+                {{if .PreviousRequirement}}
+                <span class="font-mono">(was {{.PreviousRequirement}})</span>
+                {{end}}
+            </div>
+        </div>
+        {{else}}
+        <div class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">No change history found</div>
+        {{end}}
+    </div>
+</div>
+{{end}}

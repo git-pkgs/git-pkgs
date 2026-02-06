@@ -1,0 +1,68 @@
+{{define "title"}}Dependencies - git-pkgs{{end}}
+
+{{define "content"}}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">Dependencies</h1>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{.Branch}} &middot; {{.TotalCount}} packages</p>
+</div>
+
+<!-- Filters -->
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 mb-6">
+    <form method="get" action="/dependencies" class="p-4 flex flex-wrap items-center gap-4">
+        <div class="flex-1 min-w-[200px]">
+            <input type="text" name="q" value="{{.Query}}" placeholder="Filter by name..."
+                class="w-full px-4 py-2 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+            <select name="ecosystem"
+                class="px-4 py-2 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">All ecosystems</option>
+                {{range .Ecosystems}}
+                <option value="{{.}}" {{if eq . $.Ecosystem}}selected{{end}}>{{.}}</option>
+                {{end}}
+            </select>
+        </div>
+        <button type="submit"
+            class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+            Filter
+        </button>
+        {{if or .Query .Ecosystem}}
+        <a href="/dependencies" class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Clear</a>
+        {{end}}
+    </form>
+</div>
+
+<!-- Dependencies Table -->
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
+    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+        <thead class="bg-gray-50 dark:bg-gray-800/50">
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Ecosystem</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Requirement</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Manifest</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
+            {{range .Dependencies}}
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <a href="/package/{{.Ecosystem}}/{{.Name}}" class="font-medium text-blue-600 dark:text-blue-400 hover:underline">{{.Name}}</a>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    {{template "ecosystem_badge" .Ecosystem}}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono">{{.Requirement}}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{.ManifestPath}}</td>
+            </tr>
+            {{else}}
+            <tr>
+                <td colspan="4" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                    {{if or .Query .Ecosystem}}No dependencies match your filters.{{else}}No dependencies found. Run 'git pkgs init' first.{{end}}
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

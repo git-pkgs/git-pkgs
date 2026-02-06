@@ -1,0 +1,118 @@
+{{define "title"}}git-pkgs - {{.Branch}}{{end}}
+
+{{define "content"}}
+<!-- Stats Grid -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div class="text-sm text-gray-500 dark:text-gray-400">Commits Analyzed</div>
+        <div class="text-3xl font-bold mt-1">{{.Stats.CommitsAnalyzed}}</div>
+    </div>
+    <div class="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div class="text-sm text-gray-500 dark:text-gray-400">Current Dependencies</div>
+        <div class="text-3xl font-bold mt-1">{{.Stats.CurrentDeps}}</div>
+    </div>
+    <div class="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div class="text-sm text-gray-500 dark:text-gray-400">Total Changes</div>
+        <div class="text-3xl font-bold mt-1">{{.Stats.TotalChanges}}</div>
+    </div>
+    <div class="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div class="text-sm text-gray-500 dark:text-gray-400">Ecosystems</div>
+        <div class="text-3xl font-bold mt-1">{{len .Stats.DepsByEcosystem}}</div>
+    </div>
+</div>
+
+{{if .VulnStats}}
+<!-- Vulnerability Summary -->
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 mb-8">
+    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <h2 class="text-lg font-semibold">Vulnerabilities</h2>
+    </div>
+    <div class="p-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {{with index .VulnStats "CRITICAL"}}
+            <div class="text-center p-4 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900">
+                <div class="text-2xl font-bold text-red-600 dark:text-red-400">{{.}}</div>
+                <div class="text-xs text-red-600 dark:text-red-400 uppercase font-medium">Critical</div>
+            </div>
+            {{end}}
+            {{with index .VulnStats "HIGH"}}
+            <div class="text-center p-4 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-900">
+                <div class="text-2xl font-bold text-orange-600 dark:text-orange-400">{{.}}</div>
+                <div class="text-xs text-orange-600 dark:text-orange-400 uppercase font-medium">High</div>
+            </div>
+            {{end}}
+            {{with index .VulnStats "MEDIUM"}}
+            <div class="text-center p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-900">
+                <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{{.}}</div>
+                <div class="text-xs text-yellow-600 dark:text-yellow-400 uppercase font-medium">Medium</div>
+            </div>
+            {{end}}
+            {{with index .VulnStats "LOW"}}
+            <div class="text-center p-4 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-900">
+                <div class="text-2xl font-bold text-green-600 dark:text-green-400">{{.}}</div>
+                <div class="text-xs text-green-600 dark:text-green-400 uppercase font-medium">Low</div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}
+
+<!-- Two Column Layout -->
+<div class="grid md:grid-cols-2 gap-8 mb-8">
+    <!-- Deps by Ecosystem -->
+    <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+            <h2 class="text-lg font-semibold">Dependencies by Ecosystem</h2>
+        </div>
+        <div class="divide-y divide-gray-200 dark:divide-gray-800">
+            {{range .Ecosystems}}
+            <div class="px-6 py-4 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    {{template "ecosystem_badge" .Name}}
+                </div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">
+                    <a href="/dependencies?ecosystem={{.Name}}" class="hover:text-blue-600 dark:hover:text-blue-400">{{.Count}} dependencies</a>
+                </div>
+            </div>
+            {{else}}
+            <div class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">No dependencies found</div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Top Changed -->
+    <div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+            <h2 class="text-lg font-semibold">Most Changed Packages</h2>
+        </div>
+        <div class="divide-y divide-gray-200 dark:divide-gray-800">
+            {{range .Stats.TopChanged}}
+            <div class="px-6 py-4 flex items-center justify-between">
+                <span class="font-medium">{{.Name}}</span>
+                <span class="text-sm text-gray-500 dark:text-gray-400">{{.Count}} changes</span>
+            </div>
+            {{else}}
+            <div class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">No changes recorded</div>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<!-- Top Authors -->
+{{if .Stats.TopAuthors}}
+<div class="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
+    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <h2 class="text-lg font-semibold">Top Contributors</h2>
+    </div>
+    <div class="divide-y divide-gray-200 dark:divide-gray-800">
+        {{range .Stats.TopAuthors}}
+        <div class="px-6 py-4 flex items-center justify-between">
+            <span class="font-medium">{{.Name}}</span>
+            <span class="text-sm text-gray-500 dark:text-gray-400">{{.Count}} changes</span>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}
+{{end}}
