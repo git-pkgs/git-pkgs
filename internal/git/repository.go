@@ -3,13 +3,13 @@ package git
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/git-pkgs/git-pkgs/internal/mailmap"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -155,32 +155,28 @@ func (r *Repository) LocalBranches() (map[string][]string, error) {
 	return result, nil
 }
 
-// IgnoreMatcher checks paths against .gitignore patterns.
-type IgnoreMatcher struct {
-	matcher gitignore.Matcher
-}
-
-// LoadIgnoreMatcher loads .gitignore patterns from the repository.
-func (r *Repository) LoadIgnoreMatcher() (*IgnoreMatcher, error) {
-	wt, err := r.repo.Worktree()
+// GetExcludeDirs returns directories to skip during walking, read from
+// git config git-pkgs.exclude-dirs. Defaults to "node_modules,vendor" if unset.
+func (r *Repository) GetExcludeDirs() []string {
+	cmd := exec.Command("git", "config", "git-pkgs.exclude-dirs")
+	cmd.Dir = r.workDir
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("getting worktree: %w", err)
+		return []string{"node_modules", "vendor"}
 	}
-
-	patterns, err := gitignore.ReadPatterns(wt.Filesystem, nil)
-	if err != nil {
-		return nil, fmt.Errorf("reading gitignore patterns: %w", err)
+	val := strings.TrimSpace(string(out))
+	if val == "" {
+		return []string{"node_modules", "vendor"}
 	}
-
-	return &IgnoreMatcher{
-		matcher: gitignore.NewMatcher(patterns),
-	}, nil
-}
-
-// IsIgnored checks if the given path (relative to repo root) is ignored.
-func (m *IgnoreMatcher) IsIgnored(relPath string, isDir bool) bool {
-	parts := strings.Split(filepath.ToSlash(relPath), "/")
-	return m.matcher.Match(parts, isDir)
+	parts := strings.Split(val, ",")
+	dirs := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			dirs = append(dirs, p)
+		}
+	}
+	return dirs
 }
 
 // GetSubmodulePaths returns a list of submodule paths using go-git's submodule support.

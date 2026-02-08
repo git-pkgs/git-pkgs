@@ -602,6 +602,86 @@ func TestDependenciesInWorkingDirIncludesSubmodules(t *testing.T) {
 	}
 }
 
+func TestDependenciesInWorkingDirNegationGitignore(t *testing.T) {
+	repoDir := createTestRepo(t)
+
+	// First commit with a simple .gitignore, then update to deny-by-default
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	// Now write the deny-by-default .gitignore directly (don't git add it)
+	if err := os.WriteFile(filepath.Join(repoDir, ".gitignore"), []byte("/*\n!.github/\n!src/\n"), 0644); err != nil {
+		t.Fatalf("failed to write .gitignore: %v", err)
+	}
+
+	// Add manifest in allowed .github directory
+	if err := os.MkdirAll(filepath.Join(repoDir, ".github", "workflows"), 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, ".github", "workflows", "ci.yml"), []byte(`name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// Add manifest in allowed src directory
+	if err := os.MkdirAll(filepath.Join(repoDir, "src"), 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "src", "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"rails": "~> 7.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// Add manifest in ignored root (should be skipped)
+	if err := os.WriteFile(filepath.Join(repoDir, "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"sinatra": "~> 3.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	// Add manifest in ignored other directory (should be skipped)
+	if err := os.MkdirAll(filepath.Join(repoDir, "vendor"), 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "vendor", "Gemfile"), []byte(sampleGemfile(map[string]string{
+		"puma": "~> 6.0",
+	})), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	a := analyzer.New()
+	deps, err := a.DependenciesInWorkingDir(repoDir, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should see rails from src/Gemfile and actions/checkout from .github, but not sinatra or puma
+	names := make(map[string]bool)
+	for _, dep := range deps {
+		names[dep.Name] = true
+	}
+
+	if !names["rails"] {
+		t.Error("expected to find rails from src/Gemfile")
+	}
+	if !names["actions/checkout"] {
+		t.Errorf("expected to find actions/checkout from .github/workflows/ci.yml, got deps: %+v", deps)
+	}
+	if names["sinatra"] {
+		t.Error("expected sinatra from root Gemfile to be ignored")
+	}
+	if names["puma"] {
+		t.Error("expected puma from vendor/Gemfile to be ignored")
+	}
+}
+
 func TestAnalyzeCommitWithGitHubActionsWorkflow(t *testing.T) {
 	repoDir := createTestRepo(t)
 	addFile(t, repoDir, "README.md", "# Test")

@@ -9,8 +9,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/git-pkgs/manifests"
 	"github.com/git-pkgs/git-pkgs/internal/git"
+	"github.com/git-pkgs/git-pkgs/internal/gitignore"
+	"github.com/git-pkgs/manifests"
 	"github.com/spf13/cobra"
 )
 
@@ -53,11 +54,7 @@ func runWhere(cmd *cobra.Command, args []string) error {
 
 	workDir := repo.WorkDir()
 
-	ignoreMatcher, err := repo.LoadIgnoreMatcher()
-	if err != nil {
-		// Continue without gitignore support if loading fails
-		ignoreMatcher = nil
-	}
+	matcher := gitignore.New(workDir)
 
 	// Load submodule paths only if we need to skip them
 	var submoduleMap map[string]bool
@@ -92,18 +89,25 @@ func runWhere(cmd *cobra.Command, args []string) error {
 				return filepath.SkipDir
 			}
 			// Skip directories that match gitignore patterns
-			if ignoreMatcher != nil && ignoreMatcher.IsIgnored(relPath, true) {
+			if relPath != "." && matcher.Match(relPath+"/") {
 				return filepath.SkipDir
 			}
 			// Skip git submodule directories
 			if submoduleMap[relPath] {
 				return filepath.SkipDir
 			}
+			// Pick up nested .gitignore files
+			if relPath != "." {
+				nestedIgnore := filepath.Join(path, ".gitignore")
+				if _, err := os.Stat(nestedIgnore); err == nil {
+					matcher.AddFromFile(nestedIgnore, relPath)
+				}
+			}
 			return nil
 		}
 
 		// Skip files that match gitignore patterns
-		if ignoreMatcher != nil && ignoreMatcher.IsIgnored(relPath, false) {
+		if matcher.Match(relPath) {
 			return nil
 		}
 

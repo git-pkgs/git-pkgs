@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/git-pkgs/git-pkgs/internal/gitignore"
 	"github.com/git-pkgs/manifests"
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/utils/merkletrie"
 )
@@ -633,14 +633,10 @@ func (a *Analyzer) DependenciesInWorkingDir(root string, includeSubmodules bool)
 	var deps []Change
 
 	// Load gitignore patterns and submodule paths
-	var matcher gitignore.Matcher
+	matcher := gitignore.New(root)
 	var submodulePaths map[string]bool
 	if repo, err := git.PlainOpenWithOptions(root, &git.PlainOpenOptions{DetectDotGit: true}); err == nil {
 		if wt, err := repo.Worktree(); err == nil {
-			if patterns, err := gitignore.ReadPatterns(wt.Filesystem, nil); err == nil {
-				matcher = gitignore.NewMatcher(patterns)
-			}
-
 			// Load submodule paths only if we need to skip them
 			if !includeSubmodules {
 				if submodules, err := wt.Submodules(); err == nil {
@@ -673,18 +669,25 @@ func (a *Analyzer) DependenciesInWorkingDir(root string, includeSubmodules bool)
 				return filepath.SkipDir
 			}
 			// Skip directories that match gitignore patterns
-			if matcher != nil && matcher.Match(strings.Split(relPath, "/"), true) {
+			if relPath != "." && matcher.Match(relPath+"/") {
 				return filepath.SkipDir
 			}
 			// Skip git submodule directories
 			if submodulePaths != nil && submodulePaths[relPath] {
 				return filepath.SkipDir
 			}
+			// Pick up nested .gitignore files
+			if relPath != "." {
+				nestedIgnore := filepath.Join(path, ".gitignore")
+				if _, err := os.Stat(nestedIgnore); err == nil {
+					matcher.AddFromFile(nestedIgnore, relPath)
+				}
+			}
 			return nil
 		}
 
 		// Skip files that match gitignore patterns
-		if matcher != nil && matcher.Match(strings.Split(relPath, "/"), false) {
+		if matcher.Match(relPath) {
 			return nil
 		}
 

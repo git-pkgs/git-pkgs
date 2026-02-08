@@ -510,3 +510,49 @@ func TestGetSubmodulePaths(t *testing.T) {
 		}
 	})
 }
+
+func TestGetExcludeDirs(t *testing.T) {
+	t.Run("returns defaults when config is unset", func(t *testing.T) {
+		dir := createTestRepo(t)
+		addFile(t, dir, "README.md", "# Test")
+		commit(t, dir, "init")
+
+		repo, err := git.OpenRepository(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		dirs := repo.GetExcludeDirs()
+		if len(dirs) != 2 || dirs[0] != "node_modules" || dirs[1] != "vendor" {
+			t.Errorf("expected [node_modules vendor], got %v", dirs)
+		}
+	})
+
+	t.Run("reads from git config", func(t *testing.T) {
+		dir := createTestRepo(t)
+		addFile(t, dir, "README.md", "# Test")
+		commit(t, dir, "init")
+
+		cmd := exec.Command("git", "config", "git-pkgs.exclude-dirs", "dist,build,tmp")
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to set config: %v", err)
+		}
+
+		repo, err := git.OpenRepository(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		dirs := repo.GetExcludeDirs()
+		expected := []string{"dist", "build", "tmp"}
+		if len(dirs) != len(expected) {
+			t.Fatalf("expected %v, got %v", expected, dirs)
+		}
+		for i, d := range dirs {
+			if d != expected[i] {
+				t.Errorf("dirs[%d] = %q, want %q", i, d, expected[i])
+			}
+		}
+	})
+}
