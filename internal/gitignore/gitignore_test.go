@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/git-pkgs/git-pkgs/internal/gitignore"
@@ -1364,6 +1365,9 @@ func TestMatchEdgeCasesVsGitCheckIgnore(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" && tt.name == "escaped wildcards" {
+				t.Skip("Windows does not allow * or ? in filenames")
+			}
 			root := t.TempDir()
 
 			for _, args := range [][]string{
