@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/git-pkgs/git-pkgs/internal/gitignore"
+	"github.com/git-pkgs/gitignore"
 	"github.com/git-pkgs/manifests"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"

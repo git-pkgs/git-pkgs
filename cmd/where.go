@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/git-pkgs/git-pkgs/internal/git"
-	"github.com/git-pkgs/git-pkgs/internal/gitignore"
+	"github.com/git-pkgs/gitignore"
 	"github.com/git-pkgs/manifests"
 	"github.com/spf13/cobra"
 )
