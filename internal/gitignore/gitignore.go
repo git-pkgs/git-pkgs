@@ -278,8 +278,12 @@ func parseBracket(i *int, glob string) string {
 	if j < len(glob) && glob[j] == ']' {
 		j++
 	}
-	// Find closing bracket, skipping POSIX character classes like [:space:]
+	// Find closing bracket, skipping escape sequences and POSIX character classes
 	for j < len(glob) && glob[j] != ']' {
+		if glob[j] == '\\' && j+1 < len(glob) {
+			j += 2 // skip escaped character
+			continue
+		}
 		if glob[j] == '[' && j+1 < len(glob) && glob[j+1] == ':' {
 			// Skip past the POSIX class to its closing :]
 			end := strings.Index(glob[j+2:], ":]")
@@ -297,16 +301,30 @@ func parseBracket(i *int, glob string) string {
 	}
 
 	// j points at closing bracket
-	inner := glob[*i:j]
+	raw := glob[*i:j]
 	*i = j // for loop will increment past ]
 
+	// Build regex bracket content, resolving escape sequences.
+	// In wildmatch, \X inside brackets means literal X.
+	var buf strings.Builder
+	k := 0
+
 	// Convert ! to ^ for regex negation
-	if len(inner) > 0 && inner[0] == '!' {
-		inner = "^" + inner[1:]
+	if k < len(raw) && raw[k] == '!' {
+		buf.WriteByte('^')
+		k++
 	}
 
-	// Escape backslashes inside bracket expressions for regex
-	inner = strings.ReplaceAll(inner, `\`, `\\`)
+	for k < len(raw) {
+		if raw[k] == '\\' && k+1 < len(raw) {
+			k++
+			buf.WriteString(regexp.QuoteMeta(string(raw[k])))
+			k++
+		} else {
+			buf.WriteByte(raw[k])
+			k++
+		}
+	}
 
-	return "[" + inner + "]"
+	return "[" + buf.String() + "]"
 }

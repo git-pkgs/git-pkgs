@@ -1232,6 +1232,45 @@ func TestMatchPOSIXCharacterClasses(t *testing.T) {
 	}
 }
 
+func TestMatchBracketEscapes(t *testing.T) {
+	// In wildmatch, \X inside a bracket expression means literal X.
+	// Test cases adapted from git/t/t3070-wildmatch.sh
+	tests := []struct {
+		pattern string
+		path    string
+		want    bool
+	}{
+		{"[\\-_]", "-", true},          // \- = literal dash
+		{"[\\-_]", "_", true},
+		{"[\\-_]", "a", false},
+		{"[\\]]", "]", true},           // \] = literal ]
+		{"[\\\\]", "\\", true},         // \\ = literal backslash
+		{"[!\\\\]", "\\", false},       // negated literal backslash
+		{"[!\\\\]", "a", true},
+		{"[A-\\\\]", "G", true},        // range A(65) to \(92)
+		{"[\\\\-^]", "]", true},        // range \(92) to ^(94), ](93) in range
+		{"[\\\\-^]", "[", false},       // [(91) not in range
+		{"[\\1-\\3]", "2", true},       // range 1-3
+		{"[\\1-\\3]", "3", true},
+		{"[\\1-\\3]", "4", false},
+		{"[[-\\]]", "\\", true},        // range [(91) to ](93)
+		{"[[-\\]]", "[", true},
+		{"[[-\\]]", "]", true},
+		{"[[-\\]]", "-", false},
+		{"[\\\\,]", ",", true},         // literal backslash or comma
+		{"[\\\\,]", "\\", true},
+		{"[\\,]", ",", true},           // literal comma
+	}
+
+	for _, tt := range tests {
+		m := setupMatcher(t, tt.pattern+"\n")
+		got := m.Match(tt.path)
+		if got != tt.want {
+			t.Errorf("pattern %q, Match(%q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
+		}
+	}
+}
+
 func TestMatchBracketRange(t *testing.T) {
 	m := setupMatcher(t, "file[0-9].txt\n")
 
