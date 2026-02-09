@@ -1187,6 +1187,51 @@ func TestMatchBracketWithClosingBracketFirst(t *testing.T) {
 	}
 }
 
+func TestMatchPOSIXCharacterClasses(t *testing.T) {
+	// POSIX character classes like [[:space:]], [[:alpha:]] are valid in
+	// gitignore patterns (git's wildmatch supports them).
+	// Test cases adapted from git/t/t3070-wildmatch.sh
+	tests := []struct {
+		pattern string
+		path    string
+		want    bool
+	}{
+		// Basic classes
+		{"foo[[:space:]]bar", "foo bar", true},
+		{"foo[[:space:]]bar", "foo\tbar", true},
+		{"foo[[:space:]]bar", "fooXbar", false},
+		{"[[:digit:]]*.log", "3debug.log", true},
+		{"[[:digit:]]*.log", "0.log", true},
+		{"[[:digit:]]*.log", "debug.log", false},
+
+		// Multiple character classes from wildmatch suite
+		{"[[:alpha:]][[:digit:]][[:upper:]]", "a1B", true},
+		{"[[:digit:][:upper:][:space:]]", "A", true},
+		{"[[:digit:][:upper:][:space:]]", "1", true},
+		{"[[:digit:][:upper:][:space:]]", " ", true},
+		{"[[:digit:][:upper:][:space:]]", "a", false},
+		{"[[:digit:][:upper:][:space:]]", ".", false},
+		{"[[:digit:][:punct:][:space:]]", ".", true},
+		{"[[:xdigit:]]", "5", true},
+		{"[[:xdigit:]]", "f", true},
+		{"[[:xdigit:]]", "D", true},
+
+		// Mixing ranges and POSIX classes
+		{"[a-c[:digit:]x-z]", "5", true},
+		{"[a-c[:digit:]x-z]", "b", true},
+		{"[a-c[:digit:]x-z]", "y", true},
+		{"[a-c[:digit:]x-z]", "q", false},
+	}
+
+	for _, tt := range tests {
+		m := setupMatcher(t, tt.pattern+"\n")
+		got := m.Match(tt.path)
+		if got != tt.want {
+			t.Errorf("pattern %q, Match(%q) = %v, want %v", tt.pattern, tt.path, got, tt.want)
+		}
+	}
+}
+
 func TestMatchBracketRange(t *testing.T) {
 	m := setupMatcher(t, "file[0-9].txt\n")
 
@@ -1349,6 +1394,15 @@ func TestMatchEdgeCasesVsGitCheckIgnore(t *testing.T) {
 				{"foo", false},
 				{"afoo", false},
 				{"bar", false},
+			},
+		},
+		{
+			name:     "POSIX character classes",
+			patterns: "[[:digit:]]*.log\n",
+			paths: []checkPath{
+				{"3debug.log", false},
+				{"0.log", false},
+				{"debug.log", false},
 			},
 		},
 		{

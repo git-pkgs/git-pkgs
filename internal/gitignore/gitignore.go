@@ -278,8 +278,16 @@ func parseBracket(i *int, glob string) string {
 	if j < len(glob) && glob[j] == ']' {
 		j++
 	}
-	// Find closing bracket
+	// Find closing bracket, skipping POSIX character classes like [:space:]
 	for j < len(glob) && glob[j] != ']' {
+		if glob[j] == '[' && j+1 < len(glob) && glob[j+1] == ':' {
+			// Skip past the POSIX class to its closing :]
+			end := strings.Index(glob[j+2:], ":]")
+			if end != -1 {
+				j += end + 4 // skip [: + class name + :]
+				continue
+			}
+		}
 		j++
 	}
 	if j >= len(glob) {
