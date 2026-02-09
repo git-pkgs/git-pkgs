@@ -158,53 +158,103 @@ func changesToDeps(changes []analyzer.Change) []database.Dependency {
 func computeDiff(fromDeps, toDeps []database.Dependency) *DiffResult {
 	result := &DiffResult{}
 
-	// Build maps keyed by manifest:name to detect added, removed, and modified
-	fromMap := make(map[string]database.Dependency)
-	for _, d := range fromDeps {
-		key := d.ManifestPath + ":" + d.Name
-		fromMap[key] = d
+	// Build multi-maps keyed by manifest:name, since lockfiles can contain
+	// the same package at multiple versions (e.g. npm dependency hoisting).
+	type depKey struct {
+		ManifestPath string
+		Name         string
 	}
 
-	toMap := make(map[string]database.Dependency)
+	fromMulti := make(map[depKey][]database.Dependency)
+	for _, d := range fromDeps {
+		key := depKey{d.ManifestPath, d.Name}
+		fromMulti[key] = append(fromMulti[key], d)
+	}
+
+	toMulti := make(map[depKey][]database.Dependency)
 	for _, d := range toDeps {
-		key := d.ManifestPath + ":" + d.Name
-		toMap[key] = d
+		key := depKey{d.ManifestPath, d.Name}
+		toMulti[key] = append(toMulti[key], d)
 	}
 
 	// Find added and modified
-	for key, toDep := range toMap {
-		if fromDep, exists := fromMap[key]; exists {
-			if fromDep.Requirement != toDep.Requirement {
-				result.Modified = append(result.Modified, DiffEntry{
-					Name:            toDep.Name,
-					Ecosystem:       toDep.Ecosystem,
-					ManifestPath:    toDep.ManifestPath,
-					DependencyType:  toDep.DependencyType,
-					FromRequirement: fromDep.Requirement,
-					ToRequirement:   toDep.Requirement,
+	for key, toList := range toMulti {
+		fromList, exists := fromMulti[key]
+		if !exists {
+			// Entirely new package
+			for _, d := range toList {
+				result.Added = append(result.Added, DiffEntry{
+					Name:           d.Name,
+					Ecosystem:      d.Ecosystem,
+					ManifestPath:   d.ManifestPath,
+					DependencyType: d.DependencyType,
+					ToRequirement:  d.Requirement,
 				})
 			}
-		} else {
-			result.Added = append(result.Added, DiffEntry{
-				Name:           toDep.Name,
-				Ecosystem:      toDep.Ecosystem,
-				ManifestPath:   toDep.ManifestPath,
-				DependencyType: toDep.DependencyType,
-				ToRequirement:  toDep.Requirement,
-			})
+			continue
+		}
+
+		// Single version on each side: compare directly (shows "modified")
+		if len(fromList) == 1 && len(toList) == 1 {
+			if fromList[0].Requirement != toList[0].Requirement {
+				result.Modified = append(result.Modified, DiffEntry{
+					Name:            toList[0].Name,
+					Ecosystem:       toList[0].Ecosystem,
+					ManifestPath:    toList[0].ManifestPath,
+					DependencyType:  toList[0].DependencyType,
+					FromRequirement: fromList[0].Requirement,
+					ToRequirement:   toList[0].Requirement,
+				})
+			}
+			continue
+		}
+
+		// Multiple versions on at least one side: compare version sets
+		fromVersions := make(map[string]bool, len(fromList))
+		for _, d := range fromList {
+			fromVersions[d.Requirement] = true
+		}
+		toVersions := make(map[string]bool, len(toList))
+		for _, d := range toList {
+			toVersions[d.Requirement] = true
+		}
+
+		for _, d := range toList {
+			if !fromVersions[d.Requirement] {
+				result.Added = append(result.Added, DiffEntry{
+					Name:           d.Name,
+					Ecosystem:      d.Ecosystem,
+					ManifestPath:   d.ManifestPath,
+					DependencyType: d.DependencyType,
+					ToRequirement:  d.Requirement,
+				})
+			}
+		}
+		for _, d := range fromList {
+			if !toVersions[d.Requirement] {
+				result.Removed = append(result.Removed, DiffEntry{
+					Name:            d.Name,
+					Ecosystem:       d.Ecosystem,
+					ManifestPath:    d.ManifestPath,
+					DependencyType:  d.DependencyType,
+					FromRequirement: d.Requirement,
+				})
+			}
 		}
 	}
 
-	// Find removed
-	for key, fromDep := range fromMap {
-		if _, exists := toMap[key]; !exists {
-			result.Removed = append(result.Removed, DiffEntry{
-				Name:            fromDep.Name,
-				Ecosystem:       fromDep.Ecosystem,
-				ManifestPath:    fromDep.ManifestPath,
-				DependencyType:  fromDep.DependencyType,
-				FromRequirement: fromDep.Requirement,
-			})
+	// Find removed (packages not in toMulti at all)
+	for key, fromList := range fromMulti {
+		if _, exists := toMulti[key]; !exists {
+			for _, d := range fromList {
+				result.Removed = append(result.Removed, DiffEntry{
+					Name:            d.Name,
+					Ecosystem:       d.Ecosystem,
+					ManifestPath:    d.ManifestPath,
+					DependencyType:  d.DependencyType,
+					FromRequirement: d.Requirement,
+				})
+			}
 		}
 	}
 

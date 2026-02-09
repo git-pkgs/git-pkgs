@@ -772,6 +772,78 @@ jobs:
 	}
 }
 
+func TestAnalyzeCommitMultiVersionModified(t *testing.T) {
+	// When a lockfile has the same package at multiple versions and one version
+	// changes, PreviousRequirement should reflect the actual old version, not
+	// whichever version happened to be last in the map.
+	//
+	// Before: shared@2.0.0 (under dep-a) and shared@1.5.0 (under dep-b)
+	// After:  shared@2.1.0 (under dep-a) and shared@1.5.0 (under dep-b)
+	// Expected change: shared modified 2.0.0 -> 2.1.0
+	// Bug: beforeByName["shared"] = 1.5.0 (last wins), so PreviousRequirement = "1.5.0"
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	before, err := os.ReadFile("testdata/multi-version-before.json")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	addFile(t, repoDir, "package-lock.json", string(before))
+	firstSha := commit(t, repoDir, "Add lockfile with shared@2.0.0 and shared@1.5.0")
+
+	after, err := os.ReadFile("testdata/multi-version-after.json")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	addFile(t, repoDir, "package-lock.json", string(after))
+	secondSha := commit(t, repoDir, "Update shared 2.0.0 -> 2.1.0")
+
+	repo := openRepo(t, repoDir)
+	a := analyzer.New()
+
+	firstHash := getCommit(t, repo, firstSha)
+	firstCommit, _ := repo.CommitObject(*firstHash)
+	firstResult, err := a.AnalyzeCommit(firstCommit, nil)
+	if err != nil {
+		t.Fatalf("analyzing first commit: %v", err)
+	}
+
+	secondHash := getCommit(t, repo, secondSha)
+	secondCommit, _ := repo.CommitObject(*secondHash)
+	result, err := a.AnalyzeCommit(secondCommit, firstResult.Snapshot)
+	if err != nil {
+		t.Fatalf("analyzing second commit: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+
+	// Should have exactly one change: shared modified 2.0.0 -> 2.1.0
+	var modifiedChanges []analyzer.Change
+	for _, ch := range result.Changes {
+		if ch.ChangeType == "modified" {
+			modifiedChanges = append(modifiedChanges, ch)
+		}
+	}
+
+	if len(modifiedChanges) != 1 {
+		t.Fatalf("expected 1 modified change, got %d: %+v", len(modifiedChanges), result.Changes)
+	}
+
+	ch := modifiedChanges[0]
+	if ch.Name != "shared" {
+		t.Errorf("expected modified package 'shared', got %q", ch.Name)
+	}
+	if ch.PreviousRequirement != "2.0.0" {
+		t.Errorf("expected PreviousRequirement '2.0.0', got %q", ch.PreviousRequirement)
+	}
+	if ch.Requirement != "2.1.0" {
+		t.Errorf("expected Requirement '2.1.0', got %q", ch.Requirement)
+	}
+}
+
 func TestMultipleVersionsSamePackage(t *testing.T) {
 	// Regression test for https://github.com/git-pkgs/git-pkgs/issues/37
 	// npm can have multiple versions of the same package (e.g., isexe@2.0.0 runtime, isexe@3.1.1 dev)

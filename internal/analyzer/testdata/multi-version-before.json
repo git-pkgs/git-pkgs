@@ -1,0 +1,38 @@
+{
+  "name": "test",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "test",
+      "version": "1.0.0",
+      "dependencies": {
+        "dep-a": "^1.0.0",
+        "dep-b": "^1.0.0"
+      }
+    },
+    "node_modules/dep-a": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/dep-a/-/dep-a-1.0.0.tgz",
+      "dependencies": {
+        "shared": "^2.0.0"
+      }
+    },
+    "node_modules/dep-a/node_modules/shared": {
+      "version": "2.0.0",
+      "resolved": "https://registry.npmjs.org/shared/-/shared-2.0.0.tgz"
+    },
+    "node_modules/dep-b": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/dep-b/-/dep-b-1.0.0.tgz",
+      "dependencies": {
+        "shared": "~1.5.0"
+      }
+    },
+    "node_modules/dep-b/node_modules/shared": {
+      "version": "1.5.0",
+      "resolved": "https://registry.npmjs.org/shared/-/shared-1.5.0.tgz"
+    }
+  }
+}

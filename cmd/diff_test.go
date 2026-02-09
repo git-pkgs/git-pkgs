@@ -428,6 +428,47 @@ func TestComputeDiff_SamePackageDifferentManifests(t *testing.T) {
 	}
 }
 
+func TestComputeDiff_DuplicatePackageVersionsInLockfile(t *testing.T) {
+	// npm lockfiles can contain the same package at multiple versions due to
+	// dependency hoisting. For example, package-lock.json might have:
+	//   node_modules/ini (version 6.0.0)
+	//   node_modules/some-dep/node_modules/ini (version 4.1.1)
+	// The manifests parser returns both as separate dependencies with the same
+	// name and manifest path but different versions.
+	//
+	// When from and to have identical deps, computeDiff should report no changes,
+	// regardless of iteration order.
+	fromDeps := []database.Dependency{
+		{Name: "ini", Ecosystem: "npm", Requirement: "6.0.0", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "ini", Ecosystem: "npm", Requirement: "4.1.1", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "minipass", Ecosystem: "npm", Requirement: "7.1.2", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "minipass", Ecosystem: "npm", Requirement: "3.3.6", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "debug", Ecosystem: "npm", Requirement: "4.4.3", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "debug", Ecosystem: "npm", Requirement: "2.6.9", ManifestPath: "package-lock.json", DependencyType: "development"},
+	}
+	// Same deps, different order (simulating different iteration paths)
+	toDeps := []database.Dependency{
+		{Name: "ini", Ecosystem: "npm", Requirement: "4.1.1", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "ini", Ecosystem: "npm", Requirement: "6.0.0", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "minipass", Ecosystem: "npm", Requirement: "3.3.6", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "minipass", Ecosystem: "npm", Requirement: "7.1.2", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "debug", Ecosystem: "npm", Requirement: "2.6.9", ManifestPath: "package-lock.json", DependencyType: "development"},
+		{Name: "debug", Ecosystem: "npm", Requirement: "4.4.3", ManifestPath: "package-lock.json", DependencyType: "development"},
+	}
+
+	result := computeDiff(fromDeps, toDeps)
+
+	if len(result.Added) != 0 {
+		t.Errorf("expected 0 added, got %d: %+v", len(result.Added), result.Added)
+	}
+	if len(result.Modified) != 0 {
+		t.Errorf("expected 0 modified, got %d: %+v", len(result.Modified), result.Modified)
+	}
+	if len(result.Removed) != 0 {
+		t.Errorf("expected 0 removed, got %d: %+v", len(result.Removed), result.Removed)
+	}
+}
+
 func containsString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

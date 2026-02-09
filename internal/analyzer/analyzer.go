@@ -325,21 +325,21 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		// Merge integrity hashes from supplement files in same directory
 		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(path))
 
-		// Build maps by name for change detection (modified = version changed)
-		// But also track all name+version pairs for snapshot storage
-		beforeByName := make(map[string]manifests.Dependency)
+		// Build multi-maps by name for change detection, since lockfiles can
+		// contain the same package at multiple versions (e.g. npm hoisting).
+		beforeVersions := make(map[string][]manifests.Dependency)
 		beforeByNameVersion := make(map[string]bool)
 		if beforeDeps != nil {
 			for _, dep := range beforeDeps.Dependencies {
-				beforeByName[dep.Name] = dep
+				beforeVersions[dep.Name] = append(beforeVersions[dep.Name], dep)
 				beforeByNameVersion[dep.Name+"\x00"+dep.Version] = true
 			}
 		}
 
-		afterByName := make(map[string]manifests.Dependency)
+		afterVersions := make(map[string][]manifests.Dependency)
 		afterByNameVersion := make(map[string]bool)
 		for _, dep := range afterDeps.Dependencies {
-			afterByName[dep.Name] = dep
+			afterVersions[dep.Name] = append(afterVersions[dep.Name], dep)
 			afterByNameVersion[dep.Name+"\x00"+dep.Version] = true
 		}
 
@@ -373,7 +373,46 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			// Check if this exact name+version existed before
 			if beforeByNameVersion[nameVersion] {
 				// Same name+version exists, check if scope changed
-				if before, ok := beforeByName[dep.Name]; ok && before.Version == dep.Version && before.Scope != dep.Scope {
+				for _, before := range beforeVersions[dep.Name] {
+					if before.Version == dep.Version && before.Scope != dep.Scope {
+						result.Changes = append(result.Changes, Change{
+							ManifestPath:        path,
+							Ecosystem:           afterDeps.Ecosystem,
+							Kind:                string(afterDeps.Kind),
+							Name:                dep.Name,
+							PURL:                dep.PURL,
+							ChangeType:          "modified",
+							Requirement:         dep.Version,
+							PreviousRequirement: before.Version,
+							DependencyType:      string(dep.Scope),
+							Integrity:           integrity,
+						})
+						break
+					}
+				}
+			} else if versions, exists := beforeVersions[dep.Name]; exists {
+				// Same name but different version - find which old version was replaced
+				var previousVersion string
+				for _, before := range versions {
+					if !afterByNameVersion[dep.Name+"\x00"+before.Version] {
+						previousVersion = before.Version
+						break
+					}
+				}
+				if previousVersion == "" {
+					// All old versions still exist, this is a newly added version
+					result.Changes = append(result.Changes, Change{
+						ManifestPath:   path,
+						Ecosystem:      afterDeps.Ecosystem,
+						Kind:           string(afterDeps.Kind),
+						Name:           dep.Name,
+						PURL:           dep.PURL,
+						ChangeType:     "added",
+						Requirement:    dep.Version,
+						DependencyType: string(dep.Scope),
+						Integrity:      integrity,
+					})
+				} else {
 					result.Changes = append(result.Changes, Change{
 						ManifestPath:        path,
 						Ecosystem:           afterDeps.Ecosystem,
@@ -382,25 +421,11 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 						PURL:                dep.PURL,
 						ChangeType:          "modified",
 						Requirement:         dep.Version,
-						PreviousRequirement: before.Version,
+						PreviousRequirement: previousVersion,
 						DependencyType:      string(dep.Scope),
 						Integrity:           integrity,
 					})
 				}
-			} else if before, exists := beforeByName[dep.Name]; exists {
-				// Same name but different version - this is a "modified" change
-				result.Changes = append(result.Changes, Change{
-					ManifestPath:        path,
-					Ecosystem:           afterDeps.Ecosystem,
-					Kind:                string(afterDeps.Kind),
-					Name:                dep.Name,
-					PURL:                dep.PURL,
-					ChangeType:          "modified",
-					Requirement:         dep.Version,
-					PreviousRequirement: before.Version,
-					DependencyType:      string(dep.Scope),
-					Integrity:           integrity,
-				})
 			} else {
 				// Completely new package
 				result.Changes = append(result.Changes, Change{
@@ -438,7 +463,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 
 				if !afterByNameVersion[nameVersion] {
 					// This exact name+version is gone
-					if _, stillExists := afterByName[dep.Name]; !stillExists {
+					if _, stillExists := afterVersions[dep.Name]; !stillExists {
 						// Package completely removed (not just version change)
 						result.Changes = append(result.Changes, Change{
 							ManifestPath:   path,
