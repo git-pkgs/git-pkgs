@@ -718,6 +718,32 @@ Commands that run package managers (`install`, `add`, `remove`, `update`) delega
 
 **Author mapping** via `.mailmap` is supported. If your repository has a [`.mailmap` file](https://git-scm.com/docs/gitmailmap), author identities are resolved to their canonical names when indexing commits. This helps deduplicate contributors in `blame`, `history`, and `stats` output.
 
+## Go library
+
+The `database` package provides typed, read-only access to the git-pkgs SQLite database for extensions and external tools written in Go:
+
+```go
+import "github.com/git-pkgs/git-pkgs/database"
+
+db, err := database.OpenReadOnly(".git/pkgs.sqlite3")
+if err != nil {
+    log.Fatal(err)
+}
+defer db.Close()
+
+branch, _ := db.GetDefaultBranch()
+deps, _ := db.GetLatestDependencies(branch.ID)
+for _, d := range deps {
+    fmt.Printf("%s %s %s\n", d.Ecosystem, d.Name, d.Requirement)
+}
+```
+
+`OpenReadOnly` opens the database in SQLite read-only mode and validates the schema version, so extensions built against one version won't silently produce wrong results against another.
+
+`Open` is also available for tools that manage their own write paths and don't need schema validation.
+
+See the [package documentation](https://pkg.go.dev/github.com/git-pkgs/git-pkgs/database) for all available query methods.
+
 ## Supported ecosystems
 
 git-pkgs uses [github.com/git-pkgs/manifests](https://github.com/git-pkgs/manifests) for parsing, supporting:
