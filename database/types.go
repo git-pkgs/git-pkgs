@@ -37,6 +37,7 @@ type Version struct {
 	License     sql.NullString `db:"license" json:"license,omitzero"`
 	PublishedAt sql.NullTime   `db:"published_at" json:"published_at,omitzero"`
 	Integrity   sql.NullString `db:"integrity" json:"integrity,omitzero"`
+	Yanked      bool           `db:"yanked" json:"yanked"`
 	Source      sql.NullString `db:"source" json:"source,omitzero"`
 	EnrichedAt  sql.NullTime   `db:"enriched_at" json:"enriched_at,omitzero"`
 	CreatedAt   time.Time      `db:"created_at" json:"created_at"`

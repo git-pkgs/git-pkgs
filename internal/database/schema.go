@@ -119,6 +119,7 @@ func (db *DB) CreateSchema() error {
 		license TEXT,
 		published_at DATETIME,
 		integrity TEXT,
+		yanked INTEGER DEFAULT 0,
 		source TEXT,
 		enriched_at DATETIME,
 		created_at DATETIME,

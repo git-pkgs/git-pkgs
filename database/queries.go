@@ -84,7 +84,7 @@ func (db *DB) GetVersionByPURL(purl string) (*Version, error) {
 	var v Version
 	err := db.db.Get(&v, `
 		SELECT id, purl, package_purl, license, published_at,
-		       integrity, source, enriched_at, created_at, updated_at
+		       integrity, yanked, source, enriched_at, created_at, updated_at
 		FROM versions WHERE purl = ?
 	`, purl)
 	if err == sql.ErrNoRows {
@@ -101,7 +101,7 @@ func (db *DB) GetVersionsByPackagePURL(packagePURL string) ([]Version, error) {
 	var versions []Version
 	err := db.db.Select(&versions, `
 		SELECT id, purl, package_purl, license, published_at,
-		       integrity, source, enriched_at, created_at, updated_at
+		       integrity, yanked, source, enriched_at, created_at, updated_at
 		FROM versions WHERE package_purl = ?
 		ORDER BY created_at DESC
 	`, packagePURL)
@@ -116,17 +116,18 @@ func (db *DB) UpsertVersion(v *Version) error {
 	now := time.Now()
 	_, err := db.db.Exec(`
 		INSERT INTO versions (purl, package_purl, license, published_at,
-		                      integrity, source, enriched_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      integrity, yanked, source, enriched_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(purl) DO UPDATE SET
 			license = excluded.license,
 			published_at = excluded.published_at,
 			integrity = excluded.integrity,
+			yanked = excluded.yanked,
 			source = excluded.source,
 			enriched_at = excluded.enriched_at,
 			updated_at = excluded.updated_at
 	`, v.PURL, v.PackagePURL, v.License, v.PublishedAt,
-		v.Integrity, v.Source, v.EnrichedAt, now, now)
+		v.Integrity, v.Yanked, v.Source, v.EnrichedAt, now, now)
 	if err != nil {
 		return fmt.Errorf("upserting version: %w", err)
 	}
