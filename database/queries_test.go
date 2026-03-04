@@ -173,6 +173,145 @@ func populatedDB(t *testing.T) (string, int64) {
 	return dbPath, branchID
 }
 
+func TestUpsertAndGetPackage(t *testing.T) {
+	dbPath := createTestDB(t)
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("opening database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	pkg := &database.Package{
+		PURL:      "pkg:npm/lodash",
+		Ecosystem: "npm",
+		Name:      "lodash",
+	}
+	pkg.LatestVersion.String = "4.17.21"
+	pkg.LatestVersion.Valid = true
+	pkg.License.String = "MIT"
+	pkg.License.Valid = true
+
+	err = db.UpsertPackage(pkg)
+	if err != nil {
+		t.Fatalf("upserting package: %v", err)
+	}
+
+	// Get by PURL
+	got, err := db.GetPackageByPURL("pkg:npm/lodash")
+	if err != nil {
+		t.Fatalf("getting package by purl: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected package, got nil")
+	}
+	if got.Name != "lodash" {
+		t.Errorf("name = %q, want %q", got.Name, "lodash")
+	}
+	if got.LatestVersion.String != "4.17.21" {
+		t.Errorf("latest_version = %q, want %q", got.LatestVersion.String, "4.17.21")
+	}
+
+	// Get by ecosystem/name
+	got, err = db.GetPackageByEcosystemName("npm", "lodash")
+	if err != nil {
+		t.Fatalf("getting package by ecosystem/name: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected package, got nil")
+	}
+	if got.PURL != "pkg:npm/lodash" {
+		t.Errorf("purl = %q, want %q", got.PURL, "pkg:npm/lodash")
+	}
+
+	// Upsert updates existing
+	pkg.LatestVersion.String = "4.18.0"
+	err = db.UpsertPackage(pkg)
+	if err != nil {
+		t.Fatalf("upserting package: %v", err)
+	}
+
+	got, err = db.GetPackageByPURL("pkg:npm/lodash")
+	if err != nil {
+		t.Fatalf("getting package: %v", err)
+	}
+	if got.LatestVersion.String != "4.18.0" {
+		t.Errorf("latest_version after upsert = %q, want %q", got.LatestVersion.String, "4.18.0")
+	}
+
+	// Non-existent returns nil
+	got, err = db.GetPackageByPURL("pkg:npm/nonexistent")
+	if err != nil {
+		t.Fatalf("getting nonexistent: %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil for nonexistent package")
+	}
+}
+
+func TestUpsertAndGetVersion(t *testing.T) {
+	dbPath := createTestDB(t)
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("opening database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Insert parent package first
+	pkg := &database.Package{
+		PURL:      "pkg:npm/lodash",
+		Ecosystem: "npm",
+		Name:      "lodash",
+	}
+	if err := db.UpsertPackage(pkg); err != nil {
+		t.Fatalf("upserting package: %v", err)
+	}
+
+	v := &database.Version{
+		PURL:        "pkg:npm/lodash@4.17.21",
+		PackagePURL: "pkg:npm/lodash",
+	}
+	v.License.String = "MIT"
+	v.License.Valid = true
+
+	err = db.UpsertVersion(v)
+	if err != nil {
+		t.Fatalf("upserting version: %v", err)
+	}
+
+	// Get by PURL
+	got, err := db.GetVersionByPURL("pkg:npm/lodash@4.17.21")
+	if err != nil {
+		t.Fatalf("getting version: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected version, got nil")
+	}
+	if got.PackagePURL != "pkg:npm/lodash" {
+		t.Errorf("package_purl = %q, want %q", got.PackagePURL, "pkg:npm/lodash")
+	}
+	if got.VersionString() != "4.17.21" {
+		t.Errorf("VersionString() = %q, want %q", got.VersionString(), "4.17.21")
+	}
+
+	// Add another version
+	v2 := &database.Version{
+		PURL:        "pkg:npm/lodash@4.18.0",
+		PackagePURL: "pkg:npm/lodash",
+	}
+	if err := db.UpsertVersion(v2); err != nil {
+		t.Fatalf("upserting version: %v", err)
+	}
+
+	// Get all versions for package
+	versions, err := db.GetVersionsByPackagePURL("pkg:npm/lodash")
+	if err != nil {
+		t.Fatalf("getting versions: %v", err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("got %d versions, want 2", len(versions))
+	}
+}
+
 func TestGetBranch(t *testing.T) {
 	dbPath, _ := populatedDB(t)
 	db, err := database.OpenReadOnly(dbPath)

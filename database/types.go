@@ -1,6 +1,58 @@
 package database
 
-import "time"
+import (
+	"database/sql"
+	"strings"
+	"time"
+)
+
+// Package represents a row in the packages table.
+// This type is shared between git-pkgs and the proxy.
+type Package struct {
+	ID            int64          `db:"id" json:"id"`
+	PURL          string         `db:"purl" json:"purl"`
+	Ecosystem     string         `db:"ecosystem" json:"ecosystem"`
+	Name          string         `db:"name" json:"name"`
+	LatestVersion sql.NullString `db:"latest_version" json:"latest_version,omitzero"`
+	License       sql.NullString `db:"license" json:"license,omitzero"`
+	Description   sql.NullString `db:"description" json:"description,omitzero"`
+	Homepage      sql.NullString `db:"homepage" json:"homepage,omitzero"`
+	RepositoryURL sql.NullString `db:"repository_url" json:"repository_url,omitzero"`
+	RegistryURL   sql.NullString `db:"registry_url" json:"registry_url,omitzero"`
+	SupplierName  sql.NullString `db:"supplier_name" json:"supplier_name,omitzero"`
+	SupplierType  sql.NullString `db:"supplier_type" json:"supplier_type,omitzero"`
+	Source        sql.NullString `db:"source" json:"source,omitzero"`
+	EnrichedAt    sql.NullTime   `db:"enriched_at" json:"enriched_at,omitzero"`
+	VulnsSyncedAt sql.NullTime   `db:"vulns_synced_at" json:"vulns_synced_at,omitzero"`
+	CreatedAt     time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time      `db:"updated_at" json:"updated_at"`
+}
+
+// Version represents a row in the versions table.
+// This type is shared between git-pkgs and the proxy.
+type Version struct {
+	ID          int64          `db:"id" json:"id"`
+	PURL        string         `db:"purl" json:"purl"`
+	PackagePURL string         `db:"package_purl" json:"package_purl"`
+	License     sql.NullString `db:"license" json:"license,omitzero"`
+	PublishedAt sql.NullTime   `db:"published_at" json:"published_at,omitzero"`
+	Integrity   sql.NullString `db:"integrity" json:"integrity,omitzero"`
+	Source      sql.NullString `db:"source" json:"source,omitzero"`
+	EnrichedAt  sql.NullTime   `db:"enriched_at" json:"enriched_at,omitzero"`
+	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at"`
+}
+
+// VersionString extracts the version string from the PURL.
+// e.g., "pkg:npm/lodash@4.17.21" -> "4.17.21"
+func (v *Version) VersionString() string {
+	if idx := strings.LastIndex(v.PURL, "@"); idx >= 0 {
+		return v.PURL[idx+1:]
+	}
+	return ""
+}
+
+// Extension and query result types below.
 
 type BranchInfo struct {
 	ID              int64  `json:"id"`

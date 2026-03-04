@@ -1,15 +1,15 @@
-// Package database provides read-only access to git-pkgs dependency databases.
+// Package database provides shared database access for git-pkgs and extensions.
 //
-// Extensions and external tools can use this package to query dependency data
-// without shelling out to CLI commands or opening raw SQLite connections.
+// This package serves two audiences:
 //
-// Use [OpenReadOnly] for extensions that only need to read data. It opens the
-// database in SQLite read-only mode and validates the schema version on open,
-// returning an error if the database was created by an incompatible version of
-// git-pkgs.
+// Extensions and external tools use [OpenReadOnly] to query dependency data
+// without shelling out to CLI commands. It opens the database in SQLite
+// read-only mode and validates the schema version on open, returning an error
+// if the database was created by an incompatible version of git-pkgs.
 //
-// Use [Open] for tools like the proxy that manage their own write paths and
-// need shared connection helpers without schema validation.
+// Tools like the proxy use [Open] for read-write access to the shared
+// packages and versions tables, along with shared types and query methods
+// that keep both projects in sync.
 package database
 
 import (
@@ -17,16 +17,15 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 )
 
 const SchemaVersion = 8
 
-// DB provides read-only access to a git-pkgs dependency database.
-// The underlying *sql.DB is unexported to prevent callers from
-// running arbitrary SQL against the database.
+// DB provides access to a git-pkgs dependency database.
 type DB struct {
-	db   *sql.DB
+	db   *sqlx.DB
 	path string
 }
 
@@ -40,10 +39,12 @@ func Exists(path string) bool {
 // This does not validate the schema version. Use this for tools that manage
 // their own schema or write paths.
 func Open(path string) (*DB, error) {
-	sqlDB, err := sql.Open("sqlite", path)
+	sqlDB, err := sqlx.Open("sqlite", path+"?_busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
+
+	sqlDB.SetMaxOpenConns(1)
 
 	db := &DB{db: sqlDB, path: path}
 	if err := db.OptimizeForReads(); err != nil {
@@ -59,7 +60,7 @@ func Open(path string) (*DB, error) {
 // has a different schema version than expected.
 func OpenReadOnly(path string) (*DB, error) {
 	uri := "file:" + path + "?mode=ro"
-	sqlDB, err := sql.Open("sqlite", uri)
+	sqlDB, err := sqlx.Open("sqlite", uri)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
@@ -88,14 +89,36 @@ func (db *DB) Close() error {
 	return db.db.Close()
 }
 
+// SQLX returns the underlying *sqlx.DB for callers that need direct access.
+// Use this when you need to run queries not covered by the built-in methods.
+func (db *DB) SQLX() *sqlx.DB {
+	return db.db
+}
+
+// Rebind transforms a query from ? placeholders to the appropriate bindvar
+// type for the database driver.
+func (db *DB) Rebind(query string) string {
+	return db.db.Rebind(query)
+}
+
+// Exec executes a query without returning any rows.
+func (db *DB) Exec(query string, args ...any) (sql.Result, error) {
+	return db.db.Exec(query, args...)
+}
+
 // SchemaVersion reads the schema version from the database.
 func (db *DB) SchemaVersion() (int, error) {
 	var version int
-	err := db.db.QueryRow("SELECT version FROM schema_info LIMIT 1").Scan(&version)
+	err := db.db.Get(&version, "SELECT version FROM schema_info LIMIT 1")
 	if err != nil {
 		return 0, err
 	}
 	return version, nil
+}
+
+// Path returns the database file path.
+func (db *DB) Path() string {
+	return db.path
 }
 
 // OptimizeForReads sets pragmas for read-optimized access.

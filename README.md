@@ -720,7 +720,7 @@ Commands that run package managers (`install`, `add`, `remove`, `update`) delega
 
 ## Go library
 
-The `database` package provides typed, read-only access to the git-pkgs SQLite database for extensions and external tools written in Go:
+The `database` package provides typed access to the git-pkgs SQLite database for extensions, the proxy, and other tools written in Go:
 
 ```go
 import "github.com/git-pkgs/git-pkgs/database"
@@ -740,7 +740,7 @@ for _, d := range deps {
 
 `OpenReadOnly` opens the database in SQLite read-only mode and validates the schema version, so extensions built against one version won't silently produce wrong results against another.
 
-`Open` is also available for tools that manage their own write paths and don't need schema validation.
+`Open` is available for tools like the proxy that manage their own write paths and don't need schema validation. The package also provides shared `Package` and `Version` types with upsert methods, so tools that manage the packages and versions tables stay in sync with the git-pkgs schema.
 
 See the [package documentation](https://pkg.go.dev/github.com/git-pkgs/git-pkgs/database) for all available query methods.
 

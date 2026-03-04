@@ -7,6 +7,134 @@ import (
 	"time"
 )
 
+// Shared package queries. These are used by both git-pkgs and the proxy.
+
+// GetPackageByPURL returns a package by its PURL.
+func (db *DB) GetPackageByPURL(purl string) (*Package, error) {
+	var pkg Package
+	err := db.db.Get(&pkg, `
+		SELECT id, purl, ecosystem, name, latest_version, license,
+		       description, homepage, repository_url, registry_url,
+		       supplier_name, supplier_type, source, enriched_at,
+		       vulns_synced_at, created_at, updated_at
+		FROM packages WHERE purl = ?
+	`, purl)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &pkg, nil
+}
+
+// GetPackageByEcosystemName returns a package by ecosystem and name.
+func (db *DB) GetPackageByEcosystemName(ecosystem, name string) (*Package, error) {
+	var pkg Package
+	err := db.db.Get(&pkg, `
+		SELECT id, purl, ecosystem, name, latest_version, license,
+		       description, homepage, repository_url, registry_url,
+		       supplier_name, supplier_type, source, enriched_at,
+		       vulns_synced_at, created_at, updated_at
+		FROM packages WHERE ecosystem = ? AND name = ?
+	`, ecosystem, name)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &pkg, nil
+}
+
+// UpsertPackage inserts or updates a package record.
+func (db *DB) UpsertPackage(pkg *Package) error {
+	now := time.Now()
+	_, err := db.db.Exec(`
+		INSERT INTO packages (purl, ecosystem, name, latest_version, license,
+		                      description, homepage, repository_url, registry_url,
+		                      supplier_name, supplier_type, source, enriched_at,
+		                      created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(purl) DO UPDATE SET
+			latest_version = excluded.latest_version,
+			license = excluded.license,
+			description = excluded.description,
+			homepage = excluded.homepage,
+			repository_url = excluded.repository_url,
+			registry_url = excluded.registry_url,
+			supplier_name = excluded.supplier_name,
+			supplier_type = excluded.supplier_type,
+			source = excluded.source,
+			enriched_at = excluded.enriched_at,
+			updated_at = excluded.updated_at
+	`, pkg.PURL, pkg.Ecosystem, pkg.Name, pkg.LatestVersion, pkg.License,
+		pkg.Description, pkg.Homepage, pkg.RepositoryURL, pkg.RegistryURL,
+		pkg.SupplierName, pkg.SupplierType, pkg.Source, pkg.EnrichedAt, now, now)
+	if err != nil {
+		return fmt.Errorf("upserting package: %w", err)
+	}
+	return nil
+}
+
+// Shared version queries.
+
+// GetVersionByPURL returns a version by its PURL.
+func (db *DB) GetVersionByPURL(purl string) (*Version, error) {
+	var v Version
+	err := db.db.Get(&v, `
+		SELECT id, purl, package_purl, license, published_at,
+		       integrity, source, enriched_at, created_at, updated_at
+		FROM versions WHERE purl = ?
+	`, purl)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// GetVersionsByPackagePURL returns all versions for a package.
+func (db *DB) GetVersionsByPackagePURL(packagePURL string) ([]Version, error) {
+	var versions []Version
+	err := db.db.Select(&versions, `
+		SELECT id, purl, package_purl, license, published_at,
+		       integrity, source, enriched_at, created_at, updated_at
+		FROM versions WHERE package_purl = ?
+		ORDER BY created_at DESC
+	`, packagePURL)
+	if err != nil {
+		return nil, err
+	}
+	return versions, nil
+}
+
+// UpsertVersion inserts or updates a version record.
+func (db *DB) UpsertVersion(v *Version) error {
+	now := time.Now()
+	_, err := db.db.Exec(`
+		INSERT INTO versions (purl, package_purl, license, published_at,
+		                      integrity, source, enriched_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(purl) DO UPDATE SET
+			license = excluded.license,
+			published_at = excluded.published_at,
+			integrity = excluded.integrity,
+			source = excluded.source,
+			enriched_at = excluded.enriched_at,
+			updated_at = excluded.updated_at
+	`, v.PURL, v.PackagePURL, v.License, v.PublishedAt,
+		v.Integrity, v.Source, v.EnrichedAt, now, now)
+	if err != nil {
+		return fmt.Errorf("upserting version: %w", err)
+	}
+	return nil
+}
+
+// Extension read queries below.
+
 // GetBranch returns information about a branch by name.
 func (db *DB) GetBranch(name string) (*BranchInfo, error) {
 	var info BranchInfo
