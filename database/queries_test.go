@@ -34,7 +34,9 @@ func populatedDB(t *testing.T) (string, int64) {
 		t.Fatalf("getting branch: %v", err)
 	}
 	branchID := branch.ID
-	w.UseBranch(branchID)
+	if err := w.UseBranch(branchID); err != nil {
+		t.Fatalf("using branch: %v", err)
+	}
 
 	// Commit 1: adds two dependencies
 	commit1 := idb.CommitInfo{
@@ -130,7 +132,9 @@ func populatedDB(t *testing.T) (string, int64) {
 		t.Fatalf("updating branch: %v", err)
 	}
 
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("closing writer: %v", err)
+	}
 
 	// Add a note
 	err = db.InsertNote(idb.Note{
