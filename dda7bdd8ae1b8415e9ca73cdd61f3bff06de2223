@@ -1,0 +1,23 @@
+README.md
+  a1a9baa8b1e56973 568,570,576-585,587-588
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.8",
+  "base_commit_sha": "dda7bdd8ae1b8415e9ca73cdd61f3bff06de2223",
+  "prompts": {
+    "a1a9baa8b1e56973": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f5a973a-5eff-44eb-9ec4-cd51da63d682",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Andrew Nesbitt <andrewnez@gmail.com>",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 18,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
