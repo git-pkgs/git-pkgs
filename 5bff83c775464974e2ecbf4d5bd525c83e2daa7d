@@ -1,0 +1,27 @@
+cmd/reindex.go
+  962080f7bafc6992 18-19,23,47-59,61-63,67-70,83,91,93-94
+cmd/reindex_test.go
+  962080f7bafc6992 30,35-138
+cmd/database_test.go
+  962080f7bafc6992 452-453
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "5bff83c775464974e2ecbf4d5bd525c83e2daa7d",
+  "prompts": {
+    "962080f7bafc6992": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7244080e-7791-45a1-b004-aedc5b771f9d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Andrew Nesbitt <andrewnez@gmail.com>",
+      "messages": [],
+      "total_additions": 312,
+      "total_deletions": 33,
+      "accepted_lines": 311,
+      "overriden_lines": 0
+    }
+  }
+}
