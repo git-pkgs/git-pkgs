@@ -1,0 +1,45 @@
+internal/indexer/indexer.go
+  962080f7bafc6992 213
+internal/database/schema.go
+  962080f7bafc6992 67
+internal/database/database.go
+  962080f7bafc6992 11
+cmd/diff_driver.go
+  962080f7bafc6992 215-217
+internal/database/batch_writer.go
+  962080f7bafc6992 459-460,471,478,489
+cmd/show.go
+  962080f7bafc6992 121,169-170
+internal/analyzer/testdata/scope-change-before.json
+  962080f7bafc6992 1-47
+internal/analyzer/testdata/scope-change-after.json
+  962080f7bafc6992 1-44
+internal/database/writer.go
+  962080f7bafc6992 31,99-100,260
+internal/analyzer/analyzer_test.go
+  962080f7bafc6992 910-1002
+internal/analyzer/analyzer.go
+  962080f7bafc6992 35,413-422
+internal/database/queries.go
+  962080f7bafc6992 394,1349,1364,1366,1385-1386,1409,1427,1429,1448-1449
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "ad424d794cce799bd0abdb93d6e7cfd83d32d59d",
+  "prompts": {
+    "962080f7bafc6992": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7244080e-7791-45a1-b004-aedc5b771f9d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Andrew Nesbitt <andrewnez@gmail.com>",
+      "messages": [],
+      "total_additions": 126,
+      "total_deletions": 78,
+      "accepted_lines": 234,
+      "overriden_lines": 0
+    }
+  }
+}
