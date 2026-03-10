@@ -203,14 +203,15 @@ func (idx *Indexer) Run() (*Result, error) {
 						Kind:      change.Kind,
 					}
 					changeInfo := database.ChangeInfo{
-						ManifestPath:        change.ManifestPath,
-						Name:                change.Name,
-						Ecosystem:           change.Ecosystem,
-						PURL:                change.PURL,
-						ChangeType:          change.ChangeType,
-						Requirement:         change.Requirement,
-						PreviousRequirement: change.PreviousRequirement,
-						DependencyType:      change.DependencyType,
+						ManifestPath:           change.ManifestPath,
+						Name:                   change.Name,
+						Ecosystem:              change.Ecosystem,
+						PURL:                   change.PURL,
+						ChangeType:             change.ChangeType,
+						Requirement:            change.Requirement,
+						PreviousRequirement:    change.PreviousRequirement,
+						DependencyType:         change.DependencyType,
+						PreviousDependencyType: change.PreviousDependencyType,
 					}
 					writer.AddChange(sha, manifest, changeInfo)
 				}

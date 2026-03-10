@@ -1,0 +1,44 @@
+{
+  "name": "test-app",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "test-app",
+      "version": "1.0.0",
+      "dependencies": {
+        "express": "^4.19.0"
+      },
+      "devDependencies": {
+        "mocha": "^10.0.0"
+      }
+    },
+    "node_modules/express": {
+      "version": "4.19.0",
+      "resolved": "https://registry.npmjs.org/express/-/express-4.19.0.tgz",
+      "integrity": "sha512-xyz999"
+    },
+    "node_modules/debug": {
+      "version": "4.3.4",
+      "resolved": "https://registry.npmjs.org/debug/-/debug-4.3.4.tgz",
+      "integrity": "sha512-def456"
+    },
+    "node_modules/ms": {
+      "version": "2.1.3",
+      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+      "integrity": "sha512-ghi789"
+    },
+    "node_modules/mocha": {
+      "version": "10.0.0",
+      "resolved": "https://registry.npmjs.org/mocha/-/mocha-10.0.0.tgz",
+      "integrity": "sha512-jkl012",
+      "dev": true
+    },
+    "node_modules/accepts": {
+      "version": "1.3.8",
+      "resolved": "https://registry.npmjs.org/accepts/-/accepts-1.3.8.tgz",
+      "integrity": "sha512-mno345"
+    }
+  }
+}

@@ -28,14 +28,15 @@ type ManifestInfo struct {
 }
 
 type ChangeInfo struct {
-	ManifestPath        string
-	Name                string
-	Ecosystem           string
-	PURL                string
-	ChangeType          string
-	Requirement         string
-	PreviousRequirement string
-	DependencyType      string
+	ManifestPath           string
+	Name                   string
+	Ecosystem              string
+	PURL                   string
+	ChangeType             string
+	Requirement            string
+	PreviousRequirement    string
+	DependencyType         string
+	PreviousDependencyType string
 }
 
 type SnapshotInfo struct {
@@ -492,8 +493,8 @@ func (w *BatchWriter) insertChanges(tx *sql.Tx, commitIDs map[string]int64, now 
 		return nil
 	}
 
-	// Changes have 11 columns, so max rows per batch = MaxSQLVariables / 11
-	const columnsPerRow = 11
+	// Changes have 12 columns, so max rows per batch = MaxSQLVariables / 12
+	const columnsPerRow = 12
 	maxRowsPerBatch := MaxSQLVariables / columnsPerRow
 
 	for start := 0; start < len(pending); start += maxRowsPerBatch {
@@ -504,14 +505,14 @@ func (w *BatchWriter) insertChanges(tx *sql.Tx, commitIDs map[string]int64, now 
 		batch := pending[start:end]
 
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO dependency_changes (commit_id, manifest_id, name, ecosystem, purl, change_type, requirement, previous_requirement, dependency_type, created_at, updated_at) VALUES ")
+		sb.WriteString("INSERT INTO dependency_changes (commit_id, manifest_id, name, ecosystem, purl, change_type, requirement, previous_requirement, dependency_type, previous_dependency_type, created_at, updated_at) VALUES ")
 
 		args := make([]any, 0, len(batch)*columnsPerRow)
 		for i, pc := range batch {
 			if i > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?)")
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?)")
 			args = append(args,
 				commitIDs[pc.sha],
 				w.manifestCache[pc.manifest.Path],
@@ -522,6 +523,7 @@ func (w *BatchWriter) insertChanges(tx *sql.Tx, commitIDs map[string]int64, now 
 				pc.change.Requirement,
 				pc.change.PreviousRequirement,
 				pc.change.DependencyType,
+				pc.change.PreviousDependencyType,
 				now,
 				now,
 			)

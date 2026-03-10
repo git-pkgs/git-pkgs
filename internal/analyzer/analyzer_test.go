@@ -959,6 +959,99 @@ func TestMultipleVersionsSamePackage(t *testing.T) {
 	}
 }
 
+func TestScopeChangeTracksType(t *testing.T) {
+	// When npm restructures the dependency tree (e.g. after updating one package),
+	// dev/optional flags can change on many packages without their versions changing.
+	// These should be reported as modified with PreviousDependencyType set so the
+	// display can show what actually changed (e.g. "dev -> runtime").
+	//
+	// Scenario: express 4.18.0 -> 4.19.0 (version change)
+	//           debug, ms, accepts lose "dev": true (scope change, no version change)
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	before, err := os.ReadFile("testdata/scope-change-before.json")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	addFile(t, repoDir, "package-lock.json", string(before))
+	firstSha := commit(t, repoDir, "Add lockfile")
+
+	after, err := os.ReadFile("testdata/scope-change-after.json")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	addFile(t, repoDir, "package-lock.json", string(after))
+	secondSha := commit(t, repoDir, "Update express")
+
+	repo := openRepo(t, repoDir)
+	a := analyzer.New()
+
+	firstHash := getCommit(t, firstSha)
+	firstCommit, _ := repo.CommitObject(*firstHash)
+	firstResult, err := a.AnalyzeCommit(firstCommit, nil)
+	if err != nil {
+		t.Fatalf("analyzing first commit: %v", err)
+	}
+
+	secondHash := getCommit(t, secondSha)
+	secondCommit, _ := repo.CommitObject(*secondHash)
+	result, err := a.AnalyzeCommit(secondCommit, firstResult.Snapshot)
+	if err != nil {
+		t.Fatalf("analyzing second commit: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+
+	// Should have 4 modified changes: 1 version change + 3 scope changes
+	var modifiedChanges []analyzer.Change
+	for _, ch := range result.Changes {
+		if ch.ChangeType == "modified" {
+			modifiedChanges = append(modifiedChanges, ch)
+		}
+	}
+
+	if len(modifiedChanges) != 4 {
+		t.Fatalf("expected 4 modified changes, got %d: %+v", len(modifiedChanges), result.Changes)
+	}
+
+	// Check the version change (express)
+	var versionChanges, scopeChanges []analyzer.Change
+	for _, ch := range modifiedChanges {
+		if ch.PreviousRequirement != "" {
+			versionChanges = append(versionChanges, ch)
+		} else if ch.PreviousDependencyType != "" {
+			scopeChanges = append(scopeChanges, ch)
+		}
+	}
+
+	if len(versionChanges) != 1 {
+		t.Fatalf("expected 1 version change, got %d", len(versionChanges))
+	}
+	if versionChanges[0].Name != "express" {
+		t.Errorf("expected express version change, got %q", versionChanges[0].Name)
+	}
+	if versionChanges[0].PreviousRequirement != "4.18.0" || versionChanges[0].Requirement != "4.19.0" {
+		t.Errorf("expected 4.18.0 -> 4.19.0, got %s -> %s", versionChanges[0].PreviousRequirement, versionChanges[0].Requirement)
+	}
+
+	// Check scope changes have PreviousDependencyType set
+	if len(scopeChanges) != 3 {
+		t.Fatalf("expected 3 scope changes, got %d", len(scopeChanges))
+	}
+	for _, ch := range scopeChanges {
+		if ch.PreviousDependencyType != "development" {
+			t.Errorf("%s: expected PreviousDependencyType 'development', got %q", ch.Name, ch.PreviousDependencyType)
+		}
+		if ch.DependencyType != "runtime" {
+			t.Errorf("%s: expected DependencyType 'runtime', got %q", ch.Name, ch.DependencyType)
+		}
+	}
+}
+
 func TestDiffCacheEvictedAfterConsume(t *testing.T) {
 	repoDir := createTestRepo(t)
 	addFile(t, repoDir, "README.md", "# Test")

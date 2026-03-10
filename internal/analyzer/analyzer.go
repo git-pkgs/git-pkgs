@@ -24,16 +24,17 @@ func isSupplementFile(path string) bool {
 }
 
 type Change struct {
-	ManifestPath        string
-	Ecosystem           string
-	Kind                string
-	Name                string
-	PURL                string
-	ChangeType          string // "added", "modified", "removed"
-	Requirement         string
-	PreviousRequirement string
-	DependencyType      string
-	Integrity           string
+	ManifestPath           string
+	Ecosystem              string
+	Kind                   string
+	Name                   string
+	PURL                   string
+	ChangeType             string // "added", "modified", "removed"
+	Requirement            string
+	PreviousRequirement    string
+	DependencyType         string
+	PreviousDependencyType string
+	Integrity              string
 }
 
 type SnapshotEntry struct {
@@ -398,16 +399,16 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				for _, before := range beforeVersions[dep.Name] {
 					if before.Version == dep.Version && before.Scope != dep.Scope {
 						result.Changes = append(result.Changes, Change{
-							ManifestPath:        path,
-							Ecosystem:           afterDeps.Ecosystem,
-							Kind:                string(afterDeps.Kind),
-							Name:                dep.Name,
-							PURL:                dep.PURL,
-							ChangeType:          "modified",
-							Requirement:         dep.Version,
-							PreviousRequirement: before.Version,
-							DependencyType:      string(dep.Scope),
-							Integrity:           integrity,
+							ManifestPath:           path,
+							Ecosystem:              afterDeps.Ecosystem,
+							Kind:                   string(afterDeps.Kind),
+							Name:                   dep.Name,
+							PURL:                   dep.PURL,
+							ChangeType:             "modified",
+							Requirement:            dep.Version,
+							DependencyType:         string(dep.Scope),
+							PreviousDependencyType: string(before.Scope),
+							Integrity:              integrity,
 						})
 						break
 					}

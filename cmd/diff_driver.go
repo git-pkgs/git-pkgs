@@ -214,6 +214,9 @@ func convertLockfile(cmd *cobra.Command, filePath string) error {
 		if dep.Version != "" {
 			line += " " + dep.Version
 		}
+		if dep.Scope != "" {
+			line += " (" + string(dep.Scope) + ")"
+		}
 		_, _ = fmt.Fprintln(w, Sanitize(line))
 	}
 	return w.Flush()

@@ -111,14 +111,15 @@ func getChangesForCommit(repo *git.Repository, commitRef string) ([]database.Cha
 	var changes []database.Change
 	for _, c := range result.Changes {
 		changes = append(changes, database.Change{
-			Name:                c.Name,
-			Ecosystem:           c.Ecosystem,
-			PURL:                c.PURL,
-			ChangeType:          c.ChangeType,
-			Requirement:         c.Requirement,
-			PreviousRequirement: c.PreviousRequirement,
-			DependencyType:      c.DependencyType,
-			ManifestPath:        c.ManifestPath,
+			Name:                   c.Name,
+			Ecosystem:              c.Ecosystem,
+			PURL:                   c.PURL,
+			ChangeType:             c.ChangeType,
+			Requirement:            c.Requirement,
+			PreviousRequirement:    c.PreviousRequirement,
+			DependencyType:         c.DependencyType,
+			PreviousDependencyType: c.PreviousDependencyType,
+			ManifestPath:           c.ManifestPath,
 		})
 	}
 
@@ -163,9 +164,12 @@ func outputShowText(cmd *cobra.Command, changes []database.Change) error {
 				line = fmt.Sprintf("    %s", c.Name)
 			}
 
-			if c.ChangeType == changeTypeModified && c.PreviousRequirement != "" {
+			switch {
+			case c.ChangeType == changeTypeModified && c.PreviousRequirement != "":
 				line += fmt.Sprintf(" %s -> %s", Dim(c.PreviousRequirement), c.Requirement)
-			} else if c.Requirement != "" {
+			case c.ChangeType == changeTypeModified && c.PreviousDependencyType != "":
+				line += fmt.Sprintf(" %s (%s -> %s)", c.Requirement, Dim(c.PreviousDependencyType), c.DependencyType)
+			case c.Requirement != "":
 				line += fmt.Sprintf(" %s", c.Requirement)
 			}
 

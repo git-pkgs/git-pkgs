@@ -368,14 +368,15 @@ func (db *DB) getDependenciesForCommitID(commitID int64) ([]Dependency, error) {
 }
 
 type Change struct {
-	Name                string `json:"name"`
-	Ecosystem           string `json:"ecosystem"`
-	PURL                string `json:"purl"`
-	ChangeType          string `json:"change_type"`
-	Requirement         string `json:"requirement"`
-	PreviousRequirement string `json:"previous_requirement,omitempty"`
-	DependencyType      string `json:"dependency_type"`
-	ManifestPath        string `json:"manifest_path"`
+	Name                   string `json:"name"`
+	Ecosystem              string `json:"ecosystem"`
+	PURL                   string `json:"purl"`
+	ChangeType             string `json:"change_type"`
+	Requirement            string `json:"requirement"`
+	PreviousRequirement    string `json:"previous_requirement,omitempty"`
+	DependencyType         string `json:"dependency_type"`
+	PreviousDependencyType string `json:"previous_dependency_type,omitempty"`
+	ManifestPath           string `json:"manifest_path"`
 }
 
 type CommitWithChanges struct {
@@ -1329,7 +1330,7 @@ func (db *DB) GetPackageHistory(opts HistoryOptions) ([]HistoryEntry, error) {
 
 func (db *DB) GetChangesForCommit(sha string) ([]Change, error) {
 	rows, err := db.Query(`
-		SELECT dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, m.path
+		SELECT dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, dc.previous_dependency_type, m.path
 		FROM dependency_changes dc
 		JOIN commits c ON c.id = dc.commit_id
 		JOIN manifests m ON m.id = dc.manifest_id
@@ -1344,9 +1345,9 @@ func (db *DB) GetChangesForCommit(sha string) ([]Change, error) {
 	var changes []Change
 	for rows.Next() {
 		var c Change
-		var ecosystem, purl, requirement, prevReq, depType sql.NullString
+		var ecosystem, purl, requirement, prevReq, depType, prevDepType sql.NullString
 
-		if err := rows.Scan(&c.Name, &ecosystem, &purl, &c.ChangeType, &requirement, &prevReq, &depType, &c.ManifestPath); err != nil {
+		if err := rows.Scan(&c.Name, &ecosystem, &purl, &c.ChangeType, &requirement, &prevReq, &depType, &prevDepType, &c.ManifestPath); err != nil {
 			return nil, err
 		}
 
@@ -1364,6 +1365,9 @@ func (db *DB) GetChangesForCommit(sha string) ([]Change, error) {
 		}
 		if depType.Valid {
 			c.DependencyType = depType.String
+		}
+		if prevDepType.Valid {
+			c.PreviousDependencyType = prevDepType.String
 		}
 
 		changes = append(changes, c)
@@ -1386,7 +1390,7 @@ func (db *DB) GetChangesForCommits(shas []string) (map[string][]Change, error) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT c.sha, dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, m.path
+		SELECT c.sha, dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, dc.previous_dependency_type, m.path
 		FROM dependency_changes dc
 		JOIN commits c ON c.id = dc.commit_id
 		JOIN manifests m ON m.id = dc.manifest_id
@@ -1404,9 +1408,9 @@ func (db *DB) GetChangesForCommits(shas []string) (map[string][]Change, error) {
 	for rows.Next() {
 		var sha string
 		var ch Change
-		var ecosystem, purl, requirement, prevReq, depType sql.NullString
+		var ecosystem, purl, requirement, prevReq, depType, prevDepType sql.NullString
 
-		if err := rows.Scan(&sha, &ch.Name, &ecosystem, &purl, &ch.ChangeType, &requirement, &prevReq, &depType, &ch.ManifestPath); err != nil {
+		if err := rows.Scan(&sha, &ch.Name, &ecosystem, &purl, &ch.ChangeType, &requirement, &prevReq, &depType, &prevDepType, &ch.ManifestPath); err != nil {
 			return nil, err
 		}
 
@@ -1424,6 +1428,9 @@ func (db *DB) GetChangesForCommits(shas []string) (map[string][]Change, error) {
 		}
 		if depType.Valid {
 			ch.DependencyType = depType.String
+		}
+		if prevDepType.Valid {
+			ch.PreviousDependencyType = prevDepType.String
 		}
 
 		result[sha] = append(result[sha], ch)
