@@ -14,7 +14,7 @@ require (
 	github.com/git-pkgs/spdx v0.1.2
 	github.com/git-pkgs/vers v0.2.4
 	github.com/git-pkgs/vulns v0.1.4
-	github.com/go-git/go-git/v5 v5.17.0
+	github.com/go-git/go-git/v5 v5.17.1
 	github.com/mattn/go-isatty v0.0.20
 	github.com/spf13/cobra v1.10.2
 	modernc.org/sqlite v1.47.0
