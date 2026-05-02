@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 )
@@ -81,6 +83,22 @@ func IsColorEnabled() bool {
 	}
 
 	return true
+}
+
+// Sanitize strips control characters (other than tab and newline) from
+// externally sourced strings before they reach a TTY, so registry
+// changelogs, OSV records, manifest entries, and commit metadata can't
+// inject ANSI/OSC escape sequences into the operator's terminal.
+func Sanitize(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\t' || r == '\n' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // Colorize wraps text with color codes if color is enabled

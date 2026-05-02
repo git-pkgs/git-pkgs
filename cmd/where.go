@@ -228,11 +228,11 @@ func outputWhereText(cmd *cobra.Command, matches []WhereMatch, showContext bool)
 				if lineNum == m.LineNumber {
 					marker = ">"
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %4d: %s\n", marker, lineNum, line)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %4d: %s\n", marker, lineNum, Sanitize(line))
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout())
 		} else {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s:%d:%s\n", m.FilePath, m.LineNumber, m.Content)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s:%d:%s\n", m.FilePath, m.LineNumber, Sanitize(m.Content))
 		}
 	}
 

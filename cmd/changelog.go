@@ -100,7 +100,7 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 		if !ok {
 			return fmt.Errorf("no changelog entries found between %s and %s", fromVersion, toVersion)
 		}
-		_, _ = fmt.Fprint(cmd.OutOrStdout(), between)
+		_, _ = fmt.Fprint(cmd.OutOrStdout(), Sanitize(between))
 		if !strings.HasSuffix(between, "\n") {
 			_, _ = fmt.Fprintln(cmd.OutOrStdout())
 		}
@@ -119,9 +119,9 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 		if !ok {
 			continue
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "## %s\n", v)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "## %s\n", Sanitize(v))
 		if entry.Content != "" {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), entry.Content)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), Sanitize(entry.Content))
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}

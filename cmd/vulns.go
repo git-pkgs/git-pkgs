@@ -858,11 +858,11 @@ func runVulnsShow(cmd *cobra.Command, args []string) error {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
 
 	if vuln.Summary != "" {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Summary:\n  %s\n\n", vuln.Summary)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Summary:\n  %s\n\n", Sanitize(vuln.Summary))
 	}
 
 	if vuln.Details != "" {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Details:\n  %s\n\n", vuln.Details)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Details:\n  %s\n\n", Sanitize(vuln.Details))
 	}
 
 	if len(vuln.Affected) > 0 {
