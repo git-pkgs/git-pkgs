@@ -74,6 +74,14 @@ func runWhere(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Scope all file reads to the repo directory so that symlinks
+	// pointing outside the repository are rejected by the kernel.
+	osRoot, err := os.OpenRoot(workDir)
+	if err != nil {
+		return fmt.Errorf("opening root %q: %w", workDir, err)
+	}
+	defer func() { _ = osRoot.Close() }()
+
 	var matches []WhereMatch
 
 	// Walk the working directory looking for manifest files
@@ -83,9 +91,9 @@ func runWhere(cmd *cobra.Command, args []string) error {
 		}
 
 		// Get relative path for manifest identification
-		relPath, _ := filepath.Rel(workDir, path)
+		osRel, _ := filepath.Rel(workDir, path)
 		// Normalize to forward slashes for cross-platform consistency
-		relPath = filepath.ToSlash(relPath)
+		relPath := filepath.ToSlash(osRel)
 
 		if info.IsDir() {
 			// Always skip .git
@@ -125,7 +133,7 @@ func runWhere(cmd *cobra.Command, args []string) error {
 		if ecosystem != "" && !strings.EqualFold(eco, ecosystem) {
 			return nil
 		}
-		fileMatches, err := searchFileForPackage(path, relPath, packageName, eco, context)
+		fileMatches, err := searchFileForPackage(osRoot, osRel, relPath, packageName, eco, context)
 		if err != nil {
 			return nil // Skip files we can't read
 		}
@@ -150,8 +158,8 @@ func runWhere(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func searchFileForPackage(path, relPath, packageName, ecosystem string, contextLines int) ([]WhereMatch, error) {
-	file, err := os.Open(path)
+func searchFileForPackage(root *os.Root, osRel, relPath, packageName, ecosystem string, contextLines int) ([]WhereMatch, error) {
+	file, err := root.Open(osRel)
 	if err != nil {
 		return nil, err
 	}
