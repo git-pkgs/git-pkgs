@@ -198,6 +198,43 @@ func TestResolveRevision(t *testing.T) {
 			t.Errorf("expected %s, got %s", sha, hash.String())
 		}
 	})
+
+	t.Run("resolves abbreviated sha", func(t *testing.T) {
+		hash, err := repo.ResolveRevision(sha[:7])
+		if err != nil {
+			t.Fatalf("failed to resolve short sha: %v", err)
+		}
+		if hash.String() != sha {
+			t.Errorf("expected %s, got %s", sha, hash.String())
+		}
+	})
+
+	t.Run("resolves reflog syntax via git fallback", func(t *testing.T) {
+		hash, err := repo.ResolveRevision("@{0}")
+		if err != nil {
+			t.Fatalf("failed to resolve @{0}: %v", err)
+		}
+		if hash.String() != sha {
+			t.Errorf("expected %s, got %s", sha, hash.String())
+		}
+	})
+
+	t.Run("resolves :/message syntax via git fallback", func(t *testing.T) {
+		hash, err := repo.ResolveRevision(":/Initial")
+		if err != nil {
+			t.Fatalf("failed to resolve :/Initial: %v", err)
+		}
+		if hash.String() != sha {
+			t.Errorf("expected %s, got %s", sha, hash.String())
+		}
+	})
+
+	t.Run("returns error for unknown revision", func(t *testing.T) {
+		_, err := repo.ResolveRevision("does-not-exist")
+		if err == nil {
+			t.Error("expected error for unknown revision")
+		}
+	})
 }
 
 func TestCommitObject(t *testing.T) {

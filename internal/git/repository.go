@@ -83,7 +83,22 @@ func (r *Repository) CurrentBranch() (string, error) {
 }
 
 func (r *Repository) ResolveRevision(rev string) (*plumbing.Hash, error) {
-	return r.repo.ResolveRevision(plumbing.Revision(rev))
+	hash, err := r.repo.ResolveRevision(plumbing.Revision(rev))
+	if err == nil {
+		return hash, nil
+	}
+
+	// go-git's ResolveRevision does not implement the full gitrevisions(7)
+	// grammar (reflog @{n}, :/regex, dates) and can fail on hashes in some
+	// storage layouts. Fall back to the git CLI which we already require.
+	cmd := exec.Command("git", "rev-parse", "--verify", "--end-of-options", rev)
+	cmd.Dir = r.workDir
+	out, gitErr := cmd.Output()
+	if gitErr != nil {
+		return nil, err
+	}
+	h := plumbing.NewHash(strings.TrimSpace(string(out)))
+	return &h, nil
 }
 
 func (r *Repository) CommitObject(hash plumbing.Hash) (*object.Commit, error) {
