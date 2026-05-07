@@ -131,6 +131,43 @@ func TestOpenRepository(t *testing.T) {
 			t.Error("expected error for non-repository")
 		}
 	})
+
+	t.Run("reads objects borrowed via alternates", func(t *testing.T) {
+		srcDir := createTestRepo(t)
+		addFile(t, srcDir, "README.md", "# Test")
+		olderSha := commit(t, srcDir, "First commit")
+		addFile(t, srcDir, "f.txt", "content")
+		commit(t, srcDir, "Second commit")
+
+		cloneDir := filepath.Join(t.TempDir(), "clone")
+		gitRun(t, srcDir, "clone", "--shared", srcDir, cloneDir)
+		gitRun(t, cloneDir, "config", "user.email", "test@example.com")
+		gitRun(t, cloneDir, "config", "user.name", "Test User")
+		gitRun(t, cloneDir, "config", "commit.gpgsign", "false")
+		addFile(t, cloneDir, "local.txt", "local")
+		commit(t, cloneDir, "Local commit")
+
+		repo, err := git.OpenRepository(cloneDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		hash, err := repo.ResolveRevision(olderSha)
+		if err != nil {
+			t.Fatalf("failed to resolve borrowed sha: %v", err)
+		}
+		if hash.String() != olderSha {
+			t.Errorf("expected %s, got %s", olderSha, hash.String())
+		}
+
+		c, err := repo.CommitObject(*hash)
+		if err != nil {
+			t.Fatalf("failed to read borrowed commit object: %v", err)
+		}
+		if !strings.Contains(c.Message, "First commit") {
+			t.Errorf("expected message 'First commit', got %q", c.Message)
+		}
+	})
 }
 
 func TestDatabasePath(t *testing.T) {

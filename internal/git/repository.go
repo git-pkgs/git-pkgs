@@ -8,9 +8,12 @@ import (
 	"strings"
 
 	"github.com/git-pkgs/git-pkgs/internal/mailmap"
+	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/filesystem"
 )
 
 const DatabaseFile = "pkgs.sqlite3"
@@ -46,6 +49,21 @@ func OpenRepository(path string) (*Repository, error) {
 	gitDir := filepath.FromSlash(strings.TrimSpace(string(out)))
 	if !filepath.IsAbs(gitDir) {
 		gitDir = filepath.Join(workDir, gitDir)
+	}
+
+	// PlainOpen chroots its billy filesystem to .git, which stops alternates
+	// that point outside the repo from being read. Reopen with an AlternatesFS
+	// rooted at the volume root so borrowed objects are visible.
+	if fsStorer, ok := repo.Storer.(*filesystem.Storage); ok {
+		root := filepath.VolumeName(gitDir) + string(filepath.Separator)
+		s := filesystem.NewStorageWithOptions(
+			fsStorer.Filesystem(),
+			cache.NewObjectLRUDefault(),
+			filesystem.Options{AlternatesFS: osfs.New(root)},
+		)
+		if reopened, rerr := git.Open(s, wt.Filesystem); rerr == nil {
+			repo = reopened
+		}
 	}
 
 	return &Repository{
