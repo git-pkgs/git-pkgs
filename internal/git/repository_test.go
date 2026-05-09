@@ -12,7 +12,12 @@ import (
 
 func createTestRepo(t *testing.T) string {
 	t.Helper()
-	tmpDir := t.TempDir()
+	// go-billy >= v5.9.0 and `git rev-parse` both resolve symlinks
+	// (macOS /var -> /private/var), so resolve here for comparable paths.
+	tmpDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to resolve temp dir: %v", err)
+	}
 
 	commands := [][]string{
 		{"git", "init", "--initial-branch=main"},
@@ -96,20 +101,17 @@ func TestOpenRepository(t *testing.T) {
 
 		worktreeDir := filepath.Join(t.TempDir(), "wt")
 		gitRun(t, repoDir, "worktree", "add", worktreeDir, "-b", "wt-branch")
+		worktreeDir, err := filepath.EvalSymlinks(worktreeDir)
+		if err != nil {
+			t.Fatalf("failed to resolve worktree dir: %v", err)
+		}
 
 		repo, err := git.OpenRepository(worktreeDir)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// git rev-parse resolves symlinks (macOS /var -> /private/var)
-		// but go-git's worktree path does not, so compare each appropriately
-		resolvedRepoDir, err := filepath.EvalSymlinks(repoDir)
-		if err != nil {
-			t.Fatalf("failed to resolve symlinks: %v", err)
-		}
-
-		expectedGitDir := filepath.Join(resolvedRepoDir, ".git")
+		expectedGitDir := filepath.Join(repoDir, ".git")
 		if repo.GitDir() != expectedGitDir {
 			t.Errorf("expected git dir %s, got %s", expectedGitDir, repo.GitDir())
 		}
@@ -118,7 +120,7 @@ func TestOpenRepository(t *testing.T) {
 			t.Errorf("expected work dir %s, got %s", worktreeDir, repo.WorkDir())
 		}
 
-		expectedDBPath := filepath.Join(resolvedRepoDir, ".git", git.DatabaseFile)
+		expectedDBPath := filepath.Join(repoDir, ".git", git.DatabaseFile)
 		if repo.DatabasePath() != expectedDBPath {
 			t.Errorf("expected database path %s, got %s", expectedDBPath, repo.DatabasePath())
 		}
