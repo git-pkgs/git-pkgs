@@ -27,7 +27,8 @@ type Repository struct {
 
 func OpenRepository(path string) (*Repository, error) {
 	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{
-		DetectDotGit: true,
+		DetectDotGit:          true,
+		EnableDotGitCommonDir: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("opening repository: %w", err)

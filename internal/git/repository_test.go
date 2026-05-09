@@ -92,7 +92,7 @@ func TestOpenRepository(t *testing.T) {
 	t.Run("opens from worktree", func(t *testing.T) {
 		repoDir := createTestRepo(t)
 		addFile(t, repoDir, "README.md", "# Test")
-		commit(t, repoDir, "Initial commit")
+		sha := commit(t, repoDir, "Initial commit")
 
 		worktreeDir := filepath.Join(t.TempDir(), "wt")
 		gitRun(t, repoDir, "worktree", "add", worktreeDir, "-b", "wt-branch")
@@ -121,6 +121,32 @@ func TestOpenRepository(t *testing.T) {
 		expectedDBPath := filepath.Join(resolvedRepoDir, ".git", git.DatabaseFile)
 		if repo.DatabasePath() != expectedDBPath {
 			t.Errorf("expected database path %s, got %s", expectedDBPath, repo.DatabasePath())
+		}
+
+		// Refs and objects live in the main repo's .git, reached via commondir.
+		// Without EnableDotGitCommonDir these fail with "reference not found".
+		hash, err := repo.ResolveRevision("HEAD")
+		if err != nil {
+			t.Fatalf("failed to resolve HEAD from worktree: %v", err)
+		}
+		if hash.String() != sha {
+			t.Errorf("expected %s, got %s", sha, hash.String())
+		}
+
+		c, err := repo.CommitObject(*hash)
+		if err != nil {
+			t.Fatalf("failed to read commit object from worktree: %v", err)
+		}
+		if !strings.Contains(c.Message, "Initial commit") {
+			t.Errorf("expected message 'Initial commit', got %q", c.Message)
+		}
+
+		branch, err := repo.CurrentBranch()
+		if err != nil {
+			t.Fatalf("failed to get current branch from worktree: %v", err)
+		}
+		if branch != "wt-branch" {
+			t.Errorf("expected branch wt-branch, got %s", branch)
 		}
 	})
 
