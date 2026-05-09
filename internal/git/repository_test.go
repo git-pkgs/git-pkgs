@@ -124,7 +124,6 @@ func TestOpenRepository(t *testing.T) {
 		}
 
 		// Refs and objects live in the main repo's .git, reached via commondir.
-		// Without EnableDotGitCommonDir these fail with "reference not found".
 		hash, err := repo.ResolveRevision("HEAD")
 		if err != nil {
 			t.Fatalf("failed to resolve HEAD from worktree: %v", err)

@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
 )
 
 const DatabaseFile = "pkgs.sqlite3"
@@ -27,8 +28,7 @@ type Repository struct {
 
 func OpenRepository(path string) (*Repository, error) {
 	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{
-		DetectDotGit:          true,
-		EnableDotGitCommonDir: true,
+		DetectDotGit: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("opening repository: %w", err)
@@ -52,13 +52,17 @@ func OpenRepository(path string) (*Repository, error) {
 		gitDir = filepath.Join(workDir, gitDir)
 	}
 
-	// PlainOpen chroots its billy filesystem to .git, which stops alternates
-	// that point outside the repo from being read. Reopen with an AlternatesFS
-	// rooted at the volume root so borrowed objects are visible.
+	// PlainOpen roots its billy filesystem at the per-repo .git, so it can't
+	// follow alternates that point outside the repo, and in a linked worktree
+	// it can't see refs/objects in the common dir. PlainOpenOptions doesn't
+	// expose AlternatesFS, and EnableDotGitCommonDir leaks an fd in v5, so
+	// rebuild the storage here with both wired up. gitDir above is already
+	// the common dir from `git rev-parse --git-common-dir`.
 	if fsStorer, ok := repo.Storer.(*filesystem.Storage); ok {
+		dotFs := dotgit.NewRepositoryFilesystem(fsStorer.Filesystem(), osfs.New(gitDir))
 		root := filepath.VolumeName(gitDir) + string(filepath.Separator)
 		s := filesystem.NewStorageWithOptions(
-			fsStorer.Filesystem(),
+			dotFs,
 			cache.NewObjectLRUDefault(),
 			filesystem.Options{AlternatesFS: osfs.New(root)},
 		)
