@@ -11,7 +11,7 @@ require (
 	github.com/git-pkgs/purl v0.1.12
 	github.com/git-pkgs/registries v0.6.0
 	github.com/git-pkgs/resolve v0.1.2
-	github.com/git-pkgs/sbom v0.1.1
+	github.com/git-pkgs/sbom v0.1.2
 	github.com/git-pkgs/spdx v0.1.3
 	github.com/git-pkgs/vers v0.2.5
 	github.com/git-pkgs/vulns v0.1.5
