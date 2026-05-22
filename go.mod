@@ -4,15 +4,15 @@ go 1.25.7
 
 require (
 	github.com/git-pkgs/changelog v0.1.3
-	github.com/git-pkgs/enrichment v0.2.2
-	github.com/git-pkgs/gitignore v1.1.2
+	github.com/git-pkgs/enrichment v0.2.3
+	github.com/git-pkgs/gitignore v1.2.0
 	github.com/git-pkgs/managers v0.8.3
 	github.com/git-pkgs/manifests v0.4.3
 	github.com/git-pkgs/purl v0.1.12
-	github.com/git-pkgs/registries v0.6.0
-	github.com/git-pkgs/resolve v0.1.2
+	github.com/git-pkgs/registries v0.6.1
+	github.com/git-pkgs/resolve v0.2.0
 	github.com/git-pkgs/sbom v0.1.2
-	github.com/git-pkgs/spdx v0.1.3
+	github.com/git-pkgs/spdx v0.1.4
 	github.com/git-pkgs/vers v0.2.6
 	github.com/git-pkgs/vulns v0.1.5
 	github.com/go-git/go-billy/v5 v5.9.0
@@ -96,7 +96,7 @@ require (
 	github.com/ghostiam/protogetter v0.3.20 // indirect
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
 	github.com/git-pkgs/pom v0.1.4 // indirect
-	github.com/github/go-spdx/v2 v2.6.0 // indirect
+	github.com/github/go-spdx/v2 v2.7.0 // indirect
 	github.com/go-critic/go-critic v0.14.3 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-toolsmith/astcast v1.1.0 // indirect
