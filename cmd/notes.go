@@ -185,12 +185,13 @@ func runNotesShow(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(note)
 	default:
-		return outputNoteText(cmd, note)
+		outputNoteText(cmd, note)
+		return nil
 	}
 }
 
@@ -216,7 +217,7 @@ func runNotesList(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(notes)
@@ -231,8 +232,8 @@ func runNotesList(cmd *cobra.Command, args []string) error {
 			}
 			if n.Message != "" {
 				first := strings.SplitN(n.Message, "\n", 2)[0]
-				if len(first) > 60 {
-					first = first[:57] + "..."
+				if len(first) > subjectTruncLen {
+					first = first[:subjectTruncLen-3] + "..."
 				}
 				line += " - " + first
 			}
@@ -281,7 +282,7 @@ func runNotesNamespaces(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(namespaces)
@@ -297,7 +298,7 @@ func runNotesNamespaces(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func outputNoteText(cmd *cobra.Command, n *database.Note) error {
+func outputNoteText(cmd *cobra.Command, n *database.Note) {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "PURL: %s\n", n.PURL)
 	if n.Namespace != "" {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Namespace: %s\n", n.Namespace)
@@ -314,7 +315,6 @@ func outputNoteText(cmd *cobra.Command, n *database.Note) error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", k, v)
 		}
 	}
-	return nil
 }
 
 func parseMetadata(pairs []string) (map[string]string, error) {

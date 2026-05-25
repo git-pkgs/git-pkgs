@@ -56,10 +56,11 @@ func runStale(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputStaleJSON(cmd, entries)
 	default:
-		return outputStaleText(cmd, entries)
+		outputStaleText(cmd, entries)
+		return nil
 	}
 }
 
@@ -69,7 +70,7 @@ func outputStaleJSON(cmd *cobra.Command, entries []database.StaleEntry) error {
 	return enc.Encode(entries)
 }
 
-func outputStaleText(cmd *cobra.Command, entries []database.StaleEntry) error {
+func outputStaleText(cmd *cobra.Command, entries []database.StaleEntry) {
 	// Find max name length for alignment
 	maxNameLen := 0
 	for _, e := range entries {
@@ -80,8 +81,8 @@ func outputStaleText(cmd *cobra.Command, entries []database.StaleEntry) error {
 
 	for _, e := range entries {
 		lastChanged := "never"
-		if len(e.LastChanged) >= 10 {
-			lastChanged = e.LastChanged[:10]
+		if len(e.LastChanged) >= datePrefixLen {
+			lastChanged = e.LastChanged[:datePrefixLen]
 		}
 
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%-*s  %s  (%d days)  %s\n",
@@ -90,6 +91,4 @@ func outputStaleText(cmd *cobra.Command, entries []database.StaleEntry) error {
 			e.DaysSince,
 			lastChanged)
 	}
-
-	return nil
 }

@@ -47,7 +47,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		defer func() { _ = db.Close() }()
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("listing dependencies: %w", err)
 	}
 
 	// Apply filters
@@ -55,10 +55,11 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	// Output
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputListJSON(cmd, deps)
 	default:
-		return outputListText(cmd, deps)
+		outputListText(cmd, deps)
+		return nil
 	}
 }
 
@@ -89,7 +90,7 @@ func outputListJSON(cmd *cobra.Command, deps []database.Dependency) error {
 	return enc.Encode(deps)
 }
 
-func outputListText(cmd *cobra.Command, deps []database.Dependency) error {
+func outputListText(cmd *cobra.Command, deps []database.Dependency) {
 	// Group by manifest
 	byManifest := make(map[string][]database.Dependency)
 	var manifestOrder []string
@@ -115,13 +116,11 @@ func outputListText(cmd *cobra.Command, deps []database.Dependency) error {
 			if d.Requirement != "" {
 				line += fmt.Sprintf(" %s", d.Requirement)
 			}
-			if d.DependencyType != "" && d.DependencyType != "runtime" {
+			if d.DependencyType != "" && d.DependencyType != depTypeRuntime {
 				line += fmt.Sprintf(" [%s]", d.DependencyType)
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
-
-	return nil
 }

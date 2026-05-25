@@ -8,12 +8,16 @@ import (
 	"testing"
 
 	"github.com/git-pkgs/git-pkgs/internal/git"
-	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 func createTestRepo(t *testing.T) string {
 	t.Helper()
-	tmpDir := t.TempDir()
+	// go-billy >= v5.9.0 and `git rev-parse` both resolve symlinks
+	// (macOS /var -> /private/var), so resolve here for comparable paths.
+	tmpDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to resolve temp dir: %v", err)
+	}
 
 	commands := [][]string{
 		{"git", "init", "--initial-branch=main"},
@@ -93,24 +97,21 @@ func TestOpenRepository(t *testing.T) {
 	t.Run("opens from worktree", func(t *testing.T) {
 		repoDir := createTestRepo(t)
 		addFile(t, repoDir, "README.md", "# Test")
-		commit(t, repoDir, "Initial commit")
+		sha := commit(t, repoDir, "Initial commit")
 
 		worktreeDir := filepath.Join(t.TempDir(), "wt")
 		gitRun(t, repoDir, "worktree", "add", worktreeDir, "-b", "wt-branch")
+		worktreeDir, err := filepath.EvalSymlinks(worktreeDir)
+		if err != nil {
+			t.Fatalf("failed to resolve worktree dir: %v", err)
+		}
 
 		repo, err := git.OpenRepository(worktreeDir)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// git rev-parse resolves symlinks (macOS /var -> /private/var)
-		// but go-git's worktree path does not, so compare each appropriately
-		resolvedRepoDir, err := filepath.EvalSymlinks(repoDir)
-		if err != nil {
-			t.Fatalf("failed to resolve symlinks: %v", err)
-		}
-
-		expectedGitDir := filepath.Join(resolvedRepoDir, ".git")
+		expectedGitDir := filepath.Join(repoDir, ".git")
 		if repo.GitDir() != expectedGitDir {
 			t.Errorf("expected git dir %s, got %s", expectedGitDir, repo.GitDir())
 		}
@@ -119,9 +120,34 @@ func TestOpenRepository(t *testing.T) {
 			t.Errorf("expected work dir %s, got %s", worktreeDir, repo.WorkDir())
 		}
 
-		expectedDBPath := filepath.Join(resolvedRepoDir, ".git", git.DatabaseFile)
+		expectedDBPath := filepath.Join(repoDir, ".git", git.DatabaseFile)
 		if repo.DatabasePath() != expectedDBPath {
 			t.Errorf("expected database path %s, got %s", expectedDBPath, repo.DatabasePath())
+		}
+
+		// Refs and objects live in the main repo's .git, reached via commondir.
+		hash, err := repo.ResolveRevision("HEAD")
+		if err != nil {
+			t.Fatalf("failed to resolve HEAD from worktree: %v", err)
+		}
+		if hash.String() != sha {
+			t.Errorf("expected %s, got %s", sha, hash.String())
+		}
+
+		c, err := repo.CommitObject(*hash)
+		if err != nil {
+			t.Fatalf("failed to read commit object from worktree: %v", err)
+		}
+		if !strings.Contains(c.Message, "Initial commit") {
+			t.Errorf("expected message 'Initial commit', got %q", c.Message)
+		}
+
+		branch, err := repo.CurrentBranch()
+		if err != nil {
+			t.Fatalf("failed to get current branch from worktree: %v", err)
+		}
+		if branch != "wt-branch" {
+			t.Errorf("expected branch wt-branch, got %s", branch)
 		}
 	})
 
@@ -130,6 +156,43 @@ func TestOpenRepository(t *testing.T) {
 		_, err := git.OpenRepository(tmpDir)
 		if err == nil {
 			t.Error("expected error for non-repository")
+		}
+	})
+
+	t.Run("reads objects borrowed via alternates", func(t *testing.T) {
+		srcDir := createTestRepo(t)
+		addFile(t, srcDir, "README.md", "# Test")
+		olderSha := commit(t, srcDir, "First commit")
+		addFile(t, srcDir, "f.txt", "content")
+		commit(t, srcDir, "Second commit")
+
+		cloneDir := filepath.Join(t.TempDir(), "clone")
+		gitRun(t, srcDir, "clone", "--shared", srcDir, cloneDir)
+		gitRun(t, cloneDir, "config", "user.email", "test@example.com")
+		gitRun(t, cloneDir, "config", "user.name", "Test User")
+		gitRun(t, cloneDir, "config", "commit.gpgsign", "false")
+		addFile(t, cloneDir, "local.txt", "local")
+		commit(t, cloneDir, "Local commit")
+
+		repo, err := git.OpenRepository(cloneDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		hash, err := repo.ResolveRevision(olderSha)
+		if err != nil {
+			t.Fatalf("failed to resolve borrowed sha: %v", err)
+		}
+		if hash.String() != olderSha {
+			t.Errorf("expected %s, got %s", olderSha, hash.String())
+		}
+
+		c, err := repo.CommitObject(*hash)
+		if err != nil {
+			t.Fatalf("failed to read borrowed commit object: %v", err)
+		}
+		if !strings.Contains(c.Message, "First commit") {
+			t.Errorf("expected message 'First commit', got %q", c.Message)
 		}
 	})
 }
@@ -199,6 +262,43 @@ func TestResolveRevision(t *testing.T) {
 			t.Errorf("expected %s, got %s", sha, hash.String())
 		}
 	})
+
+	t.Run("resolves abbreviated sha", func(t *testing.T) {
+		hash, err := repo.ResolveRevision(sha[:7])
+		if err != nil {
+			t.Fatalf("failed to resolve short sha: %v", err)
+		}
+		if hash.String() != sha {
+			t.Errorf("expected %s, got %s", sha, hash.String())
+		}
+	})
+
+	t.Run("resolves reflog syntax via git fallback", func(t *testing.T) {
+		hash, err := repo.ResolveRevision("@{0}")
+		if err != nil {
+			t.Fatalf("failed to resolve @{0}: %v", err)
+		}
+		if hash.String() != sha {
+			t.Errorf("expected %s, got %s", sha, hash.String())
+		}
+	})
+
+	t.Run("resolves :/message syntax via git fallback", func(t *testing.T) {
+		hash, err := repo.ResolveRevision(":/Initial")
+		if err != nil {
+			t.Fatalf("failed to resolve :/Initial: %v", err)
+		}
+		if hash.String() != sha {
+			t.Errorf("expected %s, got %s", sha, hash.String())
+		}
+	})
+
+	t.Run("returns error for unknown revision", func(t *testing.T) {
+		_, err := repo.ResolveRevision("does-not-exist")
+		if err == nil {
+			t.Error("expected error for unknown revision")
+		}
+	})
 }
 
 func TestCommitObject(t *testing.T) {
@@ -229,66 +329,6 @@ func TestCommitObject(t *testing.T) {
 	}
 	if !strings.Contains(c.Message, "Initial commit") {
 		t.Errorf("expected message to contain 'Initial commit', got %s", c.Message)
-	}
-}
-
-func TestFileAtCommit(t *testing.T) {
-	repoDir := createTestRepo(t)
-	addFile(t, repoDir, "README.md", "# Test Project")
-	sha := commit(t, repoDir, "Initial commit")
-
-	repo, err := git.OpenRepository(repoDir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	hash, _ := repo.ResolveRevision(sha)
-	c, _ := repo.CommitObject(*hash)
-
-	content, err := repo.FileAtCommit(c, "README.md")
-	if err != nil {
-		t.Fatalf("failed to get file: %v", err)
-	}
-
-	if content != "# Test Project" {
-		t.Errorf("expected '# Test Project', got %s", content)
-	}
-}
-
-func TestLog(t *testing.T) {
-	repoDir := createTestRepo(t)
-
-	addFile(t, repoDir, "README.md", "# Test")
-	commit(t, repoDir, "First commit")
-
-	addFile(t, repoDir, "file.txt", "content")
-	commit(t, repoDir, "Second commit")
-
-	addFile(t, repoDir, "file.txt", "updated content")
-	commit(t, repoDir, "Third commit")
-
-	repo, err := git.OpenRepository(repoDir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	hash, _ := repo.ResolveRevision("HEAD")
-	iter, err := repo.Log(*hash)
-	if err != nil {
-		t.Fatalf("failed to get log: %v", err)
-	}
-
-	var count int
-	err = iter.ForEach(func(c *object.Commit) error {
-		count++
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("failed to iterate: %v", err)
-	}
-
-	if count != 3 {
-		t.Errorf("expected 3 commits, got %d", count)
 	}
 }
 
@@ -542,52 +582,6 @@ func TestGetSubmodulePaths(t *testing.T) {
 		}
 		if !pathMap["external/tool"] {
 			t.Errorf("expected submodule path 'external/tool', got %v", paths)
-		}
-	})
-}
-
-func TestGetExcludeDirs(t *testing.T) {
-	t.Run("returns defaults when config is unset", func(t *testing.T) {
-		dir := createTestRepo(t)
-		addFile(t, dir, "README.md", "# Test")
-		commit(t, dir, "init")
-
-		repo, err := git.OpenRepository(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		dirs := repo.GetExcludeDirs()
-		if len(dirs) != 2 || dirs[0] != "node_modules" || dirs[1] != "vendor" {
-			t.Errorf("expected [node_modules vendor], got %v", dirs)
-		}
-	})
-
-	t.Run("reads from git config", func(t *testing.T) {
-		dir := createTestRepo(t)
-		addFile(t, dir, "README.md", "# Test")
-		commit(t, dir, "init")
-
-		cmd := exec.Command("git", "config", "git-pkgs.exclude-dirs", "dist,build,tmp")
-		cmd.Dir = dir
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("failed to set config: %v", err)
-		}
-
-		repo, err := git.OpenRepository(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		dirs := repo.GetExcludeDirs()
-		expected := []string{"dist", "build", "tmp"}
-		if len(dirs) != len(expected) {
-			t.Fatalf("expected %v, got %v", expected, dirs)
-		}
-		for i, d := range dirs {
-			if d != expected[i] {
-				t.Errorf("dirs[%d] = %q, want %q", i, d, expected[i])
-			}
 		}
 	})
 }

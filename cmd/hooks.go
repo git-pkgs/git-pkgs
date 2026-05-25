@@ -10,6 +10,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	hookDirPerm  = 0755
+	hookFilePerm = 0755
+)
+
 const hookScript = `#!/bin/sh
 # git-pkgs post-commit/post-merge hook
 # Updates the dependency database after commits/merges
@@ -61,7 +66,7 @@ func runHooks(cmd *cobra.Command, args []string) error {
 }
 
 func doInstallHooks(cmd *cobra.Command, hooksDir string) error {
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+	if err := os.MkdirAll(hooksDir, hookDirPerm); err != nil {
 		return fmt.Errorf("creating hooks directory: %w", err)
 	}
 
@@ -78,7 +83,7 @@ func doInstallHooks(cmd *cobra.Command, hooksDir string) error {
 			}
 
 			// Existing hook that's not ours - append to it
-			f, openErr := os.OpenFile(hookPath, os.O_APPEND|os.O_WRONLY, 0755)
+			f, openErr := os.OpenFile(hookPath, os.O_APPEND|os.O_WRONLY, hookFilePerm)
 			if openErr != nil {
 				return fmt.Errorf("opening %s hook: %w", hookName, openErr)
 			}
@@ -92,7 +97,7 @@ func doInstallHooks(cmd *cobra.Command, hooksDir string) error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: appended to existing hook\n", hookName)
 		} else {
 			// Create new hook
-			if err := os.WriteFile(hookPath, []byte(hookScript), 0755); err != nil {
+			if err := os.WriteFile(hookPath, []byte(hookScript), hookFilePerm); err != nil {
 				return fmt.Errorf("writing %s hook: %w", hookName, err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: installed\n", hookName)
@@ -140,7 +145,7 @@ func doUninstallHooks(cmd *cobra.Command, hooksDir string) error {
 				newLines = append(newLines, line)
 			}
 
-			if err := os.WriteFile(hookPath, []byte(strings.Join(newLines, "\n")), 0755); err != nil {
+			if err := os.WriteFile(hookPath, []byte(strings.Join(newLines, "\n")), hookFilePerm); err != nil {
 				return fmt.Errorf("writing %s hook: %w", hookName, err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: removed git-pkgs lines\n", hookName)
@@ -189,7 +194,7 @@ func showHooksStatus(cmd *cobra.Command, hooksDir string) error {
 func installHooks(repo *git.Repository) error {
 	hooksDir := filepath.Join(repo.GitDir(), "hooks")
 
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+	if err := os.MkdirAll(hooksDir, hookDirPerm); err != nil {
 		return err
 	}
 
@@ -204,7 +209,7 @@ func installHooks(repo *git.Repository) error {
 			}
 
 			// Append to existing hook
-			f, openErr := os.OpenFile(hookPath, os.O_APPEND|os.O_WRONLY, 0755)
+			f, openErr := os.OpenFile(hookPath, os.O_APPEND|os.O_WRONLY, hookFilePerm)
 			if openErr != nil {
 				return openErr
 			}
@@ -214,7 +219,7 @@ func installHooks(repo *git.Repository) error {
 				return writeErr
 			}
 		} else {
-			if err := os.WriteFile(hookPath, []byte(hookScript), 0755); err != nil {
+			if err := os.WriteFile(hookPath, []byte(hookScript), hookFilePerm); err != nil {
 				return err
 			}
 		}

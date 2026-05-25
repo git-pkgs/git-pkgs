@@ -65,10 +65,11 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputWhyJSON(cmd, result)
 	default:
-		return outputWhyText(cmd, result)
+		outputWhyText(cmd, result)
+		return nil
 	}
 }
 
@@ -78,7 +79,7 @@ func outputWhyJSON(cmd *cobra.Command, result *database.WhyResult) error {
 	return enc.Encode(result)
 }
 
-func outputWhyText(cmd *cobra.Command, result *database.WhyResult) error {
+func outputWhyText(cmd *cobra.Command, result *database.WhyResult) {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s was added in commit %s\n\n", result.Name, shortSHA(result.SHA))
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Date:     %s\n", result.CommittedAt[:10])
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Author:   %s <%s>\n", result.AuthorName, result.AuthorEmail)
@@ -94,6 +95,4 @@ func outputWhyText(cmd *cobra.Command, result *database.WhyResult) error {
 	for _, line := range strings.Split(message, "\n") {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", line)
 	}
-
-	return nil
 }

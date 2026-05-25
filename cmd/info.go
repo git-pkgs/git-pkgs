@@ -56,7 +56,7 @@ func runInfo(cmd *cobra.Command, args []string) error {
 
 	if showEcosystems {
 		switch format {
-		case "json":
+		case formatJSON:
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
 			return enc.Encode(info.Ecosystems)
@@ -74,10 +74,11 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputInfoJSON(cmd, info)
 	default:
-		return outputInfoText(cmd, info)
+		outputInfoText(cmd, info)
+		return nil
 	}
 }
 
@@ -87,7 +88,7 @@ func outputInfoJSON(cmd *cobra.Command, info *database.DatabaseInfo) error {
 	return enc.Encode(info)
 }
 
-func outputInfoText(cmd *cobra.Command, info *database.DatabaseInfo) error {
+func outputInfoText(cmd *cobra.Command, info *database.DatabaseInfo) {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Database Info")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "========================================")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
@@ -136,8 +137,6 @@ func outputInfoText(cmd *cobra.Command, info *database.DatabaseInfo) error {
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Ecosystems: %s\n", strings.Join(names, ", "))
 	}
-
-	return nil
 }
 
 func formatBytes(bytes int64) string {

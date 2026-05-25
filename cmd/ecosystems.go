@@ -104,7 +104,7 @@ func runEcosystems(cmd *cobra.Command, args []string) error {
 	details := buildEcosystemDetails()
 
 	switch format {
-	case "json":
+	case formatJSON:
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(details)
@@ -114,12 +114,13 @@ func runEcosystems(cmd *cobra.Command, args []string) error {
 }
 
 func outputEcosystemsText(cmd *cobra.Command, details []EcosystemDetail) error {
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
+	const tabPadding = 2
+	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, tabPadding, tabPadding, ' ', 0)
 	_, _ = fmt.Fprintln(w, "Ecosystem\tManifest\tLockfiles\tManagers\tRegistry")
 	for _, d := range details {
 		registry := "no"
 		if d.Registry {
-			registry = "yes"
+			registry = displayYes
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			d.Name,

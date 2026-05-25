@@ -449,8 +449,8 @@ func TestReindexCommand(t *testing.T) {
 			t.Fatalf("reindex failed: %v", err)
 		}
 
-		if !strings.Contains(stdout, "Already up to date") {
-			t.Errorf("expected 'Already up to date' message, got: %s", stdout)
+		if !strings.Contains(stdout, "up to date") {
+			t.Errorf("expected 'up to date' message, got: %s", stdout)
 		}
 	})
 

@@ -180,7 +180,7 @@ func openInFileBrowser(path string) error {
 		cmd = exec.Command("open", path)
 	case "linux":
 		cmd = exec.Command("xdg-open", path)
-	case "windows":
+	case osWindows:
 		cmd = exec.Command("explorer", path)
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)

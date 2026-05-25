@@ -94,23 +94,3 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
-
-// NeedsUpgrade checks if the database needs to be upgraded
-func NeedsUpgrade(dbPath string) (bool, int, error) {
-	if !database.Exists(dbPath) {
-		return false, 0, nil
-	}
-
-	db, err := database.Open(dbPath)
-	if err != nil {
-		return false, 0, err
-	}
-	defer func() { _ = db.Close() }()
-
-	currentVersion, err := db.SchemaVersion()
-	if err != nil {
-		return false, 0, err
-	}
-
-	return currentVersion != database.SchemaVersion, currentVersion, nil
-}

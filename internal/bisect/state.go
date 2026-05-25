@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	stateFile     = "PKGS_BISECT_STATE"
-	logFile       = "PKGS_BISECT_LOG"
+	stateFile      = "PKGS_BISECT_STATE"
+	logFile        = "PKGS_BISECT_LOG"
 	candidatesFile = "PKGS_BISECT_CANDIDATES"
+
+	filePerm = 0644
 )
 
 type State struct {
@@ -76,32 +78,11 @@ func (m *Manager) Save(state *State) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.statePath(), data, 0644)
-}
-
-func (m *Manager) SaveCandidates(candidates []Candidate) error {
-	data, err := json.MarshalIndent(candidates, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(m.candidatesPath(), data, 0644)
-}
-
-func (m *Manager) LoadCandidates() ([]Candidate, error) {
-	data, err := os.ReadFile(m.candidatesPath())
-	if err != nil {
-		return nil, err
-	}
-
-	var candidates []Candidate
-	if err := json.Unmarshal(data, &candidates); err != nil {
-		return nil, err
-	}
-	return candidates, nil
+	return os.WriteFile(m.statePath(), data, filePerm)
 }
 
 func (m *Manager) AppendLog(entry string) error {
-	f, err := os.OpenFile(m.logPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(m.logPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, filePerm)
 	if err != nil {
 		return err
 	}

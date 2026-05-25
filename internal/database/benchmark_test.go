@@ -25,11 +25,7 @@ func setupBenchDB(b *testing.B) *database.DB {
 func populateBenchDB(b *testing.B, db *database.DB, numCommits, depsPerCommit int) int64 {
 	b.Helper()
 
-	writer, err := database.NewWriter(db)
-	if err != nil {
-		b.Fatalf("failed to create writer: %v", err)
-	}
-	defer func() { _ = writer.Close() }()
+	writer := database.NewBatchWriter(db)
 
 	if err := writer.CreateBranch("main"); err != nil {
 		b.Fatalf("failed to create branch: %v", err)
@@ -53,10 +49,7 @@ func populateBenchDB(b *testing.B, db *database.DB, numCommits, depsPerCommit in
 			CommittedAt: time.Now().Add(-time.Duration(numCommits-i) * time.Hour),
 		}
 
-		commitID, _, err := writer.InsertCommit(commitInfo, true)
-		if err != nil {
-			b.Fatalf("failed to insert commit: %v", err)
-		}
+		writer.AddCommit(commitInfo, true)
 
 		for j := 0; j < depsPerCommit; j++ {
 			change := database.ChangeInfo{
@@ -67,10 +60,18 @@ func populateBenchDB(b *testing.B, db *database.DB, numCommits, depsPerCommit in
 				Requirement:  fmt.Sprintf("^%d.0.0", i%10),
 				ChangeType:   "added",
 			}
-			if err := writer.InsertChange(commitID, manifest, change); err != nil {
-				b.Fatalf("failed to insert change: %v", err)
+			writer.AddChange(sha, manifest, change)
+		}
+
+		if writer.ShouldFlush() {
+			if err := writer.Flush(); err != nil {
+				b.Fatalf("failed to flush: %v", err)
 			}
 		}
+	}
+
+	if err := writer.Flush(); err != nil {
+		b.Fatalf("failed to flush: %v", err)
 	}
 
 	if err := writer.UpdateBranchLastSHA(fmt.Sprintf("%040d", numCommits-1)); err != nil {
@@ -80,12 +81,11 @@ func populateBenchDB(b *testing.B, db *database.DB, numCommits, depsPerCommit in
 	return branchID
 }
 
-func BenchmarkWriter_InsertCommit(b *testing.B) {
+func BenchmarkBatchWriter_AddCommit(b *testing.B) {
 	db := setupBenchDB(b)
 	defer func() { _ = db.Close() }()
 
-	writer, _ := database.NewWriter(db)
-	defer func() { _ = writer.Close() }()
+	writer := database.NewBatchWriter(db)
 
 	_ = writer.CreateBranch("main")
 
@@ -100,27 +100,31 @@ func BenchmarkWriter_InsertCommit(b *testing.B) {
 			AuthorEmail: "test@example.com",
 			CommittedAt: time.Now(),
 		}
-		_, _, _ = writer.InsertCommit(commitInfo, false)
+		writer.AddCommit(commitInfo, false)
+		if writer.ShouldFlush() {
+			_ = writer.Flush()
+		}
 	}
+	_ = writer.Flush()
 }
 
-func BenchmarkWriter_InsertChange(b *testing.B) {
+func BenchmarkBatchWriter_AddChange(b *testing.B) {
 	db := setupBenchDB(b)
 	defer func() { _ = db.Close() }()
 
-	writer, _ := database.NewWriter(db)
-	defer func() { _ = writer.Close() }()
+	writer := database.NewBatchWriter(db)
 
 	_ = writer.CreateBranch("main")
 
+	sha := "0000000000000000000000000000000000000000"
 	commitInfo := database.CommitInfo{
-		SHA:         "0000000000000000000000000000000000000000",
+		SHA:         sha,
 		Message:     "Test commit",
 		AuthorName:  "Test User",
 		AuthorEmail: "test@example.com",
 		CommittedAt: time.Now(),
 	}
-	commitID, _, _ := writer.InsertCommit(commitInfo, true)
+	writer.AddCommit(commitInfo, true)
 
 	manifest := database.ManifestInfo{
 		Path:      "package.json",
@@ -139,8 +143,9 @@ func BenchmarkWriter_InsertChange(b *testing.B) {
 			Requirement:  "^1.0.0",
 			ChangeType:   "added",
 		}
-		_ = writer.InsertChange(commitID, manifest, change)
+		writer.AddChange(sha, manifest, change)
 	}
+	_ = writer.Flush()
 }
 
 func BenchmarkGetLatestDependencies_Small(b *testing.B) {

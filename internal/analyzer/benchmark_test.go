@@ -12,7 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-func setupBenchRepo(b *testing.B) (string, *git.Repository) {
+func setupBenchRepo(b *testing.B) string {
 	b.Helper()
 	tmpDir := b.TempDir()
 
@@ -31,12 +31,7 @@ func setupBenchRepo(b *testing.B) (string, *git.Repository) {
 		}
 	}
 
-	repo, err := git.PlainOpen(tmpDir)
-	if err != nil {
-		b.Fatalf("failed to open repo: %v", err)
-	}
-
-	return tmpDir, repo
+	return tmpDir
 }
 
 func addBenchFile(b *testing.B, repoDir, path, content string) {
@@ -89,7 +84,7 @@ func generateLargeGemfile(numDeps int) string {
 }
 
 func BenchmarkAnalyzeCommit_SmallManifest(b *testing.B) {
-	repoDir, _ := setupBenchRepo(b)
+	repoDir := setupBenchRepo(b)
 	addBenchFile(b, repoDir, "README.md", "# Test")
 	benchCommit(b, repoDir, "Initial")
 
@@ -105,7 +100,7 @@ func BenchmarkAnalyzeCommit_SmallManifest(b *testing.B) {
 }
 
 func BenchmarkAnalyzeCommit_MediumManifest(b *testing.B) {
-	repoDir, _ := setupBenchRepo(b)
+	repoDir := setupBenchRepo(b)
 	addBenchFile(b, repoDir, "README.md", "# Test")
 	benchCommit(b, repoDir, "Initial")
 
@@ -121,7 +116,7 @@ func BenchmarkAnalyzeCommit_MediumManifest(b *testing.B) {
 }
 
 func BenchmarkAnalyzeCommit_LargeManifest(b *testing.B) {
-	repoDir, _ := setupBenchRepo(b)
+	repoDir := setupBenchRepo(b)
 	addBenchFile(b, repoDir, "README.md", "# Test")
 	benchCommit(b, repoDir, "Initial")
 
@@ -137,7 +132,7 @@ func BenchmarkAnalyzeCommit_LargeManifest(b *testing.B) {
 }
 
 func BenchmarkAnalyzeCommit_MultipleManifests(b *testing.B) {
-	repoDir, _ := setupBenchRepo(b)
+	repoDir := setupBenchRepo(b)
 	addBenchFile(b, repoDir, "README.md", "# Test")
 	benchCommit(b, repoDir, "Initial")
 
@@ -155,7 +150,7 @@ func BenchmarkAnalyzeCommit_MultipleManifests(b *testing.B) {
 }
 
 func BenchmarkAnalyzeCommit_WithSnapshot(b *testing.B) {
-	repoDir, _ := setupBenchRepo(b)
+	repoDir := setupBenchRepo(b)
 	addBenchFile(b, repoDir, "README.md", "# Test")
 	benchCommit(b, repoDir, "Initial")
 
@@ -178,7 +173,7 @@ func BenchmarkAnalyzeCommit_WithSnapshot(b *testing.B) {
 }
 
 func BenchmarkDependenciesAtCommit_Small(b *testing.B) {
-	repoDir, _ := setupBenchRepo(b)
+	repoDir := setupBenchRepo(b)
 	addBenchFile(b, repoDir, "package.json", `{"name":"test","dependencies":{"lodash":"^4.0.0"}}`)
 	commit := benchCommit(b, repoDir, "Add package.json")
 
@@ -191,7 +186,7 @@ func BenchmarkDependenciesAtCommit_Small(b *testing.B) {
 }
 
 func BenchmarkDependenciesAtCommit_Large(b *testing.B) {
-	repoDir, _ := setupBenchRepo(b)
+	repoDir := setupBenchRepo(b)
 	addBenchFile(b, repoDir, "package.json", generateLargePackageJSON(200))
 	addBenchFile(b, repoDir, "Gemfile", generateLargeGemfile(100))
 	commit := benchCommit(b, repoDir, "Add manifests")

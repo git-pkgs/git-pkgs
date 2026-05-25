@@ -9,8 +9,10 @@ import (
 	"github.com/spf13/cobra/doc"
 )
 
+const dirPerm = 0755
+
 func main() {
-	if err := os.MkdirAll("man", 0755); err != nil {
+	if err := os.MkdirAll("man", dirPerm); err != nil {
 		log.Fatal(err)
 	}
 

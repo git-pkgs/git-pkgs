@@ -60,14 +60,17 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputSchemaJSON(cmd, tables)
 	case "sql":
-		return outputSchemaSQL(cmd, tables)
+		outputSchemaSQL(cmd, tables)
+		return nil
 	case "markdown":
-		return outputSchemaMarkdown(cmd, tables)
+		outputSchemaMarkdown(cmd, tables)
+		return nil
 	default:
-		return outputSchemaText(cmd, tables)
+		outputSchemaText(cmd, tables)
+		return nil
 	}
 }
 
@@ -156,7 +159,7 @@ func outputSchemaJSON(cmd *cobra.Command, tables []TableSchema) error {
 	return enc.Encode(tables)
 }
 
-func outputSchemaSQL(cmd *cobra.Command, tables []TableSchema) error {
+func outputSchemaSQL(cmd *cobra.Command, tables []TableSchema) {
 	for _, table := range tables {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "CREATE TABLE %s (\n", table.Name)
 
@@ -183,11 +186,9 @@ func outputSchemaSQL(cmd *cobra.Command, tables []TableSchema) error {
 			_, _ = fmt.Fprintln(cmd.OutOrStdout())
 		}
 	}
-
-	return nil
 }
 
-func outputSchemaMarkdown(cmd *cobra.Command, tables []TableSchema) error {
+func outputSchemaMarkdown(cmd *cobra.Command, tables []TableSchema) {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "# Database Schema")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
 
@@ -198,13 +199,13 @@ func outputSchemaMarkdown(cmd *cobra.Command, tables []TableSchema) error {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "|--------|------|----------|----|")
 
 		for _, col := range table.Columns {
-			nullable := "yes"
+			nullable := displayYes
 			if !col.Nullable {
 				nullable = "no"
 			}
 			pk := ""
 			if col.PK {
-				pk = "yes"
+				pk = displayYes
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "| %s | %s | %s | %s |\n",
 				col.Name, col.Type, nullable, pk)
@@ -219,11 +220,9 @@ func outputSchemaMarkdown(cmd *cobra.Command, tables []TableSchema) error {
 			_, _ = fmt.Fprintln(cmd.OutOrStdout())
 		}
 	}
-
-	return nil
 }
 
-func outputSchemaText(cmd *cobra.Command, tables []TableSchema) error {
+func outputSchemaText(cmd *cobra.Command, tables []TableSchema) {
 	for _, table := range tables {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", table.Name)
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("-", len(table.Name)))
@@ -262,6 +261,4 @@ func outputSchemaText(cmd *cobra.Command, tables []TableSchema) error {
 
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
-
-	return nil
 }

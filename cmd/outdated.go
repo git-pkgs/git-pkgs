@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/enrichment"
+	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/vers"
@@ -66,7 +66,7 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 		defer func() { _ = db.Close() }()
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("loading dependencies: %w", err)
 	}
 
 	deps = filterByEcosystem(deps, ecosystem)
@@ -142,10 +142,10 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 		}
 
 		// Apply filters
-		if majorOnly && updateType != "major" {
+		if majorOnly && updateType != updateMajor {
 			continue
 		}
-		if minorUp && updateType == "patch" {
+		if minorUp && updateType == updatePatch {
 			continue
 		}
 
@@ -165,10 +165,11 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if format == "json" {
+	if format == formatJSON {
 		return outputOutdatedJSON(cmd, outdated)
 	}
-	return outputOutdatedText(cmd, outdated)
+	outputOutdatedText(cmd, outdated)
+	return nil
 }
 
 type packageInfo struct {
@@ -216,7 +217,8 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 			return nil, err
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		const outdatedTimeout = 60 * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), outdatedTimeout)
 		defer cancel()
 
 		packages, err := client.BulkLookup(ctx, uncachedPurls)
@@ -294,7 +296,8 @@ func findLatestAtDateCached(db *database.DB, ecosystem, name, purl string, atTim
 		return ""
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	const versionLookupTimeout = 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), versionLookupTimeout)
 	defer cancel()
 
 	apiVersions, err := client.GetVersions(ctx, purl)
@@ -342,18 +345,18 @@ func classifyUpdate(current, latest string) string {
 	}
 
 	if latestInfo.Major > currentInfo.Major {
-		return "major"
+		return updateMajor
 	}
 	if latestInfo.Minor > currentInfo.Minor {
-		return "minor"
+		return updateMinor
 	}
 	if latestInfo.Patch > currentInfo.Patch {
-		return "patch"
+		return updatePatch
 	}
 
 	// Handle prerelease upgrades
 	if currentInfo.Prerelease != "" && latestInfo.Prerelease == "" {
-		return "patch"
+		return updatePatch
 	}
 
 	return ""
@@ -365,16 +368,16 @@ func outputOutdatedJSON(cmd *cobra.Command, outdated []OutdatedPackage) error {
 	return enc.Encode(outdated)
 }
 
-func outputOutdatedText(cmd *cobra.Command, outdated []OutdatedPackage) error {
+func outputOutdatedText(cmd *cobra.Command, outdated []OutdatedPackage) {
 	// Group by update type
 	var major, minor, patch []OutdatedPackage
 	for _, o := range outdated {
 		switch o.UpdateType {
-		case "major":
+		case updateMajor:
 			major = append(major, o)
-		case "minor":
+		case updateMinor:
 			minor = append(minor, o)
-		case "patch":
+		case updatePatch:
 			patch = append(patch, o)
 		}
 	}
@@ -403,6 +406,4 @@ func outputOutdatedText(cmd *cobra.Command, outdated []OutdatedPackage) error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s -> %s\n", o.Name, o.CurrentVersion, o.LatestVersion)
 		}
 	}
-
-	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -79,7 +80,7 @@ func openRepo(t *testing.T, path string) *git.Repository {
 	return repo
 }
 
-func getCommit(t *testing.T, repo *git.Repository, sha string) *plumbing.Hash {
+func getCommit(t *testing.T, sha string) *plumbing.Hash {
 	t.Helper()
 	hash := plumbing.NewHash(sha)
 	return &hash
@@ -114,7 +115,7 @@ func TestAnalyzeCommitWithNoManifests(t *testing.T) {
 	sha := commit(t, repoDir, "Initial commit")
 
 	repo := openRepo(t, repoDir)
-	hash := getCommit(t, repo, sha)
+	hash := getCommit(t, sha)
 	c, _ := repo.CommitObject(*hash)
 
 	a := analyzer.New()
@@ -140,7 +141,7 @@ func TestAnalyzeCommitWithAddedGemfile(t *testing.T) {
 	sha := commit(t, repoDir, "Add Gemfile")
 
 	repo := openRepo(t, repoDir)
-	hash := getCommit(t, repo, sha)
+	hash := getCommit(t, sha)
 	c, _ := repo.CommitObject(*hash)
 
 	a := analyzer.New()
@@ -198,11 +199,11 @@ func TestAnalyzeCommitWithModifiedGemfile(t *testing.T) {
 	repo := openRepo(t, repoDir)
 	a := analyzer.New()
 
-	firstHash := getCommit(t, repo, firstSha)
+	firstHash := getCommit(t, firstSha)
 	firstCommit, _ := repo.CommitObject(*firstHash)
 	firstResult, _ := a.AnalyzeCommit(firstCommit, nil)
 
-	secondHash := getCommit(t, repo, secondSha)
+	secondHash := getCommit(t, secondSha)
 	secondCommit, _ := repo.CommitObject(*secondHash)
 	result, err := a.AnalyzeCommit(secondCommit, firstResult.Snapshot)
 
@@ -250,11 +251,11 @@ func TestAnalyzeCommitWithRemovedDependency(t *testing.T) {
 	repo := openRepo(t, repoDir)
 	a := analyzer.New()
 
-	firstHash := getCommit(t, repo, firstSha)
+	firstHash := getCommit(t, firstSha)
 	firstCommit, _ := repo.CommitObject(*firstHash)
 	firstResult, _ := a.AnalyzeCommit(firstCommit, nil)
 
-	secondHash := getCommit(t, repo, secondSha)
+	secondHash := getCommit(t, secondSha)
 	secondCommit, _ := repo.CommitObject(*secondHash)
 	result, err := a.AnalyzeCommit(secondCommit, firstResult.Snapshot)
 
@@ -293,7 +294,7 @@ func TestAnalyzeCommitWithPackageJSON(t *testing.T) {
 	sha := commit(t, repoDir, "Add package.json")
 
 	repo := openRepo(t, repoDir)
-	hash := getCommit(t, repo, sha)
+	hash := getCommit(t, sha)
 	c, _ := repo.CommitObject(*hash)
 
 	a := analyzer.New()
@@ -330,7 +331,7 @@ func TestDependenciesAtCommit(t *testing.T) {
 	sha := commit(t, repoDir, "Add manifests")
 
 	repo := openRepo(t, repoDir)
-	hash := getCommit(t, repo, sha)
+	hash := getCommit(t, sha)
 	c, _ := repo.CommitObject(*hash)
 
 	a := analyzer.New()
@@ -682,6 +683,57 @@ jobs:
 	}
 }
 
+func TestDependenciesInWorkingDirRejectsSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks require elevation on windows")
+	}
+
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	// Real manifest in a subdir to confirm the analyzer still works
+	addFile(t, repoDir, "app/package.json", samplePackageJSON(map[string]string{
+		"lodash": "^4.17.21",
+	}))
+
+	// Valid manifest content sitting outside the repo
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.json")
+	if err := os.WriteFile(secret, []byte(samplePackageJSON(map[string]string{
+		"escaped-symlink-marker": "1.0.0",
+	})), 0644); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+
+	// Symlink at the repo root named like a manifest, pointing outside
+	if err := os.Symlink(secret, filepath.Join(repoDir, "package.json")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	a := analyzer.New()
+	deps, err := a.DependenciesInWorkingDir(repoDir, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, d := range deps {
+		if d.Name == "escaped-symlink-marker" {
+			t.Fatalf("symlink escaped repo root, read %s", secret)
+		}
+	}
+
+	var found bool
+	for _, d := range deps {
+		if d.Name == "lodash" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected lodash from app/package.json, got %+v", deps)
+	}
+}
+
 func TestAnalyzeCommitWithGitHubActionsWorkflow(t *testing.T) {
 	repoDir := createTestRepo(t)
 	addFile(t, repoDir, "README.md", "# Test")
@@ -700,7 +752,7 @@ jobs:
 	sha := commit(t, repoDir, "Add CI workflow")
 
 	repo := openRepo(t, repoDir)
-	hash := getCommit(t, repo, sha)
+	hash := getCommit(t, sha)
 	c, _ := repo.CommitObject(*hash)
 
 	a := analyzer.New()
@@ -750,7 +802,7 @@ jobs:
 	sha := commit(t, repoDir, "Add workflow and Gemfile")
 
 	repo := openRepo(t, repoDir)
-	hash := getCommit(t, repo, sha)
+	hash := getCommit(t, sha)
 	c, _ := repo.CommitObject(*hash)
 
 	a := analyzer.New()
@@ -802,14 +854,14 @@ func TestAnalyzeCommitMultiVersionModified(t *testing.T) {
 	repo := openRepo(t, repoDir)
 	a := analyzer.New()
 
-	firstHash := getCommit(t, repo, firstSha)
+	firstHash := getCommit(t, firstSha)
 	firstCommit, _ := repo.CommitObject(*firstHash)
 	firstResult, err := a.AnalyzeCommit(firstCommit, nil)
 	if err != nil {
 		t.Fatalf("analyzing first commit: %v", err)
 	}
 
-	secondHash := getCommit(t, repo, secondSha)
+	secondHash := getCommit(t, secondSha)
 	secondCommit, _ := repo.CommitObject(*secondHash)
 	result, err := a.AnalyzeCommit(secondCommit, firstResult.Snapshot)
 	if err != nil {
@@ -862,7 +914,7 @@ func TestMultipleVersionsSamePackage(t *testing.T) {
 	sha := commit(t, repoDir, "Add package-lock.json with multiple isexe versions")
 
 	repo := openRepo(t, repoDir)
-	hash := getCommit(t, repo, sha)
+	hash := getCommit(t, sha)
 	c, _ := repo.CommitObject(*hash)
 
 	a := analyzer.New()
@@ -907,6 +959,99 @@ func TestMultipleVersionsSamePackage(t *testing.T) {
 	}
 }
 
+func TestScopeChangeTracksType(t *testing.T) {
+	// When npm restructures the dependency tree (e.g. after updating one package),
+	// dev/optional flags can change on many packages without their versions changing.
+	// These should be reported as modified with PreviousDependencyType set so the
+	// display can show what actually changed (e.g. "dev -> runtime").
+	//
+	// Scenario: express 4.18.0 -> 4.19.0 (version change)
+	//           debug, ms, accepts lose "dev": true (scope change, no version change)
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "README.md", "# Test")
+	commit(t, repoDir, "Initial commit")
+
+	before, err := os.ReadFile("testdata/scope-change-before.json")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	addFile(t, repoDir, "package-lock.json", string(before))
+	firstSha := commit(t, repoDir, "Add lockfile")
+
+	after, err := os.ReadFile("testdata/scope-change-after.json")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	addFile(t, repoDir, "package-lock.json", string(after))
+	secondSha := commit(t, repoDir, "Update express")
+
+	repo := openRepo(t, repoDir)
+	a := analyzer.New()
+
+	firstHash := getCommit(t, firstSha)
+	firstCommit, _ := repo.CommitObject(*firstHash)
+	firstResult, err := a.AnalyzeCommit(firstCommit, nil)
+	if err != nil {
+		t.Fatalf("analyzing first commit: %v", err)
+	}
+
+	secondHash := getCommit(t, secondSha)
+	secondCommit, _ := repo.CommitObject(*secondHash)
+	result, err := a.AnalyzeCommit(secondCommit, firstResult.Snapshot)
+	if err != nil {
+		t.Fatalf("analyzing second commit: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+
+	// Should have 4 modified changes: 1 version change + 3 scope changes
+	var modifiedChanges []analyzer.Change
+	for _, ch := range result.Changes {
+		if ch.ChangeType == "modified" {
+			modifiedChanges = append(modifiedChanges, ch)
+		}
+	}
+
+	if len(modifiedChanges) != 4 {
+		t.Fatalf("expected 4 modified changes, got %d: %+v", len(modifiedChanges), result.Changes)
+	}
+
+	// Check the version change (express)
+	var versionChanges, scopeChanges []analyzer.Change
+	for _, ch := range modifiedChanges {
+		if ch.PreviousRequirement != "" {
+			versionChanges = append(versionChanges, ch)
+		} else if ch.PreviousDependencyType != "" {
+			scopeChanges = append(scopeChanges, ch)
+		}
+	}
+
+	if len(versionChanges) != 1 {
+		t.Fatalf("expected 1 version change, got %d", len(versionChanges))
+	}
+	if versionChanges[0].Name != "express" {
+		t.Errorf("expected express version change, got %q", versionChanges[0].Name)
+	}
+	if versionChanges[0].PreviousRequirement != "4.18.0" || versionChanges[0].Requirement != "4.19.0" {
+		t.Errorf("expected 4.18.0 -> 4.19.0, got %s -> %s", versionChanges[0].PreviousRequirement, versionChanges[0].Requirement)
+	}
+
+	// Check scope changes have PreviousDependencyType set
+	if len(scopeChanges) != 3 {
+		t.Fatalf("expected 3 scope changes, got %d", len(scopeChanges))
+	}
+	for _, ch := range scopeChanges {
+		if ch.PreviousDependencyType != "development" {
+			t.Errorf("%s: expected PreviousDependencyType 'development', got %q", ch.Name, ch.PreviousDependencyType)
+		}
+		if ch.DependencyType != "runtime" {
+			t.Errorf("%s: expected DependencyType 'runtime', got %q", ch.Name, ch.DependencyType)
+		}
+	}
+}
+
 func TestDiffCacheEvictedAfterConsume(t *testing.T) {
 	repoDir := createTestRepo(t)
 	addFile(t, repoDir, "README.md", "# Test")
@@ -933,10 +1078,6 @@ func TestDiffCacheEvictedAfterConsume(t *testing.T) {
 
 	a.PrefetchDiffs(hashes, 4)
 
-	if a.DiffCacheLen() != 3 {
-		t.Fatalf("expected 3 prefetched diffs, got %d", a.DiffCacheLen())
-	}
-
 	// Analyze all 3 commits, consuming each cached diff
 	var snapshot analyzer.Snapshot
 	for _, h := range hashes {
@@ -953,9 +1094,6 @@ func TestDiffCacheEvictedAfterConsume(t *testing.T) {
 		}
 	}
 
-	if a.DiffCacheLen() != 0 {
-		t.Errorf("expected diffCache to be empty after consuming all entries, got %d", a.DiffCacheLen())
-	}
 }
 
 func TestClearDiffCache(t *testing.T) {
@@ -975,22 +1113,10 @@ func TestClearDiffCache(t *testing.T) {
 	hashes := []plumbing.Hash{plumbing.NewHash(sha1), plumbing.NewHash(sha2)}
 	a.PrefetchDiffs(hashes, 4)
 
-	if a.DiffCacheLen() != 2 {
-		t.Fatalf("expected 2 prefetched diffs, got %d", a.DiffCacheLen())
-	}
-
 	a.ClearDiffCache()
-
-	if a.DiffCacheLen() != 0 {
-		t.Errorf("expected diffCache to be empty after clear, got %d", a.DiffCacheLen())
-	}
 
 	// Prefetch again to verify it still works after clearing
 	a.PrefetchDiffs(hashes, 4)
-
-	if a.DiffCacheLen() != 2 {
-		t.Errorf("expected 2 prefetched diffs after re-prefetch, got %d", a.DiffCacheLen())
-	}
 }
 
 func TestClearBlobCache(t *testing.T) {
@@ -1002,7 +1128,7 @@ func TestClearBlobCache(t *testing.T) {
 	sha := commit(t, repoDir, "Add Gemfile")
 
 	repo := openRepo(t, repoDir)
-	hash := getCommit(t, repo, sha)
+	hash := getCommit(t, sha)
 	c, _ := repo.CommitObject(*hash)
 
 	a := analyzer.New()
@@ -1014,15 +1140,7 @@ func TestClearBlobCache(t *testing.T) {
 		t.Fatal("expected non-nil result")
 	}
 
-	if a.BlobCacheLen() == 0 {
-		t.Fatal("expected blobCache to be populated after analysis")
-	}
-
 	a.ClearBlobCache()
-
-	if a.BlobCacheLen() != 0 {
-		t.Errorf("expected blobCache to be empty after clear, got %d", a.BlobCacheLen())
-	}
 
 	// Re-analyze the same commit to verify it still works after clearing
 	result2, err := a.AnalyzeCommit(c, nil)

@@ -38,7 +38,7 @@ func runDiffFile(cmd *cobra.Command, args []string) error {
 	result := computeDiff(fromDeps, toDeps)
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputDiffJSON(cmd, result)
 	default:
 		return outputDiffText(cmd, result)

@@ -111,18 +111,19 @@ func parseLine(line string) (entry, bool) {
 		e.properEmail = emails[0] // Email stays the same
 
 	case 2:
-		if len(names) == 0 {
+		switch {
+		case len(names) == 0:
 			// Format 2: <proper@email.xx> <commit@email.xx>
 			// Email-only replacement
 			e.properEmail = emails[0]
 			e.commitEmail = emails[1]
-		} else if len(names) == 1 {
+		case len(names) == 1:
 			// Format 3: Proper Name <proper@email.xx> <commit@email.xx>
 			// Replace both name and email when commit email matches
 			e.properName = names[0]
 			e.properEmail = emails[0]
 			e.commitEmail = emails[1]
-		} else {
+		default:
 			// Format 4: Proper Name <proper@email.xx> Commit Name <commit@email.xx>
 			// Replace when both commit name and email match
 			e.properName = names[0]

@@ -1,0 +1,10 @@
+version: "2"
+
+formatters:
+  enable:
+    - gofmt
+
+linters:
+  settings:
+    goconst:
+      ignore-tests: true

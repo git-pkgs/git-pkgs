@@ -2,15 +2,14 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"time"
 
-	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/enrichment"
+	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
+	"github.com/git-pkgs/sbom"
 	"github.com/spf13/cobra"
 )
 
@@ -34,90 +33,6 @@ The SBOM includes all dependencies and optionally enriched license information.`
 	parent.AddCommand(sbomCmd)
 }
 
-// CycloneDX BOM structure
-type CycloneDXBOM struct {
-	XMLName      xml.Name                  `xml:"bom" json:"-"`
-	XMLNS        string                    `xml:"xmlns,attr" json:"-"`
-	Version      int                       `xml:"version,attr" json:"version"`
-	BOMFormat    string                    `xml:"-" json:"bomFormat"`
-	SpecVersion  string                    `xml:"-" json:"specVersion"`
-	SerialNumber string                    `xml:"serialNumber,attr,omitempty" json:"serialNumber,omitempty"`
-	Metadata     *CycloneDXMetadata        `xml:"metadata,omitempty" json:"metadata,omitempty"`
-	Components   []CycloneDXComponent      `xml:"components>component" json:"components"`
-	Dependencies []CycloneDXDependency     `xml:"dependencies>dependency,omitempty" json:"dependencies,omitempty"`
-}
-
-type CycloneDXMetadata struct {
-	Timestamp string              `xml:"timestamp" json:"timestamp"`
-	Tools     []CycloneDXTool     `xml:"tools>tool,omitempty" json:"tools,omitempty"`
-	Component *CycloneDXComponent `xml:"component,omitempty" json:"component,omitempty"`
-}
-
-type CycloneDXTool struct {
-	Vendor  string `xml:"vendor" json:"vendor"`
-	Name    string `xml:"name" json:"name"`
-	Version string `xml:"version" json:"version"`
-}
-
-type CycloneDXComponent struct {
-	Type        string             `xml:"type,attr" json:"type"`
-	BOMRef      string             `xml:"bom-ref,attr,omitempty" json:"bom-ref,omitempty"`
-	Name        string             `xml:"name" json:"name"`
-	Version     string             `xml:"version,omitempty" json:"version,omitempty"`
-	PURL        string             `xml:"purl,omitempty" json:"purl,omitempty"`
-	Licenses    []CycloneDXLicense `xml:"licenses>license,omitempty" json:"licenses,omitempty"`
-	Description string             `xml:"description,omitempty" json:"description,omitempty"`
-}
-
-type CycloneDXLicense struct {
-	ID   string `xml:"id,omitempty" json:"id,omitempty"`
-	Name string `xml:"name,omitempty" json:"name,omitempty"`
-}
-
-type CycloneDXDependency struct {
-	Ref       string   `xml:"ref,attr" json:"ref"`
-	DependsOn []string `xml:"dependency,omitempty" json:"dependsOn,omitempty"`
-}
-
-// SPDX structure
-type SPDXSBOM struct {
-	SPDXVersion       string            `json:"spdxVersion"`
-	DataLicense       string            `json:"dataLicense"`
-	SPDXID            string            `json:"SPDXID"`
-	Name              string            `json:"name"`
-	DocumentNamespace string            `json:"documentNamespace"`
-	CreationInfo      SPDXCreationInfo  `json:"creationInfo"`
-	Packages          []SPDXPackage     `json:"packages"`
-	Relationships     []SPDXRelationship `json:"relationships,omitempty"`
-}
-
-type SPDXCreationInfo struct {
-	Created  string   `json:"created"`
-	Creators []string `json:"creators"`
-}
-
-type SPDXPackage struct {
-	SPDXID           string `json:"SPDXID"`
-	Name             string `json:"name"`
-	VersionInfo      string `json:"versionInfo,omitempty"`
-	DownloadLocation string `json:"downloadLocation"`
-	LicenseConcluded string `json:"licenseConcluded,omitempty"`
-	LicenseDeclared  string `json:"licenseDeclared,omitempty"`
-	ExternalRefs     []SPDXExternalRef `json:"externalRefs,omitempty"`
-}
-
-type SPDXExternalRef struct {
-	ReferenceCategory string `json:"referenceCategory"`
-	ReferenceType     string `json:"referenceType"`
-	ReferenceLocator  string `json:"referenceLocator"`
-}
-
-type SPDXRelationship struct {
-	SPDXElementID      string `json:"spdxElementId"`
-	RelationshipType   string `json:"relationshipType"`
-	RelatedSPDXElement string `json:"relatedSpdxElement"`
-}
-
 func runSBOM(cmd *cobra.Command, args []string) error {
 	sbomType, _ := cmd.Flags().GetString("type")
 	format, _ := cmd.Flags().GetString("format")
@@ -127,6 +42,11 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 	projectName, _ := cmd.Flags().GetString("name")
 	projectVersion, _ := cmd.Flags().GetString("version")
 	skipEnrichment, _ := cmd.Flags().GetBool("skip-enrichment")
+
+	out, err := sbomFormat(sbomType, format)
+	if err != nil {
+		return err
+	}
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -138,47 +58,87 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 		defer func() { _ = db.Close() }()
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("loading dependencies: %w", err)
 	}
 
 	deps = filterByEcosystem(deps, ecosystem)
 
-	// Get licenses from cache or ecosyste.ms if not skipped
-	licenseMap := make(map[string][]string)
+	licenseMap := map[string]string{}
 	if !skipEnrichment {
-		purls := make([]string, 0, len(deps))
-		purlToDep := make(map[string]database.Dependency)
-		for _, d := range deps {
-			// Use versionless PURL for cache lookup
-			purlStr := purl.MakePURLString(d.Ecosystem, d.Name, "")
-			if purlStr != "" {
-				purls = append(purls, purlStr)
-				purlToDep[purlStr] = d
-			}
-		}
-
-		if len(purls) > 0 {
-			data, err := getSBOMLicenseData(db, purls, purlToDep)
-			if err == nil {
-				for purl, license := range data {
-					if license != "" {
-						licenseMap[purl] = []string{license}
-					}
-				}
-			}
-		}
+		licenseMap = enrichLicenses(db, deps)
 	}
 
 	if projectName == "" {
 		projectName = "project"
 	}
 
-	switch sbomType {
-	case "spdx":
-		return generateSPDX(cmd, deps, licenseMap, projectName, projectVersion, format)
+	doc := buildSBOM(deps, licenseMap, projectName, projectVersion)
+	return sbom.Encode(cmd.OutOrStdout(), doc, out)
+}
+
+func sbomFormat(sbomType, format string) (sbom.Format, error) {
+	switch {
+	case sbomType == "spdx" && format == "json":
+		return sbom.FormatSPDXJSON, nil
+	case sbomType == "spdx":
+		return 0, fmt.Errorf("SPDX %s format not supported, use json", format)
+	case format == "xml":
+		return sbom.FormatCycloneDXXML, nil
 	default:
-		return generateCycloneDX(cmd, deps, licenseMap, projectName, projectVersion, format)
+		return sbom.FormatCycloneDXJSON, nil
 	}
+}
+
+func buildSBOM(deps []database.Dependency, licenses map[string]string, name, ver string) *sbom.SBOM {
+	s := sbom.New(sbom.TypeCycloneDX)
+	s.Document = sbom.Document{
+		Name:      name,
+		Namespace: "https://git-pkgs.example.com/" + name,
+		Component: sbom.Component{Type: "application", Name: name, Version: ver},
+		Creators:  []sbom.Creator{{Type: "Tool", Name: "git-pkgs-" + version}},
+	}
+	for _, d := range deps {
+		purlStr := d.PURL
+		if purlStr == "" {
+			purlStr = purl.MakePURLString(d.Ecosystem, d.Name, d.Requirement)
+		}
+		p := sbom.Package{
+			Name:    d.Name,
+			Version: d.Requirement,
+		}
+		if purlStr != "" {
+			p.ExternalRefs = []sbom.ExternalRef{{
+				Category: "PACKAGE_MANAGER", Type: "purl", Locator: purlStr,
+			}}
+		}
+		licKey := purl.MakePURLString(d.Ecosystem, d.Name, "")
+		if lic := licenses[licKey]; lic != "" {
+			p.LicenseConcluded = lic
+			p.LicenseDeclared = lic
+		}
+		s.AddPackage(p)
+	}
+	return s
+}
+
+func enrichLicenses(db *database.DB, deps []database.Dependency) map[string]string {
+	purls := make([]string, 0, len(deps))
+	purlToDep := make(map[string]database.Dependency)
+	for _, d := range deps {
+		purlStr := purl.MakePURLString(d.Ecosystem, d.Name, "")
+		if purlStr != "" {
+			purls = append(purls, purlStr)
+			purlToDep[purlStr] = d
+		}
+	}
+	if len(purls) == 0 {
+		return nil
+	}
+	data, err := getSBOMLicenseData(db, purls, purlToDep)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func getSBOMLicenseData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]string, error) {
@@ -211,7 +171,8 @@ func getSBOMLicenseData(db *database.DB, purls []string, purlToDep map[string]da
 			return nil, err
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		const sbomTimeout = 60 * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), sbomTimeout)
 		defer cancel()
 
 		packages, err := client.BulkLookup(ctx, uncachedPurls)
@@ -235,139 +196,4 @@ func getSBOMLicenseData(db *database.DB, purls []string, purlToDep map[string]da
 	}
 
 	return result, nil
-}
-
-func generateCycloneDX(cmd *cobra.Command, deps []database.Dependency, licenseMap map[string][]string, name, version, format string) error {
-	bom := CycloneDXBOM{
-		XMLNS:       "http://cyclonedx.org/schema/bom/1.5",
-		Version:     1,
-		BOMFormat:   "CycloneDX",
-		SpecVersion: "1.5",
-		Metadata: &CycloneDXMetadata{
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Tools: []CycloneDXTool{
-				{Vendor: "git-pkgs", Name: "git-pkgs", Version: "1.0.0"},
-			},
-		},
-	}
-
-	if name != "" {
-		bom.Metadata.Component = &CycloneDXComponent{
-			Type:    "application",
-			Name:    name,
-			Version: version,
-		}
-	}
-
-	for _, dep := range deps {
-		// Full PURL with version for the component
-		purlStr := dep.PURL
-		if purlStr == "" {
-			purlStr = purl.MakePURLString(dep.Ecosystem, dep.Name, dep.Requirement)
-		}
-		// Versionless PURL for license lookup (matches cache key)
-		licensePurl := purl.MakePURLString(dep.Ecosystem, dep.Name, "")
-
-		comp := CycloneDXComponent{
-			Type:    "library",
-			BOMRef:  purlStr,
-			Name:    dep.Name,
-			Version: dep.Requirement,
-			PURL:    purlStr,
-		}
-
-		if licenses, ok := licenseMap[licensePurl]; ok {
-			for _, lic := range licenses {
-				comp.Licenses = append(comp.Licenses, CycloneDXLicense{ID: lic})
-			}
-		}
-
-		bom.Components = append(bom.Components, comp)
-	}
-
-	if format == "xml" {
-		enc := xml.NewEncoder(cmd.OutOrStdout())
-		enc.Indent("", "  ")
-		_, _ = fmt.Fprint(cmd.OutOrStdout(), xml.Header)
-		return enc.Encode(bom)
-	}
-
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(bom)
-}
-
-func generateSPDX(cmd *cobra.Command, deps []database.Dependency, licenseMap map[string][]string, name, version, format string) error {
-	sbom := SPDXSBOM{
-		SPDXVersion:       "SPDX-2.3",
-		DataLicense:       "CC0-1.0",
-		SPDXID:            "SPDXRef-DOCUMENT",
-		Name:              name,
-		DocumentNamespace: fmt.Sprintf("https://git-pkgs.example.com/%s", name),
-		CreationInfo: SPDXCreationInfo{
-			Created:  time.Now().UTC().Format(time.RFC3339),
-			Creators: []string{"Tool: git-pkgs-1.0.0"},
-		},
-	}
-
-	// Add root package
-	rootPkg := SPDXPackage{
-		SPDXID:           "SPDXRef-Package-root",
-		Name:             name,
-		VersionInfo:      version,
-		DownloadLocation: "NOASSERTION",
-	}
-	sbom.Packages = append(sbom.Packages, rootPkg)
-
-	for i, dep := range deps {
-		// Full PURL with version for the package reference
-		purlStr := dep.PURL
-		if purlStr == "" {
-			purlStr = purl.MakePURLString(dep.Ecosystem, dep.Name, dep.Requirement)
-		}
-		// Versionless PURL for license lookup (matches cache key)
-		licensePurl := purl.MakePURLString(dep.Ecosystem, dep.Name, "")
-
-		pkg := SPDXPackage{
-			SPDXID:           fmt.Sprintf("SPDXRef-Package-%d", i),
-			Name:             dep.Name,
-			VersionInfo:      dep.Requirement,
-			DownloadLocation: "NOASSERTION",
-		}
-
-		if licenses, ok := licenseMap[licensePurl]; ok && len(licenses) > 0 {
-			pkg.LicenseConcluded = licenses[0]
-			pkg.LicenseDeclared = licenses[0]
-		} else {
-			pkg.LicenseConcluded = "NOASSERTION"
-			pkg.LicenseDeclared = "NOASSERTION"
-		}
-
-		if purlStr != "" {
-			pkg.ExternalRefs = []SPDXExternalRef{
-				{
-					ReferenceCategory: "PACKAGE-MANAGER",
-					ReferenceType:     "purl",
-					ReferenceLocator:  purlStr,
-				},
-			}
-		}
-
-		sbom.Packages = append(sbom.Packages, pkg)
-
-		// Add dependency relationship
-		sbom.Relationships = append(sbom.Relationships, SPDXRelationship{
-			SPDXElementID:      "SPDXRef-Package-root",
-			RelationshipType:   "DEPENDS_ON",
-			RelatedSPDXElement: pkg.SPDXID,
-		})
-	}
-
-	if format == "xml" {
-		return fmt.Errorf("SPDX XML format not supported, use json")
-	}
-
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(sbom)
 }

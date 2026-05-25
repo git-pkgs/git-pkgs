@@ -19,9 +19,7 @@ import (
 
 // NewEnrichmentClient is the constructor for the enrichment client.
 // Tests can replace this to avoid external API calls.
-var NewEnrichmentClient = func(opts ...enrichment.Option) (enrichment.Client, error) {
-	return enrichment.NewClient(opts...)
-}
+var NewEnrichmentClient = enrichment.NewClient
 
 func addLicensesCmd(parent *cobra.Command) {
 	licensesCmd := &cobra.Command{
@@ -57,7 +55,6 @@ type LicenseInfo struct {
 	FlagReason   string   `json:"flag_reason,omitempty"`
 }
 
-
 func runLicenses(cmd *cobra.Command, args []string) error {
 	commit, _ := cmd.Flags().GetString("commit")
 	branchName, _ := cmd.Flags().GetString("branch")
@@ -80,7 +77,7 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		defer func() { _ = db.Close() }()
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("loading dependencies: %w", err)
 	}
 
 	deps = filterByEcosystem(deps, ecosystem)
@@ -228,19 +225,22 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 
 	// Sort by name
 	sort.Slice(licenseInfos, func(i, j int) bool {
-		return licenseInfos[i].Name < licenseInfos[j].Name
+		if licenseInfos[i].Name != licenseInfos[j].Name {
+			return licenseInfos[i].Name < licenseInfos[j].Name
+		}
+		return licenseInfos[i].Version < licenseInfos[j].Version
 	})
 
 	switch format {
-	case "json":
+	case formatJSON:
 		err = outputLicensesJSON(cmd, licenseInfos)
 	case "csv":
 		err = outputLicensesCSV(cmd, licenseInfos)
 	default:
 		if groupBy {
-			err = outputLicensesGrouped(cmd, licenseInfos)
+			outputLicensesGrouped(cmd, licenseInfos)
 		} else {
-			err = outputLicensesText(cmd, licenseInfos)
+			outputLicensesText(cmd, licenseInfos)
 		}
 	}
 
@@ -294,7 +294,8 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 			return nil, err
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		const licensesTimeout = 60 * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), licensesTimeout)
 		defer cancel()
 
 		packages, err := client.BulkLookup(ctx, uncachedPurls)
@@ -346,7 +347,7 @@ func outputLicensesCSV(cmd *cobra.Command, infos []LicenseInfo) error {
 	for _, info := range infos {
 		flagged := ""
 		if info.Flagged {
-			flagged = "yes"
+			flagged = displayYes
 		}
 		if err := w.Write([]string{
 			info.Name,
@@ -363,7 +364,7 @@ func outputLicensesCSV(cmd *cobra.Command, infos []LicenseInfo) error {
 	return nil
 }
 
-func outputLicensesText(cmd *cobra.Command, infos []LicenseInfo) error {
+func outputLicensesText(cmd *cobra.Command, infos []LicenseInfo) {
 	for _, info := range infos {
 		licenses := strings.Join(info.Licenses, ", ")
 		line := fmt.Sprintf("%s (%s): %s", info.Name, info.Ecosystem, licenses)
@@ -372,10 +373,9 @@ func outputLicensesText(cmd *cobra.Command, infos []LicenseInfo) error {
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), line)
 	}
-	return nil
 }
 
-func outputLicensesGrouped(cmd *cobra.Command, infos []LicenseInfo) error {
+func outputLicensesGrouped(cmd *cobra.Command, infos []LicenseInfo) {
 	groups := make(map[string][]LicenseInfo)
 
 	for _, info := range infos {
@@ -401,6 +401,4 @@ func outputLicensesGrouped(cmd *cobra.Command, infos []LicenseInfo) error {
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
-
-	return nil
 }

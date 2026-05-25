@@ -3,6 +3,7 @@ package cmd_test
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -178,6 +179,10 @@ func TestBrowsePathNotSupported(t *testing.T) {
 }
 
 func TestBrowseNoEditor(t *testing.T) {
+	if _, err := exec.LookPath("yarn"); err != nil {
+		t.Skip("yarn not installed")
+	}
+
 	tmpDir := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(tmpDir, "package-lock.json"), []byte("{}"), 0644); err != nil {
@@ -198,7 +203,7 @@ func TestBrowseNoEditor(t *testing.T) {
 	t.Setenv("VISUAL", "")
 
 	rootCmd := cmd.NewRootCmd()
-	rootCmd.SetArgs([]string{"browse", "lodash", "-m", "yarn"}) // yarn uses template, no CLI needed
+	rootCmd.SetArgs([]string{"browse", "lodash", "-m", "yarn"})
 
 	var stdout bytes.Buffer
 	rootCmd.SetOut(&stdout)

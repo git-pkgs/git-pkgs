@@ -64,6 +64,7 @@ func (db *DB) CreateSchema() error {
 		requirement TEXT,
 		previous_requirement TEXT,
 		dependency_type TEXT,
+		previous_dependency_type TEXT,
 		created_at DATETIME,
 		updated_at DATETIME
 	);

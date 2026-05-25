@@ -22,7 +22,8 @@ func addLogCmd(parent *cobra.Command) {
 	logCmd.Flags().String("author", "", "Filter by author name or email")
 	logCmd.Flags().String("since", "", "Only commits after this date (YYYY-MM-DD)")
 	logCmd.Flags().String("until", "", "Only commits before this date (YYYY-MM-DD)")
-	logCmd.Flags().IntP("limit", "n", 20, "Maximum number of commits to show")
+	const defaultLogLimit = 20
+	logCmd.Flags().IntP("limit", "n", defaultLogLimit, "Maximum number of commits to show")
 	logCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	parent.AddCommand(logCmd)
 }
@@ -74,10 +75,11 @@ func runLog(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputLogJSON(cmd, commits)
 	default:
-		return outputLogText(cmd, commits)
+		outputLogText(cmd, commits)
+		return nil
 	}
 }
 
@@ -87,7 +89,7 @@ func outputLogJSON(cmd *cobra.Command, commits []database.CommitWithChanges) err
 	return enc.Encode(commits)
 }
 
-func outputLogText(cmd *cobra.Command, commits []database.CommitWithChanges) error {
+func outputLogText(cmd *cobra.Command, commits []database.CommitWithChanges) {
 	for _, c := range commits {
 		// First line of message only
 		message := c.Message
@@ -95,8 +97,8 @@ func outputLogText(cmd *cobra.Command, commits []database.CommitWithChanges) err
 			message = message[:idx]
 		}
 		message = strings.TrimSpace(message)
-		if len(message) > 60 {
-			message = message[:57] + "..."
+		if len(message) > subjectTruncLen {
+			message = message[:subjectTruncLen-3] + "..."
 		}
 
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", Yellow(shortSHA(c.SHA)), message)
@@ -107,11 +109,11 @@ func outputLogText(cmd *cobra.Command, commits []database.CommitWithChanges) err
 		var added, modified, removed int
 		for _, ch := range c.Changes {
 			switch ch.ChangeType {
-			case "added":
+			case changeTypeAdded:
 				added++
-			case "modified":
+			case changeTypeModified:
 				modified++
-			case "removed":
+			case changeTypeRemoved:
 				removed++
 			}
 		}
@@ -129,6 +131,4 @@ func outputLogText(cmd *cobra.Command, commits []database.CommitWithChanges) err
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Changes: %s\n", strings.Join(parts, " "))
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
-
-	return nil
 }

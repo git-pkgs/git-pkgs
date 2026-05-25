@@ -9,6 +9,19 @@ import (
 	"github.com/git-pkgs/purl"
 )
 
+const (
+	shortSHALen       = 7  // characters to show for abbreviated SHA
+	shaHashLen        = 40 // full SHA-1 hash length
+	hashDisplayLen    = 50 // truncation length for hash display
+	datePrefixLen     = 10 // "YYYY-MM-DD" length
+	subjectTruncLen   = 60 // truncation length for commit subjects and messages
+	summaryTruncLen   = 80 // truncation length for vulnerability summaries
+	authorTruncLen    = 24 // truncation length for author names
+	separatorShortLen = 18 // short separator line length
+	separatorLongLen  = 70 // long separator line length
+	allSeverities     = 4  // severity level that includes all severities
+)
+
 func openDatabase() (*git.Repository, *database.DB, error) {
 	repo, err := git.OpenRepository(".")
 	if err != nil {
@@ -44,14 +57,14 @@ func resolveBranch(db *database.DB, branchName string) (*database.BranchInfo, er
 }
 
 func shortSHA(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
+	if len(sha) > shortSHALen {
+		return sha[:shortSHALen]
 	}
 	return sha
 }
 
 func isResolvedDependency(d database.Dependency) bool {
-	return d.Requirement != "" && (d.ManifestKind == "lockfile" || d.Ecosystem == "golang")
+	return d.Requirement != "" && (d.ManifestKind == manifestKindLockfile || d.Ecosystem == "golang")
 }
 
 func IsPURL(s string) bool {

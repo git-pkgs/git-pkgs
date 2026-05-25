@@ -84,18 +84,18 @@ func TestFlushAsyncErrorPropagation(t *testing.T) {
 		t.Fatalf("first flush should succeed: %v", err)
 	}
 
-	// Insert the same commit again -- the unique SHA index will cause
-	// the background flush to fail.
+	// Insert the same commit again -- OR IGNORE means the duplicate is
+	// silently skipped rather than causing an error.
 	addTestCommitWithChange(writer, "err111")
 
 	writer.FlushAsync()
 
 	err := writer.WaitForFlush()
-	if err == nil {
-		t.Fatal("expected error from duplicate commit, got nil")
+	if err != nil {
+		t.Fatalf("second flush should succeed (OR IGNORE): %v", err)
 	}
 
-	// Verify the first commit is still there
+	// Verify the commit exists exactly once
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM commits WHERE sha = 'err111'").Scan(&count); err != nil {
 		t.Fatalf("failed to query: %v", err)

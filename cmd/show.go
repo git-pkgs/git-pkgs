@@ -27,7 +27,7 @@ Defaults to HEAD if no commit is specified.`,
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
-	commitRef := "HEAD"
+	commitRef := refHEAD
 	if len(args) > 0 {
 		commitRef = args[0]
 	}
@@ -63,7 +63,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 
 	// Output
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputShowJSON(cmd, changes)
 	default:
 		return outputShowText(cmd, changes)
@@ -111,14 +111,15 @@ func getChangesForCommit(repo *git.Repository, commitRef string) ([]database.Cha
 	var changes []database.Change
 	for _, c := range result.Changes {
 		changes = append(changes, database.Change{
-			Name:                c.Name,
-			Ecosystem:           c.Ecosystem,
-			PURL:                c.PURL,
-			ChangeType:          c.ChangeType,
-			Requirement:         c.Requirement,
-			PreviousRequirement: c.PreviousRequirement,
-			DependencyType:      c.DependencyType,
-			ManifestPath:        c.ManifestPath,
+			Name:                   c.Name,
+			Ecosystem:              c.Ecosystem,
+			PURL:                   c.PURL,
+			ChangeType:             c.ChangeType,
+			Requirement:            c.Requirement,
+			PreviousRequirement:    c.PreviousRequirement,
+			DependencyType:         c.DependencyType,
+			PreviousDependencyType: c.PreviousDependencyType,
+			ManifestPath:           c.ManifestPath,
 		})
 	}
 
@@ -150,22 +151,25 @@ func outputShowText(cmd *cobra.Command, changes []database.Change) error {
 		for _, c := range manifestChanges {
 			var prefix, line string
 			switch c.ChangeType {
-			case "added":
+			case changeTypeAdded:
 				prefix = Green("+")
 				line = fmt.Sprintf("  %s %s", prefix, Green(c.Name))
-			case "removed":
+			case changeTypeRemoved:
 				prefix = Red("-")
 				line = fmt.Sprintf("  %s %s", prefix, Red(c.Name))
-			case "modified":
+			case changeTypeModified:
 				prefix = Yellow("~")
 				line = fmt.Sprintf("  %s %s", prefix, Yellow(c.Name))
 			default:
 				line = fmt.Sprintf("    %s", c.Name)
 			}
 
-			if c.ChangeType == "modified" && c.PreviousRequirement != "" {
+			switch {
+			case c.ChangeType == changeTypeModified && c.PreviousRequirement != "":
 				line += fmt.Sprintf(" %s -> %s", Dim(c.PreviousRequirement), c.Requirement)
-			} else if c.Requirement != "" {
+			case c.ChangeType == changeTypeModified && c.PreviousDependencyType != "":
+				line += fmt.Sprintf(" %s (%s -> %s)", c.Requirement, Dim(c.PreviousDependencyType), c.DependencyType)
+			case c.Requirement != "":
 				line += fmt.Sprintf(" %s", c.Requirement)
 			}
 

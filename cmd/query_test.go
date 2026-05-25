@@ -785,6 +785,37 @@ func TestHistoryCommand(t *testing.T) {
 			t.Error("expected 'change_type' field in history JSON")
 		}
 	})
+
+	t.Run("filters by exact package name", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+		addFileAndCommit(t, repoDir, "package.json", `{"dependencies":{"express":"^4.18.0","express-validator":"^7.0.0"}}`, "Add deps")
+
+		cleanup := chdir(t, repoDir)
+		defer cleanup()
+
+		rootCmd := cmd.NewRootCmd()
+		rootCmd.SetArgs([]string{"init"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("init failed: %v", err)
+		}
+
+		var stdout bytes.Buffer
+		rootCmd = cmd.NewRootCmd()
+		rootCmd.SetArgs([]string{"history", "express"})
+		rootCmd.SetOut(&stdout)
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("history failed: %v", err)
+		}
+
+		output := stdout.String()
+		if !strings.Contains(output, "express") {
+			t.Error("expected output to contain 'express'")
+		}
+		if strings.Contains(output, "express-validator") {
+			t.Error("expected output NOT to contain 'express-validator', got substring match instead of exact match")
+		}
+	})
 }
 
 func TestBranchBehavior(t *testing.T) {

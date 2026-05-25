@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -65,7 +66,13 @@ func TestSearchFileForPackage(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			matches, err := searchFileForPackage(path, "package-lock.json", tt.packageName, "npm", 0)
+			root, err := os.OpenRoot(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = root.Close() }()
+
+			matches, err := searchFileForPackage(root, "package-lock.json", "package-lock.json", tt.packageName, "npm", 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -80,5 +87,52 @@ func TestSearchFileForPackage(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSearchFileForPackageRejectsSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks require elevation on windows")
+	}
+
+	repoDir := t.TempDir()
+
+	// Place a real manifest inside the repo
+	if err := os.WriteFile(filepath.Join(repoDir, "package.json"), []byte(`{"dependencies":{"lodash":"^4.17.21"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a manifest outside the repo
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.json")
+	if err := os.WriteFile(secret, []byte(`{"dependencies":{"escaped-marker":"1.0.0"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink inside the repo pointing to the outside manifest
+	link := filepath.Join(repoDir, "requirements.txt")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	root, err := os.OpenRoot(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	// Opening the symlink through os.Root should fail because it escapes the root
+	_, err = searchFileForPackage(root, "requirements.txt", "requirements.txt", "escaped-marker", "pip", 0)
+	if err == nil {
+		t.Fatal("expected error opening symlink that escapes repo root, got nil")
+	}
+
+	// The real file inside the repo should still work
+	matches, err := searchFileForPackage(root, "package.json", "package.json", "lodash", "npm", 0)
+	if err != nil {
+		t.Fatalf("unexpected error reading real file: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match for lodash, got %d", len(matches))
 	}
 }

@@ -50,10 +50,11 @@ func runBlame(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputBlameJSON(cmd, entries)
 	default:
-		return outputBlameText(cmd, entries)
+		outputBlameText(cmd, entries)
+		return nil
 	}
 }
 
@@ -63,7 +64,7 @@ func outputBlameJSON(cmd *cobra.Command, entries []database.BlameEntry) error {
 	return enc.Encode(entries)
 }
 
-func outputBlameText(cmd *cobra.Command, entries []database.BlameEntry) error {
+func outputBlameText(cmd *cobra.Command, entries []database.BlameEntry) {
 	// Group by manifest
 	byManifest := make(map[string][]database.BlameEntry)
 	var manifestOrder []string
@@ -110,6 +111,4 @@ func outputBlameText(cmd *cobra.Command, entries []database.BlameEntry) error {
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
-
-	return nil
 }

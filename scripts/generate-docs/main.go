@@ -12,9 +12,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	dirPerm  = 0755
+	filePerm = 0644
+)
+
 func main() {
 	dir := "docs/reference"
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		log.Fatal(err)
 	}
 
@@ -50,7 +55,7 @@ func genTree(cmd *cobra.Command, dir string) error {
 		return err
 	}
 
-	return os.WriteFile(filename, buf.Bytes(), 0644)
+	return os.WriteFile(filename, buf.Bytes(), filePerm)
 }
 
 func genMarkdown(cmd *cobra.Command, buf *bytes.Buffer) error {

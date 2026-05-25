@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const bisectSkipExitCode = 125 // git bisect convention: skip this commit
+
 func addBisectCmd(parent *cobra.Command) {
 	bisectCmd := &cobra.Command{
 		Use:   "bisect",
@@ -388,10 +390,10 @@ func runBisectRun(cmd *cobra.Command, args []string) error {
 		case exitCode == 0:
 			result = "good"
 			state.GoodRevs = append(state.GoodRevs, head.Hash().String())
-		case exitCode >= 1 && exitCode <= 124:
+		case exitCode >= 1 && exitCode <= bisectSkipExitCode-1:
 			result = "bad"
 			state.BadRev = head.Hash().String()
-		case exitCode == 125:
+		case exitCode == bisectSkipExitCode:
 			result = "skip"
 			state.SkippedRevs = append(state.SkippedRevs, head.Hash().String())
 		default:
@@ -589,8 +591,8 @@ func doBisectStep(cmd *cobra.Command, repo *git.Repository, mgr *bisect.Manager,
 	if idx := strings.Index(subject, "\n"); idx > 0 {
 		subject = subject[:idx]
 	}
-	if len(subject) > 60 {
-		subject = subject[:57] + "..."
+	if len(subject) > subjectTruncLen {
+		subject = subject[:subjectTruncLen-3] + "..."
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Bisecting: %d dependency changes left to test (roughly %d steps)\n",
@@ -693,21 +695,21 @@ func printCulprit(cmd *cobra.Command, repo *git.Repository, sha string) error {
 				symbol := "~"
 				color := Yellow
 				switch c.ChangeType {
-				case "added":
+				case changeTypeAdded:
 					symbol = "+"
 					color = Green
-				case "removed":
+				case changeTypeRemoved:
 					symbol = "-"
 					color = Red
 				}
 
 				version := c.Requirement
-				if c.PreviousRequirement != "" && c.ChangeType == "modified" {
+				if c.PreviousRequirement != "" && c.ChangeType == changeTypeModified {
 					version = c.PreviousRequirement + " -> " + c.Requirement
 				}
 
 				depType := ""
-				if c.DependencyType != "" && c.DependencyType != "runtime" {
+				if c.DependencyType != "" && c.DependencyType != depTypeRuntime {
 					depType = fmt.Sprintf(" (%s)", c.DependencyType)
 				}
 

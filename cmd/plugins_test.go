@@ -30,7 +30,7 @@ func TestDiscoverPlugins_FindsExecutables(t *testing.T) {
 }
 
 func TestDiscoverPlugins_SkipsNonExecutable(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		t.Skip("executable bit not relevant on Windows")
 	}
 
@@ -134,7 +134,7 @@ func TestPluginExecsWithArgs(t *testing.T) {
 
 	var pluginName string
 	var script string
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		pluginName = "git-pkgs-echo.bat"
 		script = "@echo off\r\necho %* > " + outFile + "\r\n"
 	} else {
@@ -160,7 +160,7 @@ func TestPluginExecsWithArgs(t *testing.T) {
 	}
 
 	expected := "foo --bar baz\n"
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		expected = "foo --bar baz \r\n"
 	}
 	if string(got) != expected {

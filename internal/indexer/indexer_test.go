@@ -507,18 +507,18 @@ func TestNpmMultipleVersionsSurviveModifiedLockfile(t *testing.T) {
 	// in a single lockfile (nested node_modules). Verify these survive
 	// when the lockfile is modified across a merge commit.
 	lock1 := samplePackageLockJSON(map[string]string{
-		"isexe":                      "3.1.1",
+		"isexe":                       "3.1.1",
 		"some-pkg/node_modules/isexe": "2.0.0",
-		"lodash":                     "4.17.21",
+		"lodash":                      "4.17.21",
 	})
 	addFileAndCommit(t, repoDir, "package-lock.json", lock1, "Add lockfile")
 
 	// Feature branch: update lodash
 	gitRun(t, repoDir, "checkout", "-b", "feature")
 	lock2 := samplePackageLockJSON(map[string]string{
-		"isexe":                      "3.1.1",
+		"isexe":                       "3.1.1",
 		"some-pkg/node_modules/isexe": "2.0.0",
-		"lodash":                     "4.17.22",
+		"lodash":                      "4.17.22",
 	})
 	addFileAndCommit(t, repoDir, "package-lock.json", lock2, "Update lodash")
 
@@ -528,9 +528,9 @@ func TestNpmMultipleVersionsSurviveModifiedLockfile(t *testing.T) {
 
 	// Another change on main
 	lock3 := samplePackageLockJSON(map[string]string{
-		"isexe":                      "3.1.1",
+		"isexe":                       "3.1.1",
 		"some-pkg/node_modules/isexe": "2.0.0",
-		"lodash":                     "4.17.23",
+		"lodash":                      "4.17.23",
 	})
 	addFileAndCommit(t, repoDir, "package-lock.json", lock3, "Update lodash again")
 

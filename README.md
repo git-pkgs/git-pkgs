@@ -17,7 +17,6 @@ The core commands (`list`, `history`, `blame`, `diff`, `stale`, etc.) work entir
 ## Installation
 
 ```bash
-brew tap git-pkgs/git-pkgs
 brew install git-pkgs
 ```
 
@@ -566,28 +565,27 @@ git pkgs schema --format=json     # JSON structure
 git pkgs schema --format=markdown # markdown tables
 ```
 
-### CI usage
+### GitHub Actions
 
-You can run git-pkgs in CI to show dependency changes in pull requests:
+Reusable actions for CI are available at [git-pkgs/actions](https://github.com/git-pkgs/actions):
 
 ```yaml
-# .github/workflows/deps.yml
-name: Dependencies
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
 
-on: pull_request
-
-jobs:
-  diff:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - run: |
-          curl -L https://github.com/git-pkgs/git-pkgs/releases/latest/download/git-pkgs-linux-amd64 -o git-pkgs
-          chmod +x git-pkgs
-      - run: ./git-pkgs diff --from=origin/${{ github.base_ref }} --to=HEAD
+  - uses: git-pkgs/actions/setup@v1
+  - uses: git-pkgs/actions/diff@v1
+  - uses: git-pkgs/actions/vulns@v1
+    with:
+      severity: "high"
+  - uses: git-pkgs/actions/licenses@v1
+    with:
+      deny: "GPL-3.0-only,AGPL-3.0-only"
 ```
+
+See the [CI/CD docs](https://git-pkgs.dev/docs/ci-cd/) for more examples.
 
 ### Diff driver
 
@@ -604,11 +602,11 @@ diff --git a/Gemfile.lock b/Gemfile.lock
 --- a/Gemfile.lock
 +++ b/Gemfile.lock
 @@ -1,3 +1,3 @@
-+kamal 1.0.0
--puma 5.0.0
-+puma 6.0.0
- rails 7.0.0
--sidekiq 6.0.0
++kamal 1.0.0 (runtime)
+-puma 5.0.0 (runtime)
++puma 6.0.0 (runtime)
+ rails 7.0.0 (runtime)
+-sidekiq 6.0.0 (runtime)
 ```
 
 Use `git diff --no-textconv` to see the raw lockfile diff. To remove: `git pkgs diff-driver --uninstall`

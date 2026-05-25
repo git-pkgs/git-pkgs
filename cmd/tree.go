@@ -71,10 +71,11 @@ func runTree(cmd *cobra.Command, args []string) error {
 	tree := buildTree(deps)
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputTreeJSON(cmd, tree)
 	default:
-		return outputTreeText(cmd, tree)
+		outputTreeText(cmd, tree)
+		return nil
 	}
 }
 
@@ -99,7 +100,7 @@ func buildTree(deps []database.Dependency) []*TreeNode {
 
 		depType := d.DependencyType
 		if depType == "" {
-			depType = "runtime"
+			depType = depTypeRuntime
 		}
 		byManifest[d.ManifestPath].byType[depType] = append(byManifest[d.ManifestPath].byType[depType], d)
 	}
@@ -131,7 +132,10 @@ func buildTree(deps []database.Dependency) []*TreeNode {
 
 			// Sort dependencies
 			sort.Slice(typeDeps, func(i, j int) bool {
-				return typeDeps[i].Name < typeDeps[j].Name
+				if typeDeps[i].Name != typeDeps[j].Name {
+					return typeDeps[i].Name < typeDeps[j].Name
+				}
+				return typeDeps[i].Requirement < typeDeps[j].Requirement
 			})
 
 			for _, d := range typeDeps {
@@ -160,7 +164,7 @@ func outputTreeJSON(cmd *cobra.Command, tree []*TreeNode) error {
 	return enc.Encode(tree)
 }
 
-func outputTreeText(cmd *cobra.Command, tree []*TreeNode) error {
+func outputTreeText(cmd *cobra.Command, tree []*TreeNode) {
 	for _, manifest := range tree {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), manifest.Name)
 
@@ -190,6 +194,4 @@ func outputTreeText(cmd *cobra.Command, tree []*TreeNode) error {
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
-
-	return nil
 }

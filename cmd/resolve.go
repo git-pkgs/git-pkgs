@@ -136,7 +136,7 @@ func runResolve(cmd *cobra.Command, args []string) error {
 		}
 
 		switch format {
-		case "json":
+		case formatJSON:
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
 			if err := enc.Encode(result); err != nil {

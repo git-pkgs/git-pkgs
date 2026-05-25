@@ -52,10 +52,11 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputSearchJSON(cmd, results)
 	default:
-		return outputSearchText(cmd, results)
+		outputSearchText(cmd, results)
+		return nil
 	}
 }
 
@@ -65,7 +66,7 @@ func outputSearchJSON(cmd *cobra.Command, results []database.SearchResult) error
 	return enc.Encode(results)
 }
 
-func outputSearchText(cmd *cobra.Command, results []database.SearchResult) error {
+func outputSearchText(cmd *cobra.Command, results []database.SearchResult) {
 	// Find max name length for alignment
 	maxNameLen := 0
 	for _, r := range results {
@@ -76,12 +77,12 @@ func outputSearchText(cmd *cobra.Command, results []database.SearchResult) error
 
 	for _, r := range results {
 		firstSeen := ""
-		if len(r.FirstSeen) >= 10 {
-			firstSeen = r.FirstSeen[:10]
+		if len(r.FirstSeen) >= datePrefixLen {
+			firstSeen = r.FirstSeen[:datePrefixLen]
 		}
 		lastChanged := ""
-		if len(r.LastChanged) >= 10 {
-			lastChanged = r.LastChanged[:10]
+		if len(r.LastChanged) >= datePrefixLen {
+			lastChanged = r.LastChanged[:datePrefixLen]
 		}
 
 		line := fmt.Sprintf("%-*s", maxNameLen, r.Name)
@@ -98,6 +99,4 @@ func outputSearchText(cmd *cobra.Command, results []database.SearchResult) error
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  First seen: %s  Last changed: %s\n", firstSeen, lastChanged)
 		}
 	}
-
-	return nil
 }

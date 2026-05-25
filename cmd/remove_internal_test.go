@@ -35,10 +35,10 @@ func TestFindDepInTree(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		pkg             string
-		wantDirect      bool
-		wantTransitive  bool
+		name           string
+		pkg            string
+		wantDirect     bool
+		wantTransitive bool
 	}{
 		{
 			name:           "direct dep found",

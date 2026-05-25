@@ -77,8 +77,8 @@ func runBranchList(cmd *cobra.Command, args []string) error {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Tracked branches:")
 	for _, b := range branches {
 		shortSHA := b.LastSHA
-		if len(shortSHA) > 7 {
-			shortSHA = shortSHA[:7]
+		if len(shortSHA) > shortSHALen {
+			shortSHA = shortSHA[:shortSHALen]
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s, %d commits)\n",
 			b.Name, shortSHA, b.CommitCount)

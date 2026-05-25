@@ -21,7 +21,8 @@ func addStatsCmd(parent *cobra.Command) {
 	statsCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	statsCmd.Flags().String("since", "", "Only changes after this date (YYYY-MM-DD)")
 	statsCmd.Flags().String("until", "", "Only changes before this date (YYYY-MM-DD)")
-	statsCmd.Flags().IntP("limit", "n", 10, "Number of top items to show")
+	const defaultStatsLimit = 10
+	statsCmd.Flags().IntP("limit", "n", defaultStatsLimit, "Number of top items to show")
 	statsCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	statsCmd.Flags().Bool("by-author", false, "Show detailed per-author statistics")
 	parent.AddCommand(statsCmd)
@@ -62,12 +63,13 @@ func runStats(cmd *cobra.Command, args []string) error {
 		}
 
 		switch format {
-		case "json":
+		case formatJSON:
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
 			return enc.Encode(authorStats)
 		default:
-			return outputAuthorStatsText(cmd, authorStats)
+			outputAuthorStatsText(cmd, authorStats)
+			return nil
 		}
 	}
 
@@ -77,10 +79,11 @@ func runStats(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputStatsJSON(cmd, stats)
 	default:
-		return outputStatsText(cmd, stats)
+		outputStatsText(cmd, stats)
+		return nil
 	}
 }
 
@@ -90,10 +93,10 @@ func outputStatsJSON(cmd *cobra.Command, stats *database.Stats) error {
 	return enc.Encode(stats)
 }
 
-func outputAuthorStatsText(cmd *cobra.Command, authors []database.AuthorStats) error {
+func outputAuthorStatsText(cmd *cobra.Command, authors []database.AuthorStats) {
 	if len(authors) == 0 {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No author statistics found.")
-		return nil
+		return
 	}
 
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), Bold("Author Statistics"))
@@ -111,22 +114,20 @@ func outputAuthorStatsText(cmd *cobra.Command, authors []database.AuthorStats) e
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commits: %d\n", a.Commits)
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Changes: %d total\n", a.Changes)
-		if added := a.ByType["added"]; added > 0 {
+		if added := a.ByType[changeTypeAdded]; added > 0 {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    %s %d\n", Green("+added:"), added)
 		}
-		if modified := a.ByType["modified"]; modified > 0 {
+		if modified := a.ByType[changeTypeModified]; modified > 0 {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    %s %d\n", Yellow("~modified:"), modified)
 		}
-		if removed := a.ByType["removed"]; removed > 0 {
+		if removed := a.ByType[changeTypeRemoved]; removed > 0 {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "    %s %d\n", Red("-removed:"), removed)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
-
-	return nil
 }
 
-func outputStatsText(cmd *cobra.Command, stats *database.Stats) error {
+func outputStatsText(cmd *cobra.Command, stats *database.Stats) {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Dependency Statistics")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "========================================")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
@@ -150,7 +151,10 @@ func outputStatsText(cmd *cobra.Command, stats *database.Stats) error {
 		ecos = append(ecos, ecoCount{name, count})
 	}
 	sort.Slice(ecos, func(i, j int) bool {
-		return ecos[i].count > ecos[j].count
+		if ecos[i].count != ecos[j].count {
+			return ecos[i].count > ecos[j].count
+		}
+		return ecos[i].name < ecos[j].name
 	})
 	for _, ec := range ecos {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d\n", ec.name, ec.count)
@@ -160,13 +164,13 @@ func outputStatsText(cmd *cobra.Command, stats *database.Stats) error {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Dependency Changes")
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "--------------------")
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Total changes: %d\n", stats.TotalChanges)
-	if added, ok := stats.ChangesByType["added"]; ok {
+	if added, ok := stats.ChangesByType[changeTypeAdded]; ok {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  added: %d\n", added)
 	}
-	if modified, ok := stats.ChangesByType["modified"]; ok {
+	if modified, ok := stats.ChangesByType[changeTypeModified]; ok {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  modified: %d\n", modified)
 	}
-	if removed, ok := stats.ChangesByType["removed"]; ok {
+	if removed, ok := stats.ChangesByType[changeTypeRemoved]; ok {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  removed: %d\n", removed)
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
@@ -187,6 +191,4 @@ func outputStatsText(cmd *cobra.Command, stats *database.Stats) error {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: %d changes\n", nc.Name, nc.Count)
 		}
 	}
-
-	return nil
 }

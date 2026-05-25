@@ -8,9 +8,13 @@ import (
 	"strings"
 
 	"github.com/git-pkgs/git-pkgs/internal/mailmap"
+	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/cache"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/filesystem"
+	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
 )
 
 const DatabaseFile = "pkgs.sqlite3"
@@ -48,6 +52,25 @@ func OpenRepository(path string) (*Repository, error) {
 		gitDir = filepath.Join(workDir, gitDir)
 	}
 
+	// PlainOpen roots its billy filesystem at the per-repo .git, so it can't
+	// follow alternates that point outside the repo, and in a linked worktree
+	// it can't see refs/objects in the common dir. PlainOpenOptions doesn't
+	// expose AlternatesFS, and EnableDotGitCommonDir leaks an fd in v5, so
+	// rebuild the storage here with both wired up. gitDir above is already
+	// the common dir from `git rev-parse --git-common-dir`.
+	if fsStorer, ok := repo.Storer.(*filesystem.Storage); ok {
+		dotFs := dotgit.NewRepositoryFilesystem(fsStorer.Filesystem(), osfs.New(gitDir))
+		root := filepath.VolumeName(gitDir) + string(filepath.Separator)
+		s := filesystem.NewStorageWithOptions(
+			dotFs,
+			cache.NewObjectLRUDefault(),
+			filesystem.Options{AlternatesFS: osfs.New(root)},
+		)
+		if reopened, rerr := git.Open(s, wt.Filesystem); rerr == nil {
+			repo = reopened
+		}
+	}
+
 	return &Repository{
 		repo:    repo,
 		gitDir:  gitDir,
@@ -83,36 +106,26 @@ func (r *Repository) CurrentBranch() (string, error) {
 }
 
 func (r *Repository) ResolveRevision(rev string) (*plumbing.Hash, error) {
-	return r.repo.ResolveRevision(plumbing.Revision(rev))
+	hash, err := r.repo.ResolveRevision(plumbing.Revision(rev))
+	if err == nil {
+		return hash, nil
+	}
+
+	// go-git's ResolveRevision does not implement the full gitrevisions(7)
+	// grammar (reflog @{n}, :/regex, dates) and can fail on hashes in some
+	// storage layouts. Fall back to the git CLI which we already require.
+	cmd := exec.Command("git", "rev-parse", "--verify", "--end-of-options", rev)
+	cmd.Dir = r.workDir
+	out, gitErr := cmd.Output()
+	if gitErr != nil {
+		return nil, err
+	}
+	h := plumbing.NewHash(strings.TrimSpace(string(out)))
+	return &h, nil
 }
 
 func (r *Repository) CommitObject(hash plumbing.Hash) (*object.Commit, error) {
 	return r.repo.CommitObject(hash)
-}
-
-func (r *Repository) Log(from plumbing.Hash) (object.CommitIter, error) {
-	return r.repo.Log(&git.LogOptions{
-		From:  from,
-		Order: git.LogOrderCommitterTime,
-	})
-}
-
-func (r *Repository) TreeAtCommit(commit *object.Commit) (*object.Tree, error) {
-	return commit.Tree()
-}
-
-func (r *Repository) FileAtCommit(commit *object.Commit, path string) (string, error) {
-	tree, err := commit.Tree()
-	if err != nil {
-		return "", err
-	}
-
-	file, err := tree.File(path)
-	if err != nil {
-		return "", err
-	}
-
-	return file.Contents()
 }
 
 // Tags returns a map of commit SHA to tag names for all tags in the repository.
@@ -163,30 +176,6 @@ func (r *Repository) LocalBranches() (map[string][]string, error) {
 	}
 
 	return result, nil
-}
-
-// GetExcludeDirs returns directories to skip during walking, read from
-// git config git-pkgs.exclude-dirs. Defaults to "node_modules,vendor" if unset.
-func (r *Repository) GetExcludeDirs() []string {
-	cmd := exec.Command("git", "config", "git-pkgs.exclude-dirs")
-	cmd.Dir = r.workDir
-	out, err := cmd.Output()
-	if err != nil {
-		return []string{"node_modules", "vendor"}
-	}
-	val := strings.TrimSpace(string(out))
-	if val == "" {
-		return []string{"node_modules", "vendor"}
-	}
-	parts := strings.Split(val, ",")
-	dirs := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			dirs = append(dirs, p)
-		}
-	}
-	return dirs
 }
 
 // GetSubmodulePaths returns a list of submodule paths using go-git's submodule support.

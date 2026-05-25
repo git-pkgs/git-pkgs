@@ -89,10 +89,11 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	switch format {
-	case "json":
+	case formatJSON:
 		return outputHistoryJSON(cmd, entries)
 	default:
-		return outputHistoryText(cmd, entries, packageName)
+		outputHistoryText(cmd, entries, packageName)
+		return nil
 	}
 }
 
@@ -130,7 +131,7 @@ func groupHistoryEntries(entries []database.HistoryEntry) []groupedEntry {
 		key := groupKey{SHA: e.SHA, Name: e.Name, ChangeType: e.ChangeType}
 		if g, ok := groups[key]; ok {
 			// Add to existing group
-			if e.ManifestKind == "lockfile" {
+			if e.ManifestKind == manifestKindLockfile {
 				g.LockfileRequirement = e.Requirement
 			} else {
 				g.ManifestRequirement = e.Requirement
@@ -138,7 +139,7 @@ func groupHistoryEntries(entries []database.HistoryEntry) []groupedEntry {
 		} else {
 			// New group
 			g := &groupedEntry{HistoryEntry: e}
-			if e.ManifestKind == "lockfile" {
+			if e.ManifestKind == manifestKindLockfile {
 				g.LockfileRequirement = e.Requirement
 			} else {
 				g.ManifestRequirement = e.Requirement
@@ -174,7 +175,7 @@ func formatPreviousRequirement(g groupedEntry) string {
 	return g.PreviousRequirement
 }
 
-func outputHistoryText(cmd *cobra.Command, entries []database.HistoryEntry, packageName string) error {
+func outputHistoryText(cmd *cobra.Command, entries []database.HistoryEntry, packageName string) {
 	if packageName != "" {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "History for %s:\n\n", Bold(packageName))
 	}
@@ -195,18 +196,18 @@ func outputHistoryText(cmd *cobra.Command, entries []database.HistoryEntry, pack
 
 		var line string
 		switch g.ChangeType {
-		case "added":
+		case changeTypeAdded:
 			line = fmt.Sprintf("%s %s", date, Green("Added"))
 			if req != "" {
 				line += fmt.Sprintf(" %s", req)
 			}
-		case "modified":
+		case changeTypeModified:
 			line = fmt.Sprintf("%s %s", date, Yellow("Updated"))
 			prev := formatPreviousRequirement(g)
 			if prev != "" || req != "" {
 				line += fmt.Sprintf(" %s -> %s", Dim(prev), req)
 			}
-		case "removed":
+		case changeTypeRemoved:
 			line = fmt.Sprintf("%s %s", date, Red("Removed"))
 			if req != "" {
 				line += fmt.Sprintf(" %s", req)
@@ -229,10 +230,8 @@ func outputHistoryText(cmd *cobra.Command, entries []database.HistoryEntry, pack
 		}
 		message = strings.TrimSpace(message)
 
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commit: %s %s\n", Yellow(shortSHA(g.SHA)), message)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Author: %s %s\n", g.AuthorName, Dim("<"+g.AuthorEmail+">"))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Commit: %s %s\n", Yellow(shortSHA(g.SHA)), Sanitize(message))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  Author: %s %s\n", Sanitize(g.AuthorName), Dim("<"+Sanitize(g.AuthorEmail)+">"))
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
-
-	return nil
 }

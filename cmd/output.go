@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
+	"unicode"
 
 	"github.com/spf13/cobra"
 )
@@ -30,7 +32,6 @@ const (
 	colorRed    = "\033[31m"
 	colorGreen  = "\033[32m"
 	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
 	colorCyan   = "\033[36m"
 	colorBold   = "\033[1m"
 	colorDim    = "\033[2m"
@@ -84,6 +85,22 @@ func IsColorEnabled() bool {
 	return true
 }
 
+// Sanitize strips control characters (other than tab and newline) from
+// externally sourced strings before they reach a TTY, so registry
+// changelogs, OSV records, manifest entries, and commit metadata can't
+// inject ANSI/OSC escape sequences into the operator's terminal.
+func Sanitize(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\t' || r == '\n' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // Colorize wraps text with color codes if color is enabled
 func Colorize(text, color string) string {
 	if !IsColorEnabled() {
@@ -105,11 +122,6 @@ func Green(text string) string {
 // Yellow returns text in yellow
 func Yellow(text string) string {
 	return Colorize(text, colorYellow)
-}
-
-// Blue returns text in blue
-func Blue(text string) string {
-	return Colorize(text, colorBlue)
 }
 
 // Cyan returns text in cyan
@@ -153,7 +165,7 @@ func GetPager() string {
 		return pager
 	}
 	// Default pagers
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		return "more"
 	}
 	if _, err := exec.LookPath("less"); err == nil {
@@ -189,7 +201,7 @@ func SetupPager(cmd *cobra.Command) func() {
 
 	// Start pager process
 	var pager *exec.Cmd
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == osWindows {
 		pager = exec.Command("cmd", "/c", pagerCmd)
 	} else {
 		pager = exec.Command("sh", "-c", pagerCmd)

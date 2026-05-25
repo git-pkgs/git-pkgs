@@ -185,22 +185,10 @@ func TestMultipleVersionsSamePackage(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	writer, err := database.NewWriter(db)
-	if err != nil {
-		t.Fatalf("failed to create writer: %v", err)
-	}
-	defer func() { _ = writer.Close() }()
+	writer := database.NewBatchWriter(db)
 
 	if err := writer.CreateBranch("main"); err != nil {
 		t.Fatalf("failed to create branch: %v", err)
-	}
-
-	commitID, _, err := writer.InsertCommit(database.CommitInfo{
-		SHA:     "abc123",
-		Message: "test commit",
-	}, true)
-	if err != nil {
-		t.Fatalf("failed to insert commit: %v", err)
 	}
 
 	manifest := database.ManifestInfo{
@@ -209,28 +197,31 @@ func TestMultipleVersionsSamePackage(t *testing.T) {
 		Kind:      "lockfile",
 	}
 
+	writer.AddCommit(database.CommitInfo{
+		SHA:     "abc123",
+		Message: "test commit",
+	}, true)
+
 	// Insert isexe@2.0.0 (runtime)
-	err = writer.InsertSnapshot(commitID, manifest, database.SnapshotInfo{
+	writer.AddSnapshot("abc123", manifest, database.SnapshotInfo{
 		ManifestPath:   "package-lock.json",
 		Name:           "isexe",
 		Ecosystem:      "npm",
 		Requirement:    "2.0.0",
 		DependencyType: "runtime",
 	})
-	if err != nil {
-		t.Fatalf("failed to insert isexe@2.0.0: %v", err)
-	}
 
 	// Insert isexe@3.1.1 (development) - same package name, different version
-	err = writer.InsertSnapshot(commitID, manifest, database.SnapshotInfo{
+	writer.AddSnapshot("abc123", manifest, database.SnapshotInfo{
 		ManifestPath:   "package-lock.json",
 		Name:           "isexe",
 		Ecosystem:      "npm",
 		Requirement:    "3.1.1",
 		DependencyType: "development",
 	})
-	if err != nil {
-		t.Fatalf("failed to insert isexe@3.1.1: %v", err)
+
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("failed to flush: %v", err)
 	}
 
 	// Verify both versions are stored
@@ -372,7 +363,7 @@ func TestStoreSnapshotWithDuplicates(t *testing.T) {
 	}
 }
 
-func TestGetDependenciesAtCommit(t *testing.T) {
+func TestBatchWriterSharedCommits(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "pkgs.sqlite3")
 
@@ -382,84 +373,76 @@ func TestGetDependenciesAtCommit(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	branch, err := db.GetOrCreateBranch("main")
+	sharedSHA := "shared123"
+	sharedCommit := database.CommitInfo{
+		SHA:     sharedSHA,
+		Message: "shared commit",
+	}
+	manifest := database.ManifestInfo{
+		Path:      "package-lock.json",
+		Ecosystem: "npm",
+		Kind:      "lockfile",
+	}
+	change := database.ChangeInfo{
+		Name:       "lodash",
+		Ecosystem:  "npm",
+		ChangeType: "added",
+	}
+	snapshot := database.SnapshotInfo{
+		ManifestPath: "package-lock.json",
+		Name:         "lodash",
+		Ecosystem:    "npm",
+		Requirement:  "4.17.21",
+	}
+
+	// Index shared commit on branch "main"
+	w1 := database.NewBatchWriter(db)
+	if err := w1.CreateBranch("main"); err != nil {
+		t.Fatalf("failed to create main branch: %v", err)
+	}
+	w1.AddCommit(sharedCommit, true)
+	w1.IncrementDepCommitCount()
+	w1.AddChange(sharedSHA, manifest, change)
+	w1.AddSnapshot(sharedSHA, manifest, snapshot)
+	if err := w1.Flush(); err != nil {
+		t.Fatalf("flush on main failed: %v", err)
+	}
+
+	// Index the same commit on branch "feature" — should not fail
+	w2 := database.NewBatchWriter(db)
+	if err := w2.CreateBranch("feature"); err != nil {
+		t.Fatalf("failed to create feature branch: %v", err)
+	}
+	w2.AddCommit(sharedCommit, true)
+	w2.IncrementDepCommitCount()
+	w2.AddChange(sharedSHA, manifest, change)
+	w2.AddSnapshot(sharedSHA, manifest, snapshot)
+	if err := w2.Flush(); err != nil {
+		t.Fatalf("flush on feature failed: %v", err)
+	}
+
+	// Verify the commit is linked to both branches
+	var branchCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM branch_commits WHERE commit_id = (SELECT id FROM commits WHERE sha = ?)", sharedSHA).Scan(&branchCount)
 	if err != nil {
-		t.Fatalf("failed to create branch: %v", err)
+		t.Fatalf("failed to count branch_commits: %v", err)
+	}
+	if branchCount != 2 {
+		t.Errorf("expected commit linked to 2 branches, got %d", branchCount)
 	}
 
-	// Create commits in order. SHA hex values are intentionally chosen so that
-	// lexicographic order differs from commit order:
-	//   commit 1 (position 1): SHA "ff0001" (lexicographically last)
-	//   commit 2 (position 2): SHA "000002" (lexicographically first)
-	//   commit 3 (position 3): SHA "880003" (lexicographically middle)
-	commits := []database.CommitInfo{
-		{SHA: "ff0001", Message: "first commit"},
-		{SHA: "000002", Message: "second commit"},
-		{SHA: "880003", Message: "third commit"},
-	}
-
-	// Store snapshot at commit 1 with lodash
-	err = db.StoreSnapshot(branch.ID, commits[0], []database.SnapshotInfo{
-		{ManifestPath: "package.json", Name: "lodash", Ecosystem: "npm", Requirement: "4.0.0"},
-	})
+	// Verify no duplicate dependency_changes
+	var changeCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM dependency_changes WHERE name = 'lodash'").Scan(&changeCount)
 	if err != nil {
-		t.Fatalf("failed to store snapshot 1: %v", err)
+		t.Fatalf("failed to count changes: %v", err)
 	}
-
-	// Store commit 2 (no snapshot, just link it to the branch)
-	err = db.StoreSnapshot(branch.ID, commits[1], []database.SnapshotInfo{
-		{ManifestPath: "package.json", Name: "lodash", Ecosystem: "npm", Requirement: "4.0.0"},
-		{ManifestPath: "package.json", Name: "react", Ecosystem: "npm", Requirement: "18.0.0"},
-	})
-	if err != nil {
-		t.Fatalf("failed to store snapshot 2: %v", err)
-	}
-
-	// Query dependencies at commit 3 (no snapshot at this commit, should get
-	// the snapshot from commit 2 since it's earlier in position order, not
-	// commit 1 which would be wrong if using lexicographic SHA comparison)
-	err = db.StoreSnapshot(branch.ID, commits[2], []database.SnapshotInfo{
-		{ManifestPath: "package.json", Name: "lodash", Ecosystem: "npm", Requirement: "4.0.0"},
-		{ManifestPath: "package.json", Name: "react", Ecosystem: "npm", Requirement: "18.0.0"},
-		{ManifestPath: "package.json", Name: "express", Ecosystem: "npm", Requirement: "4.18.0"},
-	})
-	if err != nil {
-		t.Fatalf("failed to store snapshot 3: %v", err)
-	}
-
-	// Query at commit 2 -- should get the snapshot stored at commit 2 (position 2)
-	deps, err := db.GetDependenciesAtCommit("000002")
-	if err != nil {
-		t.Fatalf("GetDependenciesAtCommit failed: %v", err)
-	}
-
-	if len(deps) != 2 {
-		t.Fatalf("expected 2 dependencies at commit 2, got %d", len(deps))
-	}
-
-	names := map[string]bool{}
-	for _, d := range deps {
-		names[d.Name] = true
-	}
-	if !names["lodash"] || !names["react"] {
-		t.Errorf("expected lodash and react, got %v", names)
-	}
-
-	// Query at commit 1 -- should get only lodash (not react, which was added later)
-	deps, err = db.GetDependenciesAtCommit("ff0001")
-	if err != nil {
-		t.Fatalf("GetDependenciesAtCommit at commit 1 failed: %v", err)
-	}
-
-	if len(deps) != 1 {
-		t.Fatalf("expected 1 dependency at commit 1, got %d", len(deps))
-	}
-	if deps[0].Name != "lodash" {
-		t.Errorf("expected lodash at commit 1, got %s", deps[0].Name)
+	if changeCount != 1 {
+		t.Errorf("expected 1 change row, got %d", changeCount)
 	}
 }
 
-func TestNewWriterClose(t *testing.T) {
+func TestBatchWriterSharedCommitsMultiManifest(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "pkgs.sqlite3")
 
@@ -469,19 +452,156 @@ func TestNewWriterClose(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	writer, err := database.NewWriter(db)
+	sharedSHA := "multi456"
+	sharedCommit := database.CommitInfo{
+		SHA:     sharedSHA,
+		Message: "add npm and pip deps",
+	}
+	npmManifest := database.ManifestInfo{
+		Path:      "package-lock.json",
+		Ecosystem: "npm",
+		Kind:      "lockfile",
+	}
+	pipManifest := database.ManifestInfo{
+		Path:      "Pipfile.lock",
+		Ecosystem: "pip",
+		Kind:      "lockfile",
+	}
+	npmChange := database.ChangeInfo{
+		Name:       "express",
+		Ecosystem:  "npm",
+		ChangeType: "added",
+	}
+	pipChange := database.ChangeInfo{
+		Name:       "requests",
+		Ecosystem:  "pip",
+		ChangeType: "added",
+	}
+	npmSnapshot := database.SnapshotInfo{
+		ManifestPath: "package-lock.json",
+		Name:         "express",
+		Ecosystem:    "npm",
+		Requirement:  "4.18.0",
+	}
+	pipSnapshot := database.SnapshotInfo{
+		ManifestPath: "Pipfile.lock",
+		Name:         "requests",
+		Ecosystem:    "pip",
+		Requirement:  "2.31.0",
+	}
+
+	// Index on main with both manifests
+	w1 := database.NewBatchWriter(db)
+	if err := w1.CreateBranch("main"); err != nil {
+		t.Fatalf("failed to create main branch: %v", err)
+	}
+	w1.AddCommit(sharedCommit, true)
+	w1.IncrementDepCommitCount()
+	w1.AddChange(sharedSHA, npmManifest, npmChange)
+	w1.AddChange(sharedSHA, pipManifest, pipChange)
+	w1.AddSnapshot(sharedSHA, npmManifest, npmSnapshot)
+	w1.AddSnapshot(sharedSHA, pipManifest, pipSnapshot)
+	if err := w1.Flush(); err != nil {
+		t.Fatalf("flush on main failed: %v", err)
+	}
+
+	// Index same commit on feature — should not fail
+	w2 := database.NewBatchWriter(db)
+	if err := w2.CreateBranch("feature"); err != nil {
+		t.Fatalf("failed to create feature branch: %v", err)
+	}
+	w2.AddCommit(sharedCommit, true)
+	w2.IncrementDepCommitCount()
+	w2.AddChange(sharedSHA, npmManifest, npmChange)
+	w2.AddChange(sharedSHA, pipManifest, pipChange)
+	w2.AddSnapshot(sharedSHA, npmManifest, npmSnapshot)
+	w2.AddSnapshot(sharedSHA, pipManifest, pipSnapshot)
+	if err := w2.Flush(); err != nil {
+		t.Fatalf("flush on feature failed: %v", err)
+	}
+
+	// Commit linked to both branches
+	var branchCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM branch_commits WHERE commit_id = (SELECT id FROM commits WHERE sha = ?)", sharedSHA).Scan(&branchCount)
 	if err != nil {
-		t.Fatalf("failed to create writer: %v", err)
+		t.Fatalf("failed to count branch_commits: %v", err)
+	}
+	if branchCount != 2 {
+		t.Errorf("expected commit linked to 2 branches, got %d", branchCount)
 	}
 
-	// Close should not error
-	if err := writer.Close(); err != nil {
-		t.Errorf("unexpected error closing writer: %v", err)
+	// Exactly 2 change rows (one per manifest, not duplicated)
+	var changeCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM dependency_changes").Scan(&changeCount)
+	if err != nil {
+		t.Fatalf("failed to count changes: %v", err)
+	}
+	if changeCount != 2 {
+		t.Errorf("expected 2 change rows (npm + pip), got %d", changeCount)
 	}
 
-	// Close again should not panic (statements are nil-safe)
-	if err := writer.Close(); err != nil {
-		t.Errorf("unexpected error on second close: %v", err)
+	// Exactly 2 snapshot rows (one per manifest, not duplicated)
+	var snapCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM dependency_snapshots").Scan(&snapCount)
+	if err != nil {
+		t.Fatalf("failed to count snapshots: %v", err)
+	}
+	if snapCount != 2 {
+		t.Errorf("expected 2 snapshot rows (npm + pip), got %d", snapCount)
+	}
+
+	// Verify both ecosystems present in snapshots
+	var npmSnapCount, pipSnapCount int
+	_ = db.QueryRow("SELECT COUNT(*) FROM dependency_snapshots WHERE ecosystem = 'npm'").Scan(&npmSnapCount)
+	_ = db.QueryRow("SELECT COUNT(*) FROM dependency_snapshots WHERE ecosystem = 'pip'").Scan(&pipSnapCount)
+	if npmSnapCount != 1 || pipSnapCount != 1 {
+		t.Errorf("expected 1 npm and 1 pip snapshot, got npm=%d pip=%d", npmSnapCount, pipSnapCount)
+	}
+}
+
+func TestInsertNoteUpsert(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "pkgs.sqlite3")
+
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	note := database.Note{
+		PURL:      "pkg:npm/lodash@4.17.21",
+		Namespace: "default",
+		Message:   "first message",
+	}
+
+	// First insert should work
+	if err := db.InsertNote(note); err != nil {
+		t.Fatalf("first InsertNote failed: %v", err)
+	}
+
+	// Second insert with same purl+namespace should upsert, not fail
+	note.Message = "updated message"
+	if err := db.InsertNote(note); err != nil {
+		t.Fatalf("second InsertNote failed (should upsert): %v", err)
+	}
+
+	// Verify the note was updated
+	got, err := db.GetNote(note.PURL, note.Namespace)
+	if err != nil {
+		t.Fatalf("GetNote failed: %v", err)
+	}
+	if got.Message != "updated message" {
+		t.Errorf("expected 'updated message', got %q", got.Message)
+	}
+
+	// Verify only one note exists
+	notes, err := db.ListNotes("", "")
+	if err != nil {
+		t.Fatalf("ListNotes failed: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Errorf("expected 1 note, got %d", len(notes))
 	}
 }
 

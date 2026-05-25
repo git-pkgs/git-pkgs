@@ -6,13 +6,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var version = "unknown"
-var commit = "unknown"
-var date = "unknown"
+var version = versionUnknown
+var commit = versionUnknown
+var date = versionUnknown
 var versionStr string
 
 func init() {
-	if version == "unknown" {
+	if version == versionUnknown {
 		if info, ok := debug.ReadBuildInfo(); ok {
 			if info.Main.Version != "" && info.Main.Version != "(devel)" {
 				version = info.Main.Version
@@ -28,10 +28,10 @@ func init() {
 		}
 	}
 	versionStr = version
-	if commit != "unknown" {
+	if commit != versionUnknown {
 		versionStr += "\n          commit " + commit
 	}
-	if date != "unknown" {
+	if date != versionUnknown {
 		versionStr += "\n            date " + date
 	}
 }
@@ -47,10 +47,10 @@ func Execute() error {
 
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:              "git-pkgs",
-		Version:          versionStr,
-		Short:            shortDesc,
-		Long:             longDesc,
+		Use:               "git-pkgs",
+		Version:           versionStr,
+		Short:             shortDesc,
+		Long:              longDesc,
 		SilenceUsage:      true,
 		PersistentPreRun:  preRun,
 		PersistentPostRun: postRun,

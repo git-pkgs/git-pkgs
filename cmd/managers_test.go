@@ -139,7 +139,7 @@ func TestDetectManagers(t *testing.T) {
 		{
 			name: "nuget from packages.lock.json",
 			files: map[string]string{
-				"packages.config":   "<packages></packages>",
+				"packages.config":    "<packages></packages>",
 				"packages.lock.json": "{}",
 			},
 			expected: []string{"nuget"},

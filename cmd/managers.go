@@ -47,22 +47,22 @@ type lockfileMapping struct {
 type ecosystemConfig struct {
 	Ecosystem string
 	Manifest  string
-	Default   string              // default manager when only manifest exists
-	Lockfiles []lockfileMapping   // in priority order (first match wins)
+	Default   string            // default manager when only manifest exists
+	Lockfiles []lockfileMapping // in priority order (first match wins)
 }
 
 // ecosystems defines detection rules organized by ecosystem/purl type.
 // Order matters: first ecosystem match wins for a given directory.
 var ecosystemConfigs = []ecosystemConfig{
 	{
-		Ecosystem: "npm",
+		Ecosystem: ecosystemNPM,
 		Manifest:  "package.json",
-		Default:   "npm",
+		Default:   ecosystemNPM,
 		Lockfiles: []lockfileMapping{
 			{"bun.lock", "bun"},
 			{"pnpm-lock.yaml", "pnpm"},
 			{"yarn.lock", "yarn"},
-			{"package-lock.json", "npm"},
+			{"package-lock.json", ecosystemNPM},
 		},
 	},
 	{
@@ -164,7 +164,7 @@ var ecosystemConfigs = []ecosystemConfig{
 	},
 	{
 		Ecosystem: "hackage",
-		Manifest:  "",  // uses suffix match *.cabal
+		Manifest:  "", // uses suffix match *.cabal
 		Default:   "cabal",
 		Lockfiles: []lockfileMapping{
 			{"cabal.project.freeze", "cabal"},
@@ -318,18 +318,6 @@ func DetectManagers(dir string) ([]DetectedManager, error) {
 	return detected, nil
 }
 
-// DetectManager finds the primary package manager in the given directory
-func DetectManager(dir string) (*DetectedManager, error) {
-	mgrs, err := DetectManagers(dir)
-	if err != nil {
-		return nil, err
-	}
-	if len(mgrs) == 0 {
-		return nil, fmt.Errorf("no package manager detected")
-	}
-	return &mgrs[0], nil
-}
-
 // FilterByEcosystem filters detected managers to those matching the ecosystem
 func FilterByEcosystem(detected []DetectedManager, ecosystem string) []DetectedManager {
 	validManagers := ecosystemToManagers(ecosystem)
@@ -354,8 +342,8 @@ func FilterByEcosystem(detected []DetectedManager, ecosystem string) []DetectedM
 // ecosystemToManagers maps ecosystems to possible manager names
 func ecosystemToManagers(ecosystem string) []string {
 	switch ecosystem {
-	case "npm":
-		return []string{"npm", "pnpm", "yarn", "bun"}
+	case ecosystemNPM:
+		return []string{ecosystemNPM, "pnpm", "yarn", "bun"}
 	case "rubygems", "gem":
 		return []string{"bundler"}
 	case "cargo":
@@ -425,37 +413,6 @@ func managerNames(detected []DetectedManager) string {
 		names[i] = m.Name
 	}
 	return strings.Join(names, ", ")
-}
-
-// RunManagerCommand builds and executes a package manager command
-func RunManagerCommand(ctx context.Context, dir, managerName, operation string, input managers.CommandInput, stdout, stderr io.Writer) error {
-	translator, err := getTranslator()
-	if err != nil {
-		return err
-	}
-	cmd, err := translator.BuildCommand(managerName, operation, input)
-	if err != nil {
-		return err
-	}
-
-	runner := managers.NewExecRunner()
-	result, err := runner.Run(ctx, dir, cmd...)
-	if err != nil {
-		return err
-	}
-
-	if result.Stdout != "" {
-		_, _ = io.WriteString(stdout, result.Stdout)
-	}
-	if result.Stderr != "" {
-		_, _ = io.WriteString(stderr, result.Stderr)
-	}
-
-	if result.ExitCode != 0 {
-		return fmt.Errorf("command failed with exit code %d: %s", result.ExitCode, strings.TrimSpace(result.Stderr))
-	}
-
-	return nil
 }
 
 // RunManagerCommands builds and executes multiple package manager commands (for chained operations)

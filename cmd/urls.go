@@ -66,7 +66,7 @@ func runUrls(cmd *cobra.Command, args []string) error {
 	urls := registries.BuildURLs(reg.URLs(), name, version)
 
 	switch format {
-	case "json":
+	case formatJSON:
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
 		return enc.Encode(urls)

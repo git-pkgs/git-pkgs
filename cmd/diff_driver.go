@@ -9,10 +9,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/git-pkgs/manifests"
 	"github.com/git-pkgs/git-pkgs/internal/git"
+	"github.com/git-pkgs/manifests"
 	"github.com/spf13/cobra"
 )
+
+const attrFilePerm = 0644
 
 // Lockfile patterns for gitattributes
 var lockfilePatterns = []string{
@@ -112,7 +114,7 @@ func installDiffDriver(cmd *cobra.Command) error {
 
 	if !hasGitPkgs {
 		// Append lockfile patterns
-		f, err := os.OpenFile(attrPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f, err := os.OpenFile(attrPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, attrFilePerm)
 		if err != nil {
 			return fmt.Errorf("opening .gitattributes: %w", err)
 		}
@@ -171,7 +173,7 @@ func uninstallDiffDriver(cmd *cobra.Command) error {
 		newLines = append(newLines, line)
 	}
 
-	if err := os.WriteFile(attrPath, []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+	if err := os.WriteFile(attrPath, []byte(strings.Join(newLines, "\n")), attrFilePerm); err != nil {
 		return fmt.Errorf("writing .gitattributes: %w", err)
 	}
 
@@ -196,10 +198,13 @@ func convertLockfile(cmd *cobra.Command, filePath string) error {
 		return nil
 	}
 
-	// Sort dependencies by name
+	// Sort dependencies by name, then version for deterministic output
 	deps := result.Dependencies
 	sort.Slice(deps, func(i, j int) bool {
-		return deps[i].Name < deps[j].Name
+		if deps[i].Name != deps[j].Name {
+			return deps[i].Name < deps[j].Name
+		}
+		return deps[i].Version < deps[j].Version
 	})
 
 	// Output sorted list
@@ -209,7 +214,10 @@ func convertLockfile(cmd *cobra.Command, filePath string) error {
 		if dep.Version != "" {
 			line += " " + dep.Version
 		}
-		_, _ = fmt.Fprintln(w, line)
+		if dep.Scope != "" {
+			line += " (" + string(dep.Scope) + ")"
+		}
+		_, _ = fmt.Fprintln(w, Sanitize(line))
 	}
 	return w.Flush()
 }

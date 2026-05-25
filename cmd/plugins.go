@@ -42,7 +42,7 @@ func discoverPlugins(builtinNames map[string]bool) []plugin {
 			}
 
 			// On Windows, executability is determined by extension, not file mode.
-			if runtime.GOOS != "windows" {
+			if runtime.GOOS != osWindows {
 				info, err := entry.Info()
 				if err != nil {
 					continue
@@ -53,7 +53,7 @@ func discoverPlugins(builtinNames map[string]bool) []plugin {
 			}
 
 			subcommand := strings.TrimPrefix(name, pluginPrefix)
-			if runtime.GOOS == "windows" {
+			if runtime.GOOS == osWindows {
 				ext := strings.ToLower(filepath.Ext(subcommand))
 				if ext == ".exe" || ext == ".bat" || ext == ".cmd" {
 					subcommand = strings.TrimSuffix(subcommand, filepath.Ext(subcommand))

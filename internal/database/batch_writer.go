@@ -13,6 +13,42 @@ const (
 	MaxSQLVariables         = 999 // SQLite default limit
 )
 
+type CommitInfo struct {
+	SHA         string
+	Message     string
+	AuthorName  string
+	AuthorEmail string
+	CommittedAt time.Time
+}
+
+type ManifestInfo struct {
+	Path      string
+	Ecosystem string
+	Kind      string
+}
+
+type ChangeInfo struct {
+	ManifestPath           string
+	Name                   string
+	Ecosystem              string
+	PURL                   string
+	ChangeType             string
+	Requirement            string
+	PreviousRequirement    string
+	DependencyType         string
+	PreviousDependencyType string
+}
+
+type SnapshotInfo struct {
+	ManifestPath   string
+	Name           string
+	Ecosystem      string
+	PURL           string
+	Requirement    string
+	DependencyType string
+	Integrity      string
+}
+
 type pendingCommit struct {
 	info       CommitInfo
 	hasChanges bool
@@ -199,33 +235,59 @@ func (w *BatchWriter) flushPending(commits []pendingCommit, changes []pendingCha
 
 	now := time.Now()
 
-	// 1. Batch insert commits
+	// 1. Find commits that already exist so we can skip re-inserting their data
+	existingCommits, err := w.getCommitIDs(tx, commits)
+	if err != nil {
+		return fmt.Errorf("getting existing commit IDs: %w", err)
+	}
+
+	// 2. Batch insert commits (OR IGNORE skips existing ones)
 	if err := w.insertCommits(tx, now, commits); err != nil {
 		return fmt.Errorf("inserting commits: %w", err)
 	}
 
-	// 2. Get commit IDs by SHA
+	// 3. Get commit IDs by SHA (now includes newly inserted ones)
 	commitIDs, err := w.getCommitIDs(tx, commits)
 	if err != nil {
 		return fmt.Errorf("getting commit IDs: %w", err)
 	}
 
-	// 3. Batch insert branch_commits
+	// 4. Batch insert branch_commits
 	if err := w.insertBranchCommits(tx, commitIDs, commits); err != nil {
 		return fmt.Errorf("inserting branch commits: %w", err)
 	}
 
-	// 4. Ensure manifests exist and get their IDs
+	// 5. Filter out changes and snapshots for commits that already existed,
+	// since their data is already stored from another branch.
+	if len(existingCommits) > 0 {
+		newChanges := changes[:0]
+		for _, c := range changes {
+			if _, exists := existingCommits[c.sha]; !exists {
+				newChanges = append(newChanges, c)
+			}
+		}
+		changes = newChanges
+
+		newSnapshots := snapshots[:0]
+		for _, s := range snapshots {
+			if _, exists := existingCommits[s.sha]; !exists {
+				newSnapshots = append(newSnapshots, s)
+			}
+		}
+		snapshots = newSnapshots
+	}
+
+	// 6. Ensure manifests exist and get their IDs
 	if err := w.ensureManifests(tx, now, changes, snapshots); err != nil {
 		return fmt.Errorf("ensuring manifests: %w", err)
 	}
 
-	// 5. Batch insert changes
+	// 7. Batch insert changes
 	if err := w.insertChanges(tx, commitIDs, now, changes); err != nil {
 		return fmt.Errorf("inserting changes: %w", err)
 	}
 
-	// 6. Batch insert snapshots
+	// 8. Batch insert snapshots
 	if err := w.insertSnapshots(tx, commitIDs, now, snapshots); err != nil {
 		return fmt.Errorf("inserting snapshots: %w", err)
 	}
@@ -253,7 +315,7 @@ func (w *BatchWriter) insertCommits(tx *sql.Tx, now time.Time, pending []pending
 		batch := pending[start:end]
 
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO commits (sha, message, author_name, author_email, committed_at, has_dependency_changes, created_at, updated_at) VALUES ")
+		sb.WriteString("INSERT OR IGNORE INTO commits (sha, message, author_name, author_email, committed_at, has_dependency_changes, created_at, updated_at) VALUES ")
 
 		args := make([]any, 0, len(batch)*columnsPerRow)
 		for i, pc := range batch {
@@ -339,7 +401,7 @@ func (w *BatchWriter) insertBranchCommits(tx *sql.Tx, commitIDs map[string]int64
 		batch := pending[start:end]
 
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO branch_commits (branch_id, commit_id, position) VALUES ")
+		sb.WriteString("INSERT OR IGNORE INTO branch_commits (branch_id, commit_id, position) VALUES ")
 
 		args := make([]any, 0, len(batch)*columnsPerRow)
 		for i, pc := range batch {
@@ -384,7 +446,8 @@ func (w *BatchWriter) ensureManifests(tx *sql.Tx, now time.Time, changes []pendi
 	var sb strings.Builder
 	sb.WriteString("INSERT OR IGNORE INTO manifests (path, ecosystem, kind, created_at, updated_at) VALUES ")
 
-	args := make([]any, 0, len(toInsert)*5)
+	const manifestColumns = 5 // path, ecosystem, kind, created_at, updated_at
+	args := make([]any, 0, len(toInsert)*manifestColumns)
 	for i, m := range toInsert {
 		if i > 0 {
 			sb.WriteString(",")
@@ -430,8 +493,8 @@ func (w *BatchWriter) insertChanges(tx *sql.Tx, commitIDs map[string]int64, now 
 		return nil
 	}
 
-	// Changes have 11 columns, so max rows per batch = MaxSQLVariables / 11
-	const columnsPerRow = 11
+	// Changes have 12 columns, so max rows per batch = MaxSQLVariables / 12
+	const columnsPerRow = 12
 	maxRowsPerBatch := MaxSQLVariables / columnsPerRow
 
 	for start := 0; start < len(pending); start += maxRowsPerBatch {
@@ -442,14 +505,14 @@ func (w *BatchWriter) insertChanges(tx *sql.Tx, commitIDs map[string]int64, now 
 		batch := pending[start:end]
 
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO dependency_changes (commit_id, manifest_id, name, ecosystem, purl, change_type, requirement, previous_requirement, dependency_type, created_at, updated_at) VALUES ")
+		sb.WriteString("INSERT INTO dependency_changes (commit_id, manifest_id, name, ecosystem, purl, change_type, requirement, previous_requirement, dependency_type, previous_dependency_type, created_at, updated_at) VALUES ")
 
 		args := make([]any, 0, len(batch)*columnsPerRow)
 		for i, pc := range batch {
 			if i > 0 {
 				sb.WriteString(",")
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?)")
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?)")
 			args = append(args,
 				commitIDs[pc.sha],
 				w.manifestCache[pc.manifest.Path],
@@ -460,6 +523,7 @@ func (w *BatchWriter) insertChanges(tx *sql.Tx, commitIDs map[string]int64, now 
 				pc.change.Requirement,
 				pc.change.PreviousRequirement,
 				pc.change.DependencyType,
+				pc.change.PreviousDependencyType,
 				now,
 				now,
 			)
@@ -490,7 +554,7 @@ func (w *BatchWriter) insertSnapshots(tx *sql.Tx, commitIDs map[string]int64, no
 		batch := pending[start:end]
 
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO dependency_snapshots (commit_id, manifest_id, name, ecosystem, purl, requirement, dependency_type, integrity, created_at, updated_at) VALUES ")
+		sb.WriteString("INSERT OR IGNORE INTO dependency_snapshots (commit_id, manifest_id, name, ecosystem, purl, requirement, dependency_type, integrity, created_at, updated_at) VALUES ")
 
 		args := make([]any, 0, len(batch)*columnsPerRow)
 		for i, ps := range batch {
@@ -526,10 +590,6 @@ func (w *BatchWriter) UpdateBranchLastSHA(sha string) error {
 		sha, time.Now(), w.branchID,
 	)
 	return err
-}
-
-func (w *BatchWriter) LastSHA() string {
-	return w.lastSHA
 }
 
 func (w *BatchWriter) HasPendingSnapshots(sha string) bool {
