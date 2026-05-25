@@ -3,13 +3,13 @@ package indexer
 import (
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/git-pkgs/git-pkgs/internal/analyzer"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
+	"github.com/git-pkgs/git-pkgs/internal/progress"
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
@@ -36,7 +36,7 @@ type Indexer struct {
 	db       *database.DB
 	analyzer *analyzer.Analyzer
 	opts     Options
-	isTTY    bool
+	progress *progress.Reporter
 }
 
 func New(repo *git.Repository, db *database.DB, opts Options) *Indexer {
@@ -128,12 +128,10 @@ func (idx *Indexer) Run() (*Result, error) {
 		return nil, fmt.Errorf("collecting commits: %w", err)
 	}
 
-	if !idx.opts.Quiet && idx.opts.Output != nil {
-		if fi, err := os.Stdout.Stat(); err == nil {
-			idx.isTTY = fi.Mode()&os.ModeCharDevice != 0
-		}
-		_, _ = fmt.Fprintf(idx.opts.Output, "Analyzing %d commits on %s...\n", len(commits), branch)
+	if !idx.opts.Quiet {
+		idx.progress = progress.New(idx.opts.Output)
 	}
+	idx.progress.Println("Analyzing %d commits on %s...", len(commits), branch)
 
 	idx.analyzer.SetRepoPath(idx.repo.WorkDir())
 
@@ -161,12 +159,8 @@ func (idx *Indexer) Run() (*Result, error) {
 		for i := batchStart; i < batchEnd; i++ {
 			hash := commits[i]
 
-			if !idx.opts.Quiet && idx.opts.Output != nil && (i+1)%100 == 0 {
-				if idx.isTTY {
-					_, _ = fmt.Fprintf(idx.opts.Output, "\r  %d/%d commits processed", i+1, len(commits))
-				} else {
-					_, _ = fmt.Fprintf(idx.opts.Output, "  %d/%d commits processed\n", i+1, len(commits))
-				}
+			if (i+1)%100 == 0 {
+				idx.progress.Update("  %d/%d commits processed", i+1, len(commits))
 			}
 
 			commit, err := idx.repo.CommitObject(hash)
@@ -291,9 +285,7 @@ func (idx *Indexer) Run() (*Result, error) {
 		idx.analyzer.ClearDiffCache()
 	}
 
-	if !idx.opts.Quiet && idx.opts.Output != nil && idx.isTTY && len(commits) > 0 {
-		_, _ = fmt.Fprintf(idx.opts.Output, "\r\033[K")
-	}
+	idx.progress.Clear()
 
 	// Always store final snapshot for the last commit with changes
 	if lastSHAWithChanges != "" && !writer.HasPendingSnapshots(lastSHAWithChanges) {
@@ -390,17 +382,11 @@ func (idx *Indexer) collectCommits(branch string, sinceSHA string) ([]plumbing.H
 }
 
 func (idx *Indexer) logImportantSnapshot(sha string, tags, branches []string) {
-	if idx.opts.Quiet || idx.opts.Output == nil {
-		return
-	}
-	if idx.isTTY {
-		_, _ = fmt.Fprintf(idx.opts.Output, "\r\033[K")
-	}
 	shortSHA := sha[:7]
 	for _, tag := range tags {
-		_, _ = fmt.Fprintf(idx.opts.Output, "  Snapshot at tag %s (%s)\n", tag, shortSHA)
+		idx.progress.Println("  Snapshot at tag %s (%s)", tag, shortSHA)
 	}
 	for _, branch := range branches {
-		_, _ = fmt.Fprintf(idx.opts.Output, "  Snapshot at branch %s (%s)\n", branch, shortSHA)
+		idx.progress.Println("  Snapshot at branch %s (%s)", branch, shortSHA)
 	}
 }
