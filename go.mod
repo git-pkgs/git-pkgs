@@ -6,7 +6,7 @@ require (
 	github.com/git-pkgs/changelog v0.1.3
 	github.com/git-pkgs/enrichment v0.2.3
 	github.com/git-pkgs/gitignore v1.2.0
-	github.com/git-pkgs/managers v0.8.3
+	github.com/git-pkgs/managers v0.9.0
 	github.com/git-pkgs/manifests v0.4.3
 	github.com/git-pkgs/purl v0.1.12
 	github.com/git-pkgs/registries v0.6.1
