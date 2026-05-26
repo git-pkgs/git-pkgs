@@ -15,14 +15,30 @@ const (
 	hookFilePerm = 0755
 )
 
-const hookScript = `#!/bin/sh
-# git-pkgs post-commit/post-merge hook
-# Updates the dependency database after commits/merges
+const hookHeader = "#!/bin/sh\n# git-pkgs"
 
-git pkgs reindex --quiet 2>/dev/null || true
-`
+const guardedHookBody = `d="$(git rev-parse --git-dir)"; [ -d "$d/rebase-merge" ] || [ -d "$d/rebase-apply" ] || git pkgs reindex --quiet 2>/dev/null || true`
 
-var hookNames = []string{"post-commit", "post-merge"}
+const postRewriteHookBody = `[ "$1" = rebase ] && git pkgs reindex --quiet 2>/dev/null || true`
+
+type hook struct {
+	name string
+	body string
+}
+
+var hooks = []hook{
+	{"post-commit", guardedHookBody},
+	{"post-merge", guardedHookBody},
+	{"post-rewrite", postRewriteHookBody},
+}
+
+func (h hook) script() string {
+	return hookHeader + " " + h.name + " hook\n\n" + h.body + "\n"
+}
+
+func (h hook) snippet() string {
+	return "\n# git-pkgs hook\n" + h.body + "\n"
+}
 
 func addHooksCmd(parent *cobra.Command) {
 	hooksCmd := &cobra.Command{
@@ -70,70 +86,83 @@ func doInstallHooks(cmd *cobra.Command, hooksDir string) error {
 		return fmt.Errorf("creating hooks directory: %w", err)
 	}
 
-	for _, hookName := range hookNames {
-		hookPath := filepath.Join(hooksDir, hookName)
-
-		// Check if hook exists
-		if _, err := os.Stat(hookPath); err == nil {
-			// Read existing hook to check if it's ours
-			content, readErr := os.ReadFile(hookPath)
-			if readErr == nil && strings.Contains(string(content), "git-pkgs") {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: already installed\n", hookName)
-				continue
-			}
-
-			// Existing hook that's not ours - append to it
-			f, openErr := os.OpenFile(hookPath, os.O_APPEND|os.O_WRONLY, hookFilePerm)
-			if openErr != nil {
-				return fmt.Errorf("opening %s hook: %w", hookName, openErr)
-			}
-
-			_, writeErr := f.WriteString("\n# git-pkgs hook\ngit pkgs reindex --quiet 2>/dev/null || true\n")
-			_ = f.Close()
-			if writeErr != nil {
-				return fmt.Errorf("appending to %s hook: %w", hookName, writeErr)
-			}
-
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: appended to existing hook\n", hookName)
-		} else {
-			// Create new hook
-			if err := os.WriteFile(hookPath, []byte(hookScript), hookFilePerm); err != nil {
-				return fmt.Errorf("writing %s hook: %w", hookName, err)
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: installed\n", hookName)
+	for _, h := range hooks {
+		msg, err := writeHook(hooksDir, h)
+		if err != nil {
+			return err
 		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", h.name, msg)
 	}
 
 	return nil
 }
 
+func writeHook(hooksDir string, h hook) (string, error) {
+	hookPath := filepath.Join(hooksDir, h.name)
+
+	content, err := os.ReadFile(hookPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("reading %s hook: %w", h.name, err)
+		}
+		if err := os.WriteFile(hookPath, []byte(h.script()), hookFilePerm); err != nil {
+			return "", fmt.Errorf("writing %s hook: %w", h.name, err)
+		}
+		return "installed", nil
+	}
+
+	existing := string(content)
+
+	if strings.HasPrefix(existing, hookHeader) {
+		if existing == h.script() {
+			return "already installed", nil
+		}
+		if err := os.WriteFile(hookPath, []byte(h.script()), hookFilePerm); err != nil {
+			return "", fmt.Errorf("writing %s hook: %w", h.name, err)
+		}
+		return "updated", nil
+	}
+
+	if strings.Contains(existing, "git-pkgs") || strings.Contains(existing, "git pkgs reindex") {
+		return "already installed", nil
+	}
+
+	f, err := os.OpenFile(hookPath, os.O_APPEND|os.O_WRONLY, hookFilePerm)
+	if err != nil {
+		return "", fmt.Errorf("opening %s hook: %w", h.name, err)
+	}
+	_, writeErr := f.WriteString(h.snippet())
+	_ = f.Close()
+	if writeErr != nil {
+		return "", fmt.Errorf("appending to %s hook: %w", h.name, writeErr)
+	}
+	return "appended to existing hook", nil
+}
+
 func doUninstallHooks(cmd *cobra.Command, hooksDir string) error {
-	for _, hookName := range hookNames {
-		hookPath := filepath.Join(hooksDir, hookName)
+	for _, h := range hooks {
+		hookPath := filepath.Join(hooksDir, h.name)
 
 		content, err := os.ReadFile(hookPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: not installed\n", hookName)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: not installed\n", h.name)
 				continue
 			}
-			return fmt.Errorf("reading %s hook: %w", hookName, err)
+			return fmt.Errorf("reading %s hook: %w", h.name, err)
 		}
 
-		if !strings.Contains(string(content), "git-pkgs") {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: not a git-pkgs hook\n", hookName)
+		if !strings.Contains(string(content), "git-pkgs") && !strings.Contains(string(content), "git pkgs reindex") {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: not a git-pkgs hook\n", h.name)
 			continue
 		}
 
-		// Check if it's our full hook or appended
-		if strings.HasPrefix(string(content), "#!/bin/sh\n# git-pkgs") {
-			// It's our hook - remove it
+		if strings.HasPrefix(string(content), hookHeader) {
 			if err := os.Remove(hookPath); err != nil {
-				return fmt.Errorf("removing %s hook: %w", hookName, err)
+				return fmt.Errorf("removing %s hook: %w", h.name, err)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: removed\n", hookName)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: removed\n", h.name)
 		} else {
-			// It's appended to another hook - remove our lines
 			lines := strings.Split(string(content), "\n")
 			var newLines []string
 			for _, line := range lines {
@@ -146,9 +175,9 @@ func doUninstallHooks(cmd *cobra.Command, hooksDir string) error {
 			}
 
 			if err := os.WriteFile(hookPath, []byte(strings.Join(newLines, "\n")), hookFilePerm); err != nil {
-				return fmt.Errorf("writing %s hook: %w", hookName, err)
+				return fmt.Errorf("writing %s hook: %w", h.name, err)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: removed git-pkgs lines\n", hookName)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: removed git-pkgs lines\n", h.name)
 		}
 	}
 
@@ -161,23 +190,23 @@ func showHooksStatus(cmd *cobra.Command, hooksDir string) error {
 
 	anyInstalled := false
 
-	for _, hookName := range hookNames {
-		hookPath := filepath.Join(hooksDir, hookName)
+	for _, h := range hooks {
+		hookPath := filepath.Join(hooksDir, h.name)
 
 		content, err := os.ReadFile(hookPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: not installed\n", hookName)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: not installed\n", h.name)
 				continue
 			}
-			return fmt.Errorf("reading %s hook: %w", hookName, err)
+			return fmt.Errorf("reading %s hook: %w", h.name, err)
 		}
 
 		if strings.Contains(string(content), "git-pkgs") || strings.Contains(string(content), "git pkgs") {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: installed\n", hookName)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: installed\n", h.name)
 			anyInstalled = true
 		} else {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: exists (not git-pkgs)\n", hookName)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s: exists (not git-pkgs)\n", h.name)
 		}
 	}
 
@@ -198,30 +227,9 @@ func installHooks(repo *git.Repository) error {
 		return err
 	}
 
-	for _, hookName := range hookNames {
-		hookPath := filepath.Join(hooksDir, hookName)
-
-		// Check if hook exists
-		if _, err := os.Stat(hookPath); err == nil {
-			content, readErr := os.ReadFile(hookPath)
-			if readErr == nil && strings.Contains(string(content), "git-pkgs") {
-				continue // Already installed
-			}
-
-			// Append to existing hook
-			f, openErr := os.OpenFile(hookPath, os.O_APPEND|os.O_WRONLY, hookFilePerm)
-			if openErr != nil {
-				return openErr
-			}
-			_, writeErr := f.WriteString("\n# git-pkgs hook\ngit pkgs reindex --quiet 2>/dev/null || true\n")
-			_ = f.Close()
-			if writeErr != nil {
-				return writeErr
-			}
-		} else {
-			if err := os.WriteFile(hookPath, []byte(hookScript), hookFilePerm); err != nil {
-				return err
-			}
+	for _, h := range hooks {
+		if _, err := writeHook(hooksDir, h); err != nil {
+			return err
 		}
 	}
 
