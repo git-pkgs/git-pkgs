@@ -85,6 +85,9 @@ func filterDependencies(deps []database.Dependency, ecosystem, manifest, depType
 }
 
 func outputListJSON(cmd *cobra.Command, deps []database.Dependency) error {
+	if deps == nil {
+		deps = []database.Dependency{}
+	}
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
 	return enc.Encode(deps)
