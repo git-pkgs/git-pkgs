@@ -67,4 +67,54 @@ BUNDLED WITH
 			}
 		}
 	})
+
+	t.Run("sorts by scope when name and version match", func(t *testing.T) {
+		// A Pipfile.lock can list the same package at the same version in both
+		// the default and develop sections. The parser emits two entries that
+		// differ only in scope; without scope in the sort key the relative
+		// order of those lines is non-deterministic (#217).
+		lockContent := `{
+  "_meta": {"hash": {"sha256": ""}, "pipfile-spec": 6},
+  "default": {
+    "alpha":   {"version": "==1.0.0"},
+    "bravo":   {"version": "==1.0.0"},
+    "charlie": {"version": "==1.0.0"},
+    "delta":   {"version": "==1.0.0"},
+    "echo":    {"version": "==1.0.0"},
+    "foxtrot": {"version": "==1.0.0"}
+  },
+  "develop": {
+    "alpha":   {"version": "==1.0.0"},
+    "bravo":   {"version": "==1.0.0"},
+    "charlie": {"version": "==1.0.0"},
+    "delta":   {"version": "==1.0.0"},
+    "echo":    {"version": "==1.0.0"},
+    "foxtrot": {"version": "==1.0.0"}
+  }
+}`
+		tmpDir := t.TempDir()
+		lockPath := filepath.Join(tmpDir, "Pipfile.lock")
+		if err := os.WriteFile(lockPath, []byte(lockContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		var stdout bytes.Buffer
+		rootCmd := cmd.NewRootCmd()
+		rootCmd.SetArgs([]string{"diff-driver", lockPath})
+		rootCmd.SetOut(&stdout)
+
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("diff-driver failed: %v", err)
+		}
+
+		lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+		if len(lines) != 12 {
+			t.Fatalf("expected 12 lines, got %d:\n%s", len(lines), stdout.String())
+		}
+		for i := 1; i < len(lines); i++ {
+			if lines[i-1] > lines[i] {
+				t.Errorf("lines not sorted: %q came before %q", lines[i-1], lines[i])
+			}
+		}
+	})
 }
