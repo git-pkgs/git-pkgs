@@ -289,7 +289,7 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 
 	// Fetch uncached from API
 	if len(uncachedPurls) > 0 {
-		client, err := NewEnrichmentClient(enrichment.WithUserAgent("git-pkgs/" + version))
+		client, err := NewEnrichmentClient(enrichment.WithUserAgent(userAgent))
 		if err != nil {
 			return nil, err
 		}

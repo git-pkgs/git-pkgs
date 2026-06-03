@@ -64,7 +64,7 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), changelogTimeout)
 	defer cancel()
 
-	client, err := enrichment.NewClient(enrichment.WithUserAgent("git-pkgs/" + version))
+	client, err := enrichment.NewClient(enrichment.WithUserAgent(userAgent))
 	if err != nil {
 		return fmt.Errorf("creating API client: %w", err)
 	}

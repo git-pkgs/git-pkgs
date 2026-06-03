@@ -177,7 +177,7 @@ func fetchFundingPackageData(db *database.DB, deps []database.Dependency) (map[s
 }
 
 func fetchFundingMetadata(purls []string) (map[string]*enrichment.PackageInfo, error) {
-	client, err := NewEnrichmentClient(enrichment.WithUserAgent("git-pkgs/" + version))
+	client, err := NewEnrichmentClient(enrichment.WithUserAgent(userAgent))
 	if err != nil {
 		return nil, err
 	}

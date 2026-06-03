@@ -166,7 +166,7 @@ func getSBOMLicenseData(db *database.DB, purls []string, purlToDep map[string]da
 
 	// Fetch uncached from API
 	if len(uncachedPurls) > 0 {
-		client, err := enrichment.NewClient(enrichment.WithUserAgent("git-pkgs/" + version))
+		client, err := enrichment.NewClient(enrichment.WithUserAgent(userAgent))
 		if err != nil {
 			return nil, err
 		}

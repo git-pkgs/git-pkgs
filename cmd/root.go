@@ -10,6 +10,7 @@ var version = versionUnknown
 var commit = versionUnknown
 var date = versionUnknown
 var versionStr string
+var userAgent string
 
 func init() {
 	if version == versionUnknown {
@@ -34,6 +35,7 @@ func init() {
 	if date != versionUnknown {
 		versionStr += "\n            date " + date
 	}
+	userAgent = "git-pkgs/" + version
 }
 
 const shortDesc = "Track package dependencies across git history"

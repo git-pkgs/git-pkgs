@@ -200,7 +200,7 @@ func loadFreshnessVersions(db *database.DB, deps []database.Dependency) (map[str
 		return result, nil
 	}
 
-	client, err := NewEnrichmentClient(enrichment.WithUserAgent("git-pkgs/" + version))
+	client, err := NewEnrichmentClient(enrichment.WithUserAgent(userAgent))
 	if err != nil {
 		return nil, err
 	}
