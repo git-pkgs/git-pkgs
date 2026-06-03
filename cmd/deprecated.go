@@ -137,7 +137,7 @@ func fetchDeprecatedVersionData(db *database.DB, versionedPURLs []string) map[st
 	ctx, cancel := context.WithTimeout(context.Background(), deprecatedLookupTimeout)
 	defer cancel()
 
-	fetched := registries.BulkFetchVersions(ctx, misses, nil)
+	fetched := registries.BulkFetchVersions(ctx, misses, registries.NewClient().WithUserAgent("git-pkgs/"+version))
 	for purlStr, version := range fetched {
 		versionData[purlStr] = version
 	}

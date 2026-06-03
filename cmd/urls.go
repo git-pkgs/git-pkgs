@@ -58,7 +58,7 @@ func runUrls(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	reg, err := registries.New(purlType, "", nil)
+	reg, err := registries.New(purlType, "", registries.NewClient().WithUserAgent("git-pkgs/"+version))
 	if err != nil {
 		return fmt.Errorf("unsupported ecosystem %q: %w", purlType, err)
 	}
