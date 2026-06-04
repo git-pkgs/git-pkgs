@@ -112,8 +112,8 @@ github.com/ashanbrown/makezero/v2 v2.1.0 h1:snuKYMbqosNokUKm+R6/+vOPs8yVAi46La7C
 github.com/ashanbrown/makezero/v2 v2.1.0/go.mod h1:aEGT/9q3S8DHeE57C88z2a6xydvgx8J5hgXIGWgo0MY=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
-github.com/bazelbuild/buildtools v0.0.0-20260211083412-859bfffeef82 h1:PmoVmwzAnGb0iCjulb7Mgsaqw2Wj36LQJ8VyYaFe/ak=
-github.com/bazelbuild/buildtools v0.0.0-20260211083412-859bfffeef82/go.mod h1:PLNUetjLa77TCCziPsz0EI8a6CUxgC+1jgmWv0H25tg=
+github.com/bazelbuild/buildtools v0.0.0-20260319080235-05d2ebe49b0f h1:khsR2MoXO+WButt3L5nnkAOGO17BAr0G/pGHZczF5/E=
+github.com/bazelbuild/buildtools v0.0.0-20260319080235-05d2ebe49b0f/go.mod h1:PLNUetjLa77TCCziPsz0EI8a6CUxgC+1jgmWv0H25tg=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/beorn7/perks v1.0.0/go.mod h1:KWe93zE9D1o94FZ5RNwFwVgaQK1VOXiVxmqh+CedLV8=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
@@ -221,8 +221,8 @@ github.com/git-pkgs/gitignore v1.2.0 h1:7vdR8/SvF31dvXqIdC1bKgCvyySefXuN8aY3xJLu
 github.com/git-pkgs/gitignore v1.2.0/go.mod h1:Lr0XwhbvP071rZF/zIIhkY1gEhFDoWHH91lngwLpeUg=
 github.com/git-pkgs/managers v0.9.0 h1:t3ZFvzvmh7Vf57tz0BSdQoOjo4DcXolUCXUiBckmn6E=
 github.com/git-pkgs/managers v0.9.0/go.mod h1:8DR7tIQEEyPyJ7QGzStVbovnGl7tAJcrhQLzjQPzFzc=
-github.com/git-pkgs/manifests v0.4.3 h1:bjwWQiJ2Xqih/PjBCyJtt2bx9WqKjMq/YxoNSDUE8bQ=
-github.com/git-pkgs/manifests v0.4.3/go.mod h1:Jvvua5FVNvEFx+I5QQ8vbhHAz11gsMfrbocFCX/BvVo=
+github.com/git-pkgs/manifests v0.5.0 h1:1w+mDqU8IfJ9ojCJaZZv3Zij5cyQMuMT+6pOIND/KAE=
+github.com/git-pkgs/manifests v0.5.0/go.mod h1:s0Bky+73EXicySAIQ1XEnLF5sWShZYrsKOt7dM3htaA=
 github.com/git-pkgs/packageurl-go v0.3.1 h1:WM3RBABQZLaRBxgKyYughc3cVBE8KyQxbSC6Jt5ak7M=
 github.com/git-pkgs/packageurl-go v0.3.1/go.mod h1:rcIxiG37BlQLB6FZfgdj9Fm7yjhRQd3l+5o7J0QPAk4=
 github.com/git-pkgs/pom v0.1.4 h1:C6st+XSbF75eKuwfdkDZZtYHoTcaWRIEQYar5VtszUo=

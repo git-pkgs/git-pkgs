@@ -7,7 +7,7 @@ require (
 	github.com/git-pkgs/enrichment v0.3.0
 	github.com/git-pkgs/gitignore v1.2.0
 	github.com/git-pkgs/managers v0.9.0
-	github.com/git-pkgs/manifests v0.4.3
+	github.com/git-pkgs/manifests v0.5.0
 	github.com/git-pkgs/purl v0.1.12
 	github.com/git-pkgs/registries v0.6.1
 	github.com/git-pkgs/resolve v0.2.0
@@ -55,7 +55,7 @@ require (
 	github.com/ashanbrown/forbidigo/v2 v2.3.0 // indirect
 	github.com/ashanbrown/makezero/v2 v2.1.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/bazelbuild/buildtools v0.0.0-20260211083412-859bfffeef82 // indirect
+	github.com/bazelbuild/buildtools v0.0.0-20260319080235-05d2ebe49b0f // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bkielbasa/cyclop v1.2.3 // indirect
 	github.com/blizzy78/varnamelen v0.8.0 // indirect
