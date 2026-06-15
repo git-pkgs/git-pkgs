@@ -196,6 +196,11 @@ func (w *BatchWriter) FlushAsync() {
 	w.flushDone = make(chan error, 1)
 	ch := w.flushDone
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- fmt.Errorf("panic during async flush: %v", r)
+			}
+		}()
 		ch <- w.flushPending(commits, changes, snapshots)
 	}()
 }

@@ -77,13 +77,19 @@ func (idx *Indexer) Run() (*Result, error) {
 		var r refResult
 		r.tags = make(map[string][]string)
 		r.branches = make(map[string][]string)
+		defer func() {
+			// go-git iterates attacker-controlled refs/packfiles here when
+			// embedded server-side; a panic in that path must not take the
+			// host process down or leave the receiver blocked on refCh.
+			_ = recover()
+			refCh <- r
+		}()
 		if tags, err := idx.repo.Tags(); err == nil {
 			r.tags = tags
 		}
 		if branches, err := idx.repo.LocalBranches(); err == nil {
 			r.branches = branches
 		}
-		refCh <- r
 	}()
 
 	writer := database.NewBatchWriter(idx.db)
