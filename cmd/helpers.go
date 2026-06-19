@@ -64,8 +64,15 @@ func shortSHA(sha string) string {
 }
 
 func isResolvedDependency(d database.Dependency) bool {
-	return d.Requirement != "" &&
-		(d.ManifestKind == manifestKindLockfile || d.Ecosystem == "golang" || d.Ecosystem == "maven")
+	return d.Requirement != "" && hasResolvedRequirement(d.Ecosystem, d.ManifestKind)
+}
+
+// hasResolvedRequirement reports whether a dependency row from the given
+// ecosystem and manifest kind carries an exact version in its requirement
+// field rather than a range constraint. Lockfiles always do; go.mod and
+// Maven poms pin exact versions despite being manifests.
+func hasResolvedRequirement(ecosystem, manifestKind string) bool {
+	return manifestKind == manifestKindLockfile || ecosystem == "golang" || ecosystem == "maven"
 }
 
 func IsPURL(s string) bool {

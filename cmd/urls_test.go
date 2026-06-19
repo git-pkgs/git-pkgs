@@ -2,6 +2,7 @@ package cmd_test
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -95,42 +96,94 @@ func TestUrlsPURL(t *testing.T) {
 	})
 }
 
+func initRepoWithFiles(t *testing.T, files map[string]string) {
+	t.Helper()
+	repoDir := createTestRepo(t)
+	for path, content := range files {
+		addFileAndCommit(t, repoDir, path, content, "Add "+path)
+	}
+	cleanup := chdir(t, repoDir)
+	t.Cleanup(cleanup)
+	if _, _, err := runCmd(t, "init"); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+}
+
+func runUrlsJSON(t *testing.T, args ...string) map[string]string {
+	t.Helper()
+	args = append([]string{"urls"}, args...)
+	args = append(args, "-f", "json")
+	stdout, _, err := runCmd(t, args...)
+	if err != nil {
+		t.Fatalf("urls failed: %v", err)
+	}
+	var urls map[string]string
+	if err := json.Unmarshal([]byte(stdout), &urls); err != nil {
+		t.Fatalf("failed to parse JSON: %v\noutput: %s", err, stdout)
+	}
+	return urls
+}
+
 func TestUrlsNameLookup(t *testing.T) {
-	t.Run("looks up package by name", func(t *testing.T) {
-		repoDir := createTestRepo(t)
-		addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add package.json")
-		cleanup := chdir(t, repoDir)
-		defer cleanup()
+	t.Run("manifest-only lookup omits version range", func(t *testing.T) {
+		initRepoWithFiles(t, map[string]string{"package.json": packageJSON})
 
-		_, _, err := runCmd(t, "init")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
+		urls := runUrlsJSON(t, "lodash", "-e", "npm")
+		if urls["registry"] == "" {
+			t.Errorf("expected registry URL, got: %v", urls)
 		}
+		if urls["purl"] != "pkg:npm/lodash" {
+			t.Errorf("expected versionless purl pkg:npm/lodash, got: %q", urls["purl"])
+		}
+		if urls["download"] != "" {
+			t.Errorf("expected no download URL without resolved version, got: %q", urls["download"])
+		}
+	})
 
-		stdout, _, err := runCmd(t, "urls", "lodash", "-e", "npm")
+	t.Run("substring lookup uses matched name", func(t *testing.T) {
+		initRepoWithFiles(t, map[string]string{"package.json": packageJSON})
+
+		urls := runUrlsJSON(t, "lod", "-e", "npm")
+		if urls["purl"] != "pkg:npm/lodash" {
+			t.Errorf("expected purl for matched package lodash, got: %q", urls["purl"])
+		}
+		if !strings.Contains(urls["registry"], "/lodash") {
+			t.Errorf("expected registry URL for lodash, got: %q", urls["registry"])
+		}
+	})
+
+	t.Run("lockfile lookup uses resolved version", func(t *testing.T) {
+		initRepoWithFiles(t, map[string]string{
+			"package.json":      packageJSON,
+			"package-lock.json": packageLockJSON,
+		})
+
+		urls := runUrlsJSON(t, "lodash", "-e", "npm")
+		if urls["purl"] != "pkg:npm/lodash@4.17.21" {
+			t.Errorf("expected purl pkg:npm/lodash@4.17.21, got: %q", urls["purl"])
+		}
+		if urls["download"] != "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz" {
+			t.Errorf("expected exact download URL, got: %q", urls["download"])
+		}
+	})
+
+	t.Run("go.mod lookup keeps exact version", func(t *testing.T) {
+		goMod, err := os.ReadFile("testdata/ades-go.mod")
 		if err != nil {
-			t.Fatalf("urls failed: %v", err)
+			t.Fatalf("read fixture: %v", err)
 		}
-		if !strings.Contains(stdout, "npmjs") {
-			t.Errorf("expected 'npmjs' in output, got: %s", stdout)
-		}
-		if !strings.Contains(stdout, "registry") {
-			t.Errorf("expected 'registry' key in output, got: %s", stdout)
+		initRepoWithFiles(t, map[string]string{"go.mod": string(goMod)})
+
+		urls := runUrlsJSON(t, "golang.org/x/mod", "-e", "golang")
+		if urls["purl"] != "pkg:golang/golang.org/x/mod@v0.32.0" {
+			t.Errorf("expected versioned purl, got: %q", urls["purl"])
 		}
 	})
 
 	t.Run("errors when package not found", func(t *testing.T) {
-		repoDir := createTestRepo(t)
-		addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add package.json")
-		cleanup := chdir(t, repoDir)
-		defer cleanup()
+		initRepoWithFiles(t, map[string]string{"package.json": packageJSON})
 
-		_, _, err := runCmd(t, "init")
-		if err != nil {
-			t.Fatalf("init failed: %v", err)
-		}
-
-		_, _, err = runCmd(t, "urls", "nonexistent-package-xyz")
+		_, _, err := runCmd(t, "urls", "nonexistent-package-xyz")
 		if err == nil {
 			t.Error("expected error for non-existent package")
 		}

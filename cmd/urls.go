@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries"
 	_ "github.com/git-pkgs/registries/all"
@@ -113,37 +114,52 @@ func lookupPackage(name, ecosystem string) (purlType, pkgName, version string, e
 	}
 
 	// Filter to exact name matches if any exist
-	var exact []struct{ eco, req string }
+	var matches []database.SearchResult
 	for _, r := range results {
 		if strings.EqualFold(r.Name, name) {
-			exact = append(exact, struct{ eco, req string }{r.Ecosystem, r.Requirement})
+			matches = append(matches, r)
 		}
 	}
 
-	if len(exact) == 0 {
-		// No exact match, use the first result
-		exact = append(exact, struct{ eco, req string }{results[0].Ecosystem, results[0].Requirement})
+	if len(matches) == 0 {
+		// No exact match, use the first substring result
+		matches = append(matches, results[0])
 	}
 
-	// Deduplicate by ecosystem
-	seen := make(map[string]bool)
-	var unique []struct{ eco, req string }
-	for _, e := range exact {
-		if !seen[e.eco] {
-			seen[e.eco] = true
-			unique = append(unique, e)
+	// Deduplicate by ecosystem, preferring rows that carry a resolved
+	// version (lockfiles, or manifests from ecosystems that pin exact
+	// versions) over rows with range constraints.
+	seen := make(map[string]int)
+	var unique []database.SearchResult
+	for _, m := range matches {
+		if i, ok := seen[m.Ecosystem]; ok {
+			prev := unique[i]
+			if !hasResolvedRequirement(prev.Ecosystem, prev.ManifestKind) && hasResolvedRequirement(m.Ecosystem, m.ManifestKind) {
+				unique[i] = m
+			}
+			continue
 		}
+		seen[m.Ecosystem] = len(unique)
+		unique = append(unique, m)
 	}
 
 	if len(unique) > 1 && ecosystem == "" {
 		ecos := make([]string, len(unique))
 		for i, u := range unique {
-			ecos[i] = u.eco
+			ecos[i] = u.Ecosystem
 		}
 		return "", "", "", fmt.Errorf("ambiguous: %q found in multiple ecosystems (%s). Use --ecosystem to specify", name, strings.Join(ecos, ", "))
 	}
 
 	match := unique[0]
-	pt := purl.EcosystemToPURLType(match.eco)
-	return pt, name, match.req, nil
+	pt := purl.EcosystemToPURLType(match.Ecosystem)
+
+	// Manifest requirements are constraints (^1.2.3, ~> 2.0), not versions.
+	// Only return the requirement as a version when it's known to be exact.
+	resolved := ""
+	if hasResolvedRequirement(match.Ecosystem, match.ManifestKind) {
+		resolved = match.Requirement
+	}
+
+	return pt, match.Name, resolved, nil
 }
