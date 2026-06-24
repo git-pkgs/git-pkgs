@@ -56,6 +56,12 @@ func TestSearchFileForPackage(t *testing.T) {
 			packageName: "six",
 			wantLines:   nil,
 		},
+		{
+			name:        "no match when package name is hyphenated substring",
+			content:     `    "my-left-pad": "1.0.0",`,
+			packageName: "left-pad",
+			wantLines:   nil,
+		},
 	}
 
 	for _, tt := range tests {

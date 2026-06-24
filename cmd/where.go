@@ -168,10 +168,13 @@ func searchFileForPackage(root *os.Root, osRel, relPath, packageName, ecosystem 
 	var matches []WhereMatch
 	var lines []string
 
-	// Case-insensitive search with non-alphanumeric boundaries to avoid matching inside hashes.
-	// We can't use \b because package names may start/end with non-word chars (e.g. @scope/pkg).
+	// Case-insensitive search with package-token boundaries to avoid matching inside
+	// hashes or similarly named packages. We can't use \b because package names may
+	// start/end with non-word chars (e.g. @scope/pkg), and punctuation like hyphens
+	// can be part of package names. Allow @ as a boundary so GitHub Actions like
+	// actions/checkout@v4 still match actions/checkout.
 	quoted := regexp.QuoteMeta(packageName)
-	re := regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])` + quoted + `(?:$|[^A-Za-z0-9])`)
+	re := regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9._-])` + quoted + `(?:$|[^A-Za-z0-9._-])`)
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
