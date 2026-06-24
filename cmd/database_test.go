@@ -220,6 +220,11 @@ func TestInfoCommand(t *testing.T) {
 		if !strings.Contains(stdout, "Branch") {
 			t.Errorf("expected 'Branch' in output, got: %s", stdout)
 		}
+		for _, tableName := range []string{"Packages", "Versions", "Vulnerabilities", "Vulnerability Packages", "Notes"} {
+			if !strings.Contains(stdout, tableName) {
+				t.Errorf("expected %q row count in output, got: %s", tableName, stdout)
+			}
+		}
 	})
 
 	t.Run("shows ecosystems flag", func(t *testing.T) {
@@ -274,6 +279,16 @@ func TestInfoCommand(t *testing.T) {
 		}
 		if _, ok := info["row_counts"]; !ok {
 			t.Error("expected 'row_counts' in JSON")
+		}
+
+		rowCounts, ok := info["row_counts"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected row_counts object, got: %#v", info["row_counts"])
+		}
+		for _, table := range []string{"packages", "versions", "vulnerabilities", "vulnerability_packages", "notes"} {
+			if _, ok := rowCounts[table]; !ok {
+				t.Errorf("expected %q row count in JSON", table)
+			}
 		}
 	})
 

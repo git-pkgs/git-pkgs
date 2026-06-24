@@ -110,14 +110,31 @@ func outputInfoText(cmd *cobra.Command, info *database.DatabaseInfo) {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "----------------------------------------")
 
 	total := 0
-	order := []string{"branches", "commits", "branch_commits", "manifests", "dependency_changes", "dependency_snapshots"}
+	order := []string{
+		"branches",
+		"commits",
+		"branch_commits",
+		"manifests",
+		"dependency_changes",
+		"dependency_snapshots",
+		"packages",
+		"versions",
+		"vulnerabilities",
+		"vulnerability_packages",
+		"notes",
+	}
 	names := map[string]string{
-		"branches":             "Branches",
-		"commits":              "Commits",
-		"branch_commits":       "Branch-Commits",
-		"manifests":            "Manifests",
-		"dependency_changes":   "Dependency Changes",
-		"dependency_snapshots": "Dependency Snapshots",
+		"branches":               "Branches",
+		"commits":                "Commits",
+		"branch_commits":         "Branch-Commits",
+		"manifests":              "Manifests",
+		"dependency_changes":     "Dependency Changes",
+		"dependency_snapshots":   "Dependency Snapshots",
+		"packages":               "Packages",
+		"versions":               "Versions",
+		"vulnerabilities":        "Vulnerabilities",
+		"vulnerability_packages": "Vulnerability Packages",
+		"notes":                  "Notes",
 	}
 
 	for _, table := range order {

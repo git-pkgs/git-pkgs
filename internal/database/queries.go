@@ -656,8 +656,20 @@ func (db *DB) GetDatabaseInfo() (*DatabaseInfo, error) {
 		info.LastAnalyzedSHA = branchInfo.LastAnalyzedSHA
 	}
 
-	// Row counts for main tables
-	tables := []string{"branches", "commits", "branch_commits", "manifests", "dependency_changes", "dependency_snapshots", "packages", "versions"}
+	// Row counts for main tables.
+	tables := []string{
+		"branches",
+		"commits",
+		"branch_commits",
+		"manifests",
+		"dependency_changes",
+		"dependency_snapshots",
+		"packages",
+		"versions",
+		"vulnerabilities",
+		"vulnerability_packages",
+		"notes",
+	}
 	for _, table := range tables {
 		var count int
 		err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)

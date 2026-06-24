@@ -74,6 +74,7 @@ func TestCreate(t *testing.T) {
 			"versions",
 			"vulnerabilities",
 			"vulnerability_packages",
+			"notes",
 		}
 
 		for _, table := range tables {
