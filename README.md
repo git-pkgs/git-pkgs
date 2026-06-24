@@ -789,6 +789,9 @@ Commands that run package managers (`install`, `add`, `remove`, `update`) delega
 - `GIT_DIR` - git directory location (standard git variable)
 - `GIT_PKGS_DB` - database path (default: `.git/pkgs.sqlite3`)
 - `GIT_PKGS_DIRECT` - set to `1` to query registries directly (skip ecosyste.ms)
+- `GIT_PKGS_ECOSYSTEMS_FROM` - email address sent as the `From` header on ecosyste.ms requests, putting you in the [polite pool](https://ecosyste.ms/api-policy) instead of the shared anonymous pool
+- `GIT_PKGS_ECOSYSTEMS_API_KEY` - ecosyste.ms API key sent as a bearer token
+- `GIT_PKGS_ECOSYSTEMS_BATCH_SIZE` - per-request batch size for ecosyste.ms bulk lookups
 
 **Author mapping** via `.mailmap` is supported. If your repository has a [`.mailmap` file](https://git-scm.com/docs/gitmailmap), author identities are resolved to their canonical names when indexing commits. This helps deduplicate contributors in `blame`, `history`, and `stats` output.
 

@@ -177,7 +177,7 @@ func fetchFundingPackageData(db *database.DB, deps []database.Dependency) (map[s
 }
 
 func fetchFundingMetadata(purls []string) (map[string]*enrichment.PackageInfo, error) {
-	client, err := NewEnrichmentClient(enrichment.WithUserAgent(userAgent))
+	client, err := newEnrichmentClient()
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,11 @@ func fetchFundingMetadata(purls []string) (map[string]*enrichment.PackageInfo, e
 	ctx, cancel := context.WithTimeout(context.Background(), fundingLookupTimeout)
 	defer cancel()
 
-	return client.BulkLookup(ctx, purls)
+	packages, err := client.BulkLookup(ctx, purls)
+	if err != nil {
+		return nil, wrapEcosystemsError(err)
+	}
+	return packages, nil
 }
 
 func saveFundingPackageData(

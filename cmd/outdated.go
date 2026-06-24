@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
@@ -212,7 +211,7 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 
 	// Fetch uncached from API
 	if len(uncachedPurls) > 0 {
-		client, err := enrichment.NewClient(enrichment.WithUserAgent(userAgent))
+		client, err := newEnrichmentClient()
 		if err != nil {
 			return nil, err
 		}
@@ -223,7 +222,7 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 
 		packages, err := client.BulkLookup(ctx, uncachedPurls)
 		if err != nil {
-			return nil, err
+			return nil, wrapEcosystemsError(err)
 		}
 
 		var toSave []database.PackageEnrichmentData
@@ -291,7 +290,7 @@ func findLatestAtDateCached(db *database.DB, ecosystem, name, purl string, atTim
 	}
 
 	// Fall back to API
-	client, err := enrichment.NewClient(enrichment.WithUserAgent(userAgent))
+	client, err := newEnrichmentClient()
 	if err != nil {
 		return ""
 	}

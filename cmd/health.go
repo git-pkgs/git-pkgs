@@ -197,7 +197,7 @@ func fetchHealthPackageData(db *database.DB, deps []database.Dependency) (map[st
 }
 
 func fetchHealthMetadata(purls []string) (map[string]*enrichment.PackageInfo, error) {
-	client, err := NewEnrichmentClient(enrichment.WithUserAgent(userAgent))
+	client, err := newEnrichmentClient()
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,11 @@ func fetchHealthMetadata(purls []string) (map[string]*enrichment.PackageInfo, er
 	ctx, cancel := context.WithTimeout(context.Background(), healthLookupTimeout)
 	defer cancel()
 
-	return client.BulkLookup(ctx, purls)
+	packages, err := client.BulkLookup(ctx, purls)
+	if err != nil {
+		return nil, wrapEcosystemsError(err)
+	}
+	return packages, nil
 }
 
 func saveHealthPackageData(

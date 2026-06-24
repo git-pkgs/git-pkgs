@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
@@ -269,7 +268,7 @@ func runRegistryCheck(cmd *cobra.Command, deps []database.Dependency, format str
 	}
 
 	// Create enrichment client
-	client, err := enrichment.NewClient(enrichment.WithUserAgent(userAgent))
+	client, err := newEnrichmentClient()
 	if err != nil {
 		return fmt.Errorf("creating enrichment client: %w", err)
 	}

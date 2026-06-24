@@ -19,10 +19,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewEnrichmentClient is the constructor for the enrichment client.
-// Tests can replace this to avoid external API calls.
-var NewEnrichmentClient = enrichment.NewClient
-
 func addLicensesCmd(parent *cobra.Command) {
 	licensesCmd := &cobra.Command{
 		Use:   "licenses",
@@ -354,7 +350,7 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 
 	// Fetch uncached from API
 	if len(uncachedPurls) > 0 {
-		client, err := NewEnrichmentClient(enrichment.WithUserAgent(userAgent))
+		client, err := newEnrichmentClient()
 		if err != nil {
 			return nil, err
 		}
@@ -365,7 +361,7 @@ func getLicenseData(db *database.DB, purls []string, purlToDep map[string]databa
 
 		packages, err := client.BulkLookup(ctx, uncachedPurls)
 		if err != nil {
-			return nil, err
+			return nil, wrapEcosystemsError(err)
 		}
 
 		for purl, pkg := range packages {
@@ -553,7 +549,7 @@ func loadLicenseDriftVersionLicenses(db *database.DB, deps []database.Dependency
 		return result, nil
 	}
 
-	client, err := NewEnrichmentClient(enrichment.WithUserAgent(userAgent))
+	client, err := newEnrichmentClient()
 	if err != nil {
 		return nil, err
 	}
@@ -572,7 +568,7 @@ func loadLicenseDriftVersionLicenses(db *database.DB, deps []database.Dependency
 	}
 	if len(fetchErrors) == len(missing) {
 		return nil, fmt.Errorf("fetching license drift metadata failed for all %d uncached versions: %w",
-			len(missing), errors.Join(fetchErrors...))
+			len(missing), wrapEcosystemsError(errors.Join(fetchErrors...)))
 	}
 
 	return result, nil

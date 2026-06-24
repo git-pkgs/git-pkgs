@@ -237,7 +237,7 @@ func fetchMaintainerDataUncached(ctx context.Context, purls []string) map[string
 		return results
 	}
 
-	client, err := NewEnrichmentClient(enrichment.WithUserAgent(userAgent))
+	client, err := newEnrichmentClient()
 	if err != nil {
 		for _, purlStr := range purls {
 			results[purlStr] = maintainerLookupResult{Error: fmt.Sprintf("creating enrichment client: %v", err)}
@@ -247,8 +247,9 @@ func fetchMaintainerDataUncached(ctx context.Context, purls []string) map[string
 
 	packages, err := client.BulkLookup(ctx, purls)
 	if err != nil {
+		wrapped := wrapEcosystemsError(err).Error()
 		for _, purlStr := range purls {
-			results[purlStr] = maintainerLookupResult{Error: err.Error()}
+			results[purlStr] = maintainerLookupResult{Error: wrapped}
 		}
 		return results
 	}

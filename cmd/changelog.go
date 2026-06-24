@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/git-pkgs/changelog"
-	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/purl"
 	"github.com/spf13/cobra"
 )
@@ -64,14 +63,14 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), changelogTimeout)
 	defer cancel()
 
-	client, err := enrichment.NewClient(enrichment.WithUserAgent(userAgent))
+	client, err := newEnrichmentClient()
 	if err != nil {
 		return fmt.Errorf("creating API client: %w", err)
 	}
 
 	packages, err := client.BulkLookup(ctx, []string{purlStr})
 	if err != nil {
-		return fmt.Errorf("looking up package: %w", err)
+		return fmt.Errorf("looking up package: %w", wrapEcosystemsError(err))
 	}
 	pkgInfo := packages[purlStr]
 	if pkgInfo == nil {

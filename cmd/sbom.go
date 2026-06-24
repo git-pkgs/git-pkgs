@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
@@ -166,7 +165,7 @@ func getSBOMLicenseData(db *database.DB, purls []string, purlToDep map[string]da
 
 	// Fetch uncached from API
 	if len(uncachedPurls) > 0 {
-		client, err := enrichment.NewClient(enrichment.WithUserAgent(userAgent))
+		client, err := newEnrichmentClient()
 		if err != nil {
 			return nil, err
 		}
@@ -177,7 +176,7 @@ func getSBOMLicenseData(db *database.DB, purls []string, purlToDep map[string]da
 
 		packages, err := client.BulkLookup(ctx, uncachedPurls)
 		if err != nil {
-			return nil, err
+			return nil, wrapEcosystemsError(err)
 		}
 
 		for purl, pkg := range packages {
