@@ -1400,6 +1400,11 @@ func runVulnsLog(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(commits) == 0 {
+		if format == formatJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode([]VulnLogEntry{})
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No commits with dependency changes found.")
 		return nil
 	}
@@ -1479,15 +1484,15 @@ func runVulnsLog(cmd *cobra.Command, args []string) error {
 		prevVulns = currentVulns
 	}
 
-	if len(entries) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerability changes found in recent commits.")
-		return nil
-	}
-
 	if format == formatJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(entries)
+		return enc.Encode(nonNilSlice(entries))
+	}
+
+	if len(entries) == 0 {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerability changes found in recent commits.")
+		return nil
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Vulnerability changes in %d commits:\n\n", len(entries))

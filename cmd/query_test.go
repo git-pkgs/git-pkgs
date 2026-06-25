@@ -239,6 +239,45 @@ func TestListCommand(t *testing.T) {
 	})
 }
 
+func TestEmptyResultsRespectJSONFormat(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add package.json")
+
+	cleanup := chdir(t, repoDir)
+	defer cleanup()
+
+	if _, _, err := runCmd(t, "init"); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "search", args: []string{"search", "definitely-not-present", "--format", "json"}},
+		{name: "log", args: []string{"log", "--since", "2999-01-01", "--format", "json"}},
+		{name: "notes list", args: []string{"notes", "list", "--format", "json"}},
+		{name: "notes namespaces", args: []string{"notes", "namespaces", "--format", "json"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, _, err := runCmd(t, tt.args...)
+			if err != nil {
+				t.Fatalf("command failed: %v", err)
+			}
+
+			var result []any
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatalf("expected JSON array, got %q: %v", stdout, err)
+			}
+			if len(result) != 0 {
+				t.Fatalf("expected empty JSON array, got %v", result)
+			}
+		})
+	}
+}
+
 func TestShowCommand(t *testing.T) {
 	t.Run("shows changes in commit", func(t *testing.T) {
 		repoDir := createTestRepo(t)

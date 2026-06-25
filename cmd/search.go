@@ -46,15 +46,14 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("searching: %w", err)
 	}
 
-	if len(results) == 0 {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No dependencies matching %q found.\n", pattern)
-		return nil
-	}
-
 	switch format {
 	case formatJSON:
 		return outputSearchJSON(cmd, results)
 	default:
+		if len(results) == 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No dependencies matching %q found.\n", pattern)
+			return nil
+		}
 		outputSearchText(cmd, results)
 		return nil
 	}
@@ -63,7 +62,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 func outputSearchJSON(cmd *cobra.Command, results []database.SearchResult) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(results)
+	return enc.Encode(nonNilSlice(results))
 }
 
 func outputSearchText(cmd *cobra.Command, results []database.SearchResult) {

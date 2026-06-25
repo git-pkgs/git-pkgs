@@ -296,17 +296,16 @@ func runNotesList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("listing notes: %w", err)
 	}
 
-	if len(notes) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No notes found.")
-		return nil
-	}
-
 	switch format {
 	case formatJSON:
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(notes)
+		return enc.Encode(nonNilSlice(notes))
 	default:
+		if len(notes) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No notes found.")
+			return nil
+		}
 		for _, n := range notes {
 			line := n.PURL
 			if n.Namespace != "" {
@@ -361,17 +360,16 @@ func runNotesNamespaces(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("listing namespaces: %w", err)
 	}
 
-	if len(namespaces) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No notes found.")
-		return nil
-	}
-
 	switch format {
 	case formatJSON:
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(namespaces)
+		return enc.Encode(nonNilSlice(namespaces))
 	default:
+		if len(namespaces) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No notes found.")
+			return nil
+		}
 		for _, ns := range namespaces {
 			name := ns.Namespace
 			if name == "" {

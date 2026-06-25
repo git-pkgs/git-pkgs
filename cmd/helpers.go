@@ -56,6 +56,13 @@ func resolveBranch(db *database.DB, branchName string) (*database.BranchInfo, er
 	return branch, nil
 }
 
+func nonNilSlice[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+	return items
+}
+
 func shortSHA(sha string) string {
 	if len(sha) > shortSHALen {
 		return sha[:shortSHALen]

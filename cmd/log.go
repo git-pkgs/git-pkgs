@@ -72,15 +72,14 @@ func runLog(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting commits: %w", err)
 	}
 
-	if len(commits) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No commits with dependency changes found.")
-		return nil
-	}
-
 	switch format {
 	case formatJSON:
 		return outputLogJSON(cmd, commits)
 	default:
+		if len(commits) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No commits with dependency changes found.")
+			return nil
+		}
 		outputLogText(cmd, commits)
 		return nil
 	}
@@ -89,7 +88,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 func outputLogJSON(cmd *cobra.Command, commits []database.CommitWithChanges) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(commits)
+	return enc.Encode(nonNilSlice(commits))
 }
 
 func outputLogText(cmd *cobra.Command, commits []database.CommitWithChanges) {
