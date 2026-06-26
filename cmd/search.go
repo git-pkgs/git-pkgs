@@ -28,7 +28,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	pattern := args[0]
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	directOnly, _ := cmd.Flags().GetBool("direct")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	_, db, err := openDatabase()
 	if err != nil {

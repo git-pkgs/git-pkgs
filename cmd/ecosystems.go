@@ -100,7 +100,10 @@ func buildDetail(name string, cfg *ecosystemConfig, hasRegistry bool) EcosystemD
 }
 
 func runEcosystems(cmd *cobra.Command, args []string) error {
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 	details := buildEcosystemDetails()
 
 	switch format {

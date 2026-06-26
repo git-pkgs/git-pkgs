@@ -48,7 +48,10 @@ func runWhere(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	context, _ := cmd.Flags().GetInt("context")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 	includeSubmodules, _ := cmd.Flags().GetBool("include-submodules")
 
 	repo, err := git.OpenRepository(".")

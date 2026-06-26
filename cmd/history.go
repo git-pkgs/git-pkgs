@@ -45,7 +45,10 @@ func runHistory(cmd *cobra.Command, args []string) error {
 	author, _ := cmd.Flags().GetString("author")
 	since, _ := cmd.Flags().GetString("since")
 	until, _ := cmd.Flags().GetString("until")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 	excludeBots, _ := cmd.Flags().GetBool("exclude-bots")
 
 	repo, err := git.OpenRepository(".")

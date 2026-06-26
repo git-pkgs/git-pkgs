@@ -86,7 +86,7 @@ func TestHelpJSONRejectsUnsupportedFormat(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported format error")
 	}
-	if !strings.Contains(err.Error(), `unsupported help format "yaml"`) {
+	if !strings.Contains(err.Error(), `unsupported format "yaml"; supported formats: text, json`) {
 		t.Fatalf("error = %v", err)
 	}
 }

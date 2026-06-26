@@ -24,7 +24,10 @@ func addDiffFileCmd(parent *cobra.Command) {
 
 func runDiffFile(cmd *cobra.Command, args []string) error {
 	defaultFilename, _ := cmd.Flags().GetString("filename")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	fromDeps, err := parseFile(args[0], defaultFilename)
 	if err != nil {

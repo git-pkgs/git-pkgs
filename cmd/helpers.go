@@ -7,6 +7,7 @@ import (
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
+	"github.com/spf13/cobra"
 )
 
 const (
@@ -61,6 +62,17 @@ func nonNilSlice[T any](items []T) []T {
 		return []T{}
 	}
 	return items
+}
+
+func getFormatFlag(cmd *cobra.Command, allowed ...string) (string, error) {
+	format, _ := cmd.Flags().GetString("format")
+	for _, allowedFormat := range allowed {
+		if format == allowedFormat {
+			return format, nil
+		}
+	}
+
+	return "", fmt.Errorf("unsupported format %q; supported formats: %s", format, strings.Join(allowed, ", "))
 }
 
 func shortSHA(sha string) string {

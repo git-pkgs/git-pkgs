@@ -36,7 +36,10 @@ type ColumnSchema struct {
 }
 
 func runSchema(cmd *cobra.Command, args []string) error {
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatSQL, formatJSON, formatMarkdown)
+	if err != nil {
+		return err
+	}
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {

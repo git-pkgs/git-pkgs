@@ -35,7 +35,10 @@ func runStats(cmd *cobra.Command, args []string) error {
 	since, _ := cmd.Flags().GetString("since")
 	until, _ := cmd.Flags().GetString("until")
 	limit, _ := cmd.Flags().GetInt("limit")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 	byAuthor, _ := cmd.Flags().GetBool("by-author")
 	excludeBots, _ := cmd.Flags().GetBool("exclude-bots")
 

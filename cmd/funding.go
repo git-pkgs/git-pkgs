@@ -60,7 +60,10 @@ func runFunding(cmd *cobra.Command, args []string) error {
 	commit, _ := cmd.Flags().GetString("commit")
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 	showMissing, _ := cmd.Flags().GetBool("missing")
 
 	repo, err := git.OpenRepository(".")

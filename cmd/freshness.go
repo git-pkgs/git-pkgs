@@ -73,7 +73,10 @@ func runFreshness(cmd *cobra.Command, args []string) error {
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	limit, _ := cmd.Flags().GetInt("limit")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {

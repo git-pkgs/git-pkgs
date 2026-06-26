@@ -33,7 +33,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {

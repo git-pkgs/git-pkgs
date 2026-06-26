@@ -34,7 +34,10 @@ The SBOM includes all dependencies and optionally enriched license information.`
 
 func runSBOM(cmd *cobra.Command, args []string) error {
 	sbomType, _ := cmd.Flags().GetString("type")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatJSON, formatXML)
+	if err != nil {
+		return err
+	}
 	commit, _ := cmd.Flags().GetString("commit")
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")

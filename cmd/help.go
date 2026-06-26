@@ -46,7 +46,10 @@ func addJSONHelpCommand(root *cobra.Command) {
 		Short: "Help about any command",
 		Long:  "Help provides help for any command in the application.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			format, _ := cmd.Flags().GetString("format")
+			format, err := getFormatFlag(cmd, formatText, formatJSON)
+			if err != nil {
+				return err
+			}
 			switch format {
 			case "text", "":
 				target, err := helpTargetCommand(root, args)

@@ -39,7 +39,10 @@ Examples:
 func runUrls(cmd *cobra.Command, args []string) error {
 	pkg := args[0]
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	var purlType, name, version string
 

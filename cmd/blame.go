@@ -27,7 +27,10 @@ func addBlameCmd(parent *cobra.Command) {
 func runBlame(cmd *cobra.Command, args []string) error {
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 	excludeBots, _ := cmd.Flags().GetBool("exclude-bots")
 
 	_, db, err := openDatabase()

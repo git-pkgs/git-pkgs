@@ -253,7 +253,10 @@ func loadNotesImportFile(path, defaultNamespace, defaultOrigin string) ([]databa
 func runNotesShow(cmd *cobra.Command, args []string) error {
 	purl := args[0]
 	namespace, _ := cmd.Flags().GetString("namespace")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	_, db, err := openDatabase()
 	if err != nil {
@@ -283,7 +286,10 @@ func runNotesShow(cmd *cobra.Command, args []string) error {
 func runNotesList(cmd *cobra.Command, args []string) error {
 	namespace, _ := cmd.Flags().GetString("namespace")
 	purlFilter, _ := cmd.Flags().GetString("purl-filter")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	_, db, err := openDatabase()
 	if err != nil {
@@ -347,7 +353,10 @@ func runNotesRemove(cmd *cobra.Command, args []string) error {
 
 func runNotesNamespaces(cmd *cobra.Command, args []string) error {
 	purlFilter, _ := cmd.Flags().GetString("purl-filter")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	_, db, err := openDatabase()
 	if err != nil {

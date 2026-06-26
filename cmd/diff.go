@@ -69,7 +69,10 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	toRef, _ := cmd.Flags().GetString("to")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	depType, _ := cmd.Flags().GetString("type")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 	by, _ := cmd.Flags().GetString("by")
 	stat, _ := cmd.Flags().GetBool("stat")
 	summary, _ := cmd.Flags().GetBool("summary")

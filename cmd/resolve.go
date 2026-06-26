@@ -54,7 +54,10 @@ func runResolve(cmd *cobra.Command, args []string) error {
 	quiet, _ := cmd.Flags().GetBool("quiet")
 	extra, _ := cmd.Flags().GetStringArray("extra")
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	dir, err := getWorkingDir()
 	if err != nil {

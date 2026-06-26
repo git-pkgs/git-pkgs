@@ -34,7 +34,10 @@ func runTree(cmd *cobra.Command, args []string) error {
 	commitRef, _ := cmd.Flags().GetString("commit")
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	repo, db, err := openDatabase()
 	if err != nil {

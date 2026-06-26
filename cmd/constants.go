@@ -1,7 +1,15 @@
 package cmd
 
-// Output format
-const formatJSON = "json"
+// Output formats
+const (
+	formatText     = "text"
+	formatJSON     = "json"
+	formatCSV      = "csv"
+	formatXML      = "xml"
+	formatSARIF    = "sarif"
+	formatSQL      = "sql"
+	formatMarkdown = "markdown"
+)
 
 // Git refs
 const refHEAD = "HEAD"

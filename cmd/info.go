@@ -26,7 +26,10 @@ func addInfoCmd(parent *cobra.Command) {
 
 func runInfo(cmd *cobra.Command, args []string) error {
 	showEcosystems, _ := cmd.Flags().GetBool("ecosystems")
-	format, _ := cmd.Flags().GetString("format")
+	format, err := getFormatFlag(cmd, formatText, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	repo, err := git.OpenRepository(".")
 	if err != nil {
