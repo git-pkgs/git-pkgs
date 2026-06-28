@@ -50,27 +50,19 @@ func addJSONHelpCommand(root *cobra.Command) {
 			if err != nil {
 				return err
 			}
-			switch format {
-			case "text", "":
-				target, err := helpTargetCommand(root, args)
-				if err != nil {
-					return err
-				}
-				target.SetOut(cmd.OutOrStdout())
-				target.SetErr(cmd.ErrOrStderr())
-				return target.Help()
-			case "json":
-				target, err := helpTargetCommand(root, args)
-				if err != nil {
-					return err
-				}
+			target, err := helpTargetCommand(root, args)
+			if err != nil {
+				return err
+			}
+			if format == formatJSON {
 				encoder := json.NewEncoder(cmd.OutOrStdout())
 				encoder.SetIndent("", "  ")
 				encoder.SetEscapeHTML(false)
 				return encoder.Encode(buildHelpCommandDoc(target))
-			default:
-				return fmt.Errorf("unsupported help format %q; supported formats: text, json", format)
 			}
+			target.SetOut(cmd.OutOrStdout())
+			target.SetErr(cmd.ErrOrStderr())
+			return target.Help()
 		},
 	}
 	helpCmd.Flags().StringP("format", "f", "text", "Output format: text, json")

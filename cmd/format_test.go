@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -30,14 +31,10 @@ func TestUnsupportedFormatValuesAreRejected(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected unsupported format error")
 			}
-			want := "unsupported format " + quote(tt.args[len(tt.args)-1]) + "; supported formats: " + tt.formats
+			want := fmt.Sprintf("unsupported format %q; supported formats: %s", tt.args[len(tt.args)-1], tt.formats)
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), want)
 			}
 		})
 	}
-}
-
-func quote(value string) string {
-	return "\"" + value + "\""
 }
