@@ -50,15 +50,14 @@ func runBlame(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting blame: %w", err)
 	}
 
-	if len(entries) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependencies found.")
-		return nil
-	}
-
 	switch format {
 	case formatJSON:
 		return outputBlameJSON(cmd, entries)
 	default:
+		if len(entries) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependencies found.")
+			return nil
+		}
 		outputBlameText(cmd, entries)
 		return nil
 	}
@@ -67,7 +66,7 @@ func runBlame(cmd *cobra.Command, args []string) error {
 func outputBlameJSON(cmd *cobra.Command, entries []database.BlameEntry) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(entries)
+	return enc.Encode(nonNilSlice(entries))
 }
 
 func outputBlameText(cmd *cobra.Command, entries []database.BlameEntry) {

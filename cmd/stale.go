@@ -46,19 +46,18 @@ func runStale(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting stale dependencies: %w", err)
 	}
 
-	if len(entries) == 0 {
-		if days > 0 {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No dependencies unchanged for %d+ days.\n", days)
-		} else {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No lockfile dependencies found.")
-		}
-		return nil
-	}
-
 	switch format {
 	case formatJSON:
 		return outputStaleJSON(cmd, entries)
 	default:
+		if len(entries) == 0 {
+			if days > 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No dependencies unchanged for %d+ days.\n", days)
+			} else {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No lockfile dependencies found.")
+			}
+			return nil
+		}
 		outputStaleText(cmd, entries)
 		return nil
 	}
@@ -67,7 +66,7 @@ func runStale(cmd *cobra.Command, args []string) error {
 func outputStaleJSON(cmd *cobra.Command, entries []database.StaleEntry) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(entries)
+	return enc.Encode(nonNilSlice(entries))
 }
 
 func outputStaleText(cmd *cobra.Command, entries []database.StaleEntry) {

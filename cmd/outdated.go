@@ -80,6 +80,9 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(lockfileDeps) == 0 {
+		if format == formatJSON {
+			return outputOutdatedJSON(cmd, nil)
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No lockfile dependencies found.")
 		return nil
 	}
@@ -160,13 +163,12 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 		})
 	}
 
+	if format == formatJSON {
+		return outputOutdatedJSON(cmd, outdated)
+	}
 	if len(outdated) == 0 {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "All dependencies are up to date.")
 		return nil
-	}
-
-	if format == formatJSON {
-		return outputOutdatedJSON(cmd, outdated)
 	}
 	outputOutdatedText(cmd, outdated)
 	return nil
@@ -365,7 +367,7 @@ func classifyUpdate(current, latest string) string {
 func outputOutdatedJSON(cmd *cobra.Command, outdated []OutdatedPackage) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(outdated)
+	return enc.Encode(nonNilSlice(outdated))
 }
 
 func outputOutdatedText(cmd *cobra.Command, outdated []OutdatedPackage) {

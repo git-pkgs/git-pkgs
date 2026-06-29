@@ -145,15 +145,14 @@ func runWhere(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("searching files: %w", err)
 	}
 
-	if len(matches) == 0 {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Package %q not found in manifest files.\n", packageName)
-		return nil
-	}
-
 	switch format {
 	case formatJSON:
 		return outputWhereJSON(cmd, matches)
 	default:
+		if len(matches) == 0 {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Package %q not found in manifest files.\n", packageName)
+			return nil
+		}
 		return outputWhereText(cmd, matches, context > 0)
 	}
 }
@@ -219,7 +218,7 @@ func getContext(lines []string, lineIndex, contextLines int) []string {
 func outputWhereJSON(cmd *cobra.Command, matches []WhereMatch) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(matches)
+	return enc.Encode(nonNilSlice(matches))
 }
 
 func outputWhereText(cmd *cobra.Command, matches []WhereMatch, showContext bool) error {

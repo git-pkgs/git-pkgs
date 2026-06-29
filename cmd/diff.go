@@ -124,16 +124,15 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if len(result.Added) == 0 && len(result.Modified) == 0 && len(result.Removed) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependency changes.")
-		return nil
-	}
-
 	// Output
 	switch format {
 	case formatJSON:
 		return outputDiffJSON(cmd, result)
 	default:
+		if len(result.Added) == 0 && len(result.Modified) == 0 && len(result.Removed) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependency changes.")
+			return nil
+		}
 		return outputDiffText(cmd, result)
 	}
 }

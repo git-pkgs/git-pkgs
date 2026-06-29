@@ -63,17 +63,16 @@ func runTree(cmd *cobra.Command, args []string) error {
 
 	deps = filterByEcosystem(deps, ecosystem)
 
-	if len(deps) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependencies found.")
-		return nil
-	}
-
 	tree := buildTree(deps)
 
 	switch format {
 	case formatJSON:
 		return outputTreeJSON(cmd, tree)
 	default:
+		if len(deps) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependencies found.")
+			return nil
+		}
 		outputTreeText(cmd, tree)
 		return nil
 	}
@@ -161,7 +160,7 @@ func buildTree(deps []database.Dependency) []*TreeNode {
 func outputTreeJSON(cmd *cobra.Command, tree []*TreeNode) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(tree)
+	return enc.Encode(nonNilSlice(tree))
 }
 
 func outputTreeText(cmd *cobra.Command, tree []*TreeNode) {

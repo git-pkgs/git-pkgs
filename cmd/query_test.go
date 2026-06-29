@@ -258,6 +258,12 @@ func TestEmptyResultsRespectJSONFormat(t *testing.T) {
 		{name: "log", args: []string{"log", "--since", "2999-01-01", "--format", "json"}},
 		{name: "notes list", args: []string{"notes", "list", "--format", "json"}},
 		{name: "notes namespaces", args: []string{"notes", "namespaces", "--format", "json"}},
+		{name: "blame", args: []string{"blame", "--ecosystem", "definitely-not-present", "--format", "json"}},
+		{name: "tree", args: []string{"tree", "--ecosystem", "definitely-not-present", "--format", "json"}},
+		{name: "outdated", args: []string{"outdated", "--format", "json"}},
+		{name: "stale", args: []string{"stale", "--format", "json"}},
+		{name: "show", args: []string{"show", "HEAD", "--ecosystem", "definitely-not-present", "--format", "json"}},
+		{name: "where", args: []string{"where", "definitely-not-present", "--format", "json"}},
 	}
 
 	for _, tt := range tests {

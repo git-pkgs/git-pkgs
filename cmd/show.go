@@ -56,16 +56,15 @@ func runShow(cmd *cobra.Command, args []string) error {
 		changes = filtered
 	}
 
-	if len(changes) == 0 {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependency changes in this commit.")
-		return nil
-	}
-
 	// Output
 	switch format {
 	case formatJSON:
 		return outputShowJSON(cmd, changes)
 	default:
+		if len(changes) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependency changes in this commit.")
+			return nil
+		}
 		return outputShowText(cmd, changes)
 	}
 }
@@ -129,7 +128,7 @@ func getChangesForCommit(repo *git.Repository, commitRef string) ([]database.Cha
 func outputShowJSON(cmd *cobra.Command, changes []database.Change) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(changes)
+	return enc.Encode(nonNilSlice(changes))
 }
 
 func outputShowText(cmd *cobra.Command, changes []database.Change) error {
