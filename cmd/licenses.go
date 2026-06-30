@@ -124,6 +124,9 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(directDeps) == 0 {
+		if format == formatJSON {
+			return outputLicensesJSON(cmd, nil)
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No direct dependencies found.")
 		return nil
 	}
@@ -758,7 +761,7 @@ func outputLicenseDriftText(cmd *cobra.Command, result *LicenseDriftResult) {
 func outputLicensesJSON(cmd *cobra.Command, infos []LicenseInfo) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(infos)
+	return enc.Encode(nonNilSlice(infos))
 }
 
 func outputLicensesCSV(cmd *cobra.Command, infos []LicenseInfo) error {

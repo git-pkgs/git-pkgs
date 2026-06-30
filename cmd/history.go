@@ -82,19 +82,18 @@ func runHistory(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting history: %w", err)
 	}
 
-	if len(entries) == 0 {
-		if packageName != "" {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No history found for %q.\n", packageName)
-		} else {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependency changes found.")
-		}
-		return nil
-	}
-
 	switch format {
 	case formatJSON:
 		return outputHistoryJSON(cmd, entries)
 	default:
+		if len(entries) == 0 {
+			if packageName != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No history found for %q.\n", packageName)
+			} else {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependency changes found.")
+			}
+			return nil
+		}
 		outputHistoryText(cmd, entries, packageName)
 		return nil
 	}
@@ -103,7 +102,7 @@ func runHistory(cmd *cobra.Command, args []string) error {
 func outputHistoryJSON(cmd *cobra.Command, entries []database.HistoryEntry) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(entries)
+	return enc.Encode(nonNilSlice(entries))
 }
 
 func capitalize(s string) string {

@@ -97,6 +97,9 @@ func runIntegrity(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(lockfileDeps) == 0 {
+		if format == formatJSON {
+			return outputIntegrityJSON(cmd, nil)
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependencies with integrity hashes found.")
 		return nil
 	}
@@ -192,13 +195,13 @@ func runIntegrity(cmd *cobra.Command, args []string) error {
 func outputIntegrityJSON(cmd *cobra.Command, entries []IntegrityEntry) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(entries)
+	return enc.Encode(nonNilSlice(entries))
 }
 
 func outputDriftJSON(cmd *cobra.Command, drifts []IntegrityDrift) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(drifts)
+	return enc.Encode(nonNilSlice(drifts))
 }
 
 func outputIntegrityText(cmd *cobra.Command, entries []IntegrityEntry) {
@@ -263,6 +266,9 @@ func runRegistryCheck(cmd *cobra.Command, deps []database.Dependency, format str
 	}
 
 	if len(lockfileDeps) == 0 {
+		if format == formatJSON {
+			return outputRegistryMismatchJSON(cmd, nil, 0, 0)
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No dependencies with integrity hashes found.")
 		return nil
 	}

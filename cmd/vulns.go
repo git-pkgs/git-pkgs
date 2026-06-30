@@ -415,6 +415,9 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(lockfileDeps) == 0 {
+		if format == formatJSON {
+			return outputVulnsJSON(cmd, nil)
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No lockfile dependencies found to scan.")
 		return nil
 	}
@@ -459,6 +462,9 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	})
 
 	if len(vulnResults) == 0 {
+		if format == formatJSON {
+			return outputVulnsJSON(cmd, vulnResults)
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerabilities found.")
 		return nil
 	}
@@ -598,7 +604,7 @@ func scanCached(db *database.DB, deps []database.Dependency, minSeverity int) ([
 func outputVulnsJSON(cmd *cobra.Command, results []VulnResult) error {
 	enc := json.NewEncoder(cmd.OutOrStdout())
 	enc.SetIndent("", "  ")
-	return enc.Encode(results)
+	return enc.Encode(nonNilSlice(results))
 }
 
 func outputVulnsText(cmd *cobra.Command, results []VulnResult) {
@@ -1249,6 +1255,11 @@ func runVulnsBlame(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(filteredVulns) == 0 {
+		if format == formatJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode([]VulnBlameEntry{})
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerabilities found.")
 		return nil
 	}
@@ -1301,7 +1312,7 @@ func runVulnsBlame(cmd *cobra.Command, args []string) error {
 	if format == formatJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(entries)
+		return enc.Encode(nonNilSlice(entries))
 	}
 
 	// Group by author
@@ -1623,6 +1634,11 @@ func runVulnsHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(history) == 0 {
+		if format == formatJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode([]VulnHistoryEntry{})
+		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Package %q not found in commit history.\n", packageName)
 		return nil
 	}
@@ -1630,7 +1646,7 @@ func runVulnsHistory(cmd *cobra.Command, args []string) error {
 	if format == formatJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(history)
+		return enc.Encode(nonNilSlice(history))
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Vulnerability history for %s:\n\n", packageName)
@@ -1735,6 +1751,11 @@ func runVulnsExposure(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(filteredVulns) == 0 {
+		if format == formatJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode([]VulnExposureEntry{})
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerabilities found.")
 		return nil
 	}
@@ -1798,7 +1819,7 @@ func runVulnsExposure(cmd *cobra.Command, args []string) error {
 	if format == formatJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(entries)
+		return enc.Encode(nonNilSlice(entries))
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Vulnerability exposure (%d vulnerabilities):\n\n", len(entries))
@@ -1933,6 +1954,11 @@ func runVulnsPraise(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(commits) < minCommitsForAnalysis {
+		if format == formatJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode([]VulnPraiseEntry{})
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Not enough commits to analyze vulnerability fixes.")
 		return nil
 	}
@@ -1992,6 +2018,11 @@ func runVulnsPraise(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(entries) == 0 {
+		if format == formatJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode([]VulnPraiseEntry{})
+		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerability fixes found in recent commits.")
 		return nil
 	}
@@ -2003,7 +2034,7 @@ func runVulnsPraise(cmd *cobra.Command, args []string) error {
 	if format == formatJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
 		enc.SetIndent("", "  ")
-		return enc.Encode(entries)
+		return enc.Encode(nonNilSlice(entries))
 	}
 
 	// Group by author

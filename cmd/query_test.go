@@ -264,6 +264,16 @@ func TestEmptyResultsRespectJSONFormat(t *testing.T) {
 		{name: "stale", args: []string{"stale", "--format", "json"}},
 		{name: "show", args: []string{"show", "HEAD", "--ecosystem", "definitely-not-present", "--format", "json"}},
 		{name: "where", args: []string{"where", "definitely-not-present", "--format", "json"}},
+		{name: "history", args: []string{"history", "definitely-not-present", "--format", "json"}},
+		{name: "licenses", args: []string{"licenses", "--ecosystem", "definitely-not-present", "--format", "json"}},
+		{name: "integrity", args: []string{"integrity", "--ecosystem", "definitely-not-present", "--format", "json"}},
+		{name: "integrity drift", args: []string{"integrity", "--drift", "--ecosystem", "definitely-not-present", "--format", "json"}},
+		{name: "vulns no lockfile deps", args: []string{"vulns", "scan", "--ecosystem", "definitely-not-present", "--format", "json"}},
+		{name: "vulns no results", args: []string{"vulns", "scan", "--no-sync", "--format", "json"}},
+		{name: "vulns blame", args: []string{"vulns", "blame", "--format", "json"}},
+		{name: "vulns history", args: []string{"vulns", "history", "definitely-not-present", "--format", "json"}},
+		{name: "vulns exposure", args: []string{"vulns", "exposure", "--format", "json"}},
+		{name: "vulns praise", args: []string{"vulns", "praise", "--format", "json"}},
 	}
 
 	for _, tt := range tests {
