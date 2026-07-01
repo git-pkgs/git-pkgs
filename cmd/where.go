@@ -33,11 +33,12 @@ Shows the file path, line number, and content.`,
 }
 
 type WhereMatch struct {
-	FilePath   string   `json:"file_path"`
-	LineNumber int      `json:"line_number"`
-	Content    string   `json:"content"`
-	Context    []string `json:"context,omitempty"`
-	Ecosystem  string   `json:"ecosystem"`
+	FilePath         string   `json:"file_path"`
+	LineNumber       int      `json:"line_number"`
+	Content          string   `json:"content"`
+	Context          []string `json:"context,omitempty"`
+	ContextStartLine int      `json:"-"`
+	Ecosystem        string   `json:"ecosystem"`
 }
 
 func runWhere(cmd *cobra.Command, args []string) error {
@@ -197,14 +198,14 @@ func searchFileForPackage(root *os.Root, osRel, relPath, packageName, ecosystem 
 	// Add context if requested
 	if contextLines > 0 && len(matches) > 0 {
 		for i := range matches {
-			matches[i].Context = getContext(lines, matches[i].LineNumber-1, contextLines)
+			matches[i].Context, matches[i].ContextStartLine = getContext(lines, matches[i].LineNumber-1, contextLines)
 		}
 	}
 
 	return matches, scanner.Err()
 }
 
-func getContext(lines []string, lineIndex, contextLines int) []string {
+func getContext(lines []string, lineIndex, contextLines int) ([]string, int) {
 	start := lineIndex - contextLines
 	if start < 0 {
 		start = 0
@@ -215,7 +216,7 @@ func getContext(lines []string, lineIndex, contextLines int) []string {
 		end = len(lines)
 	}
 
-	return lines[start:end]
+	return lines[start:end], start + 1
 }
 
 func outputWhereJSON(cmd *cobra.Command, matches []WhereMatch) error {
@@ -228,7 +229,7 @@ func outputWhereText(cmd *cobra.Command, matches []WhereMatch, showContext bool)
 	for _, m := range matches {
 		if showContext && len(m.Context) > 0 {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s:\n", m.FilePath)
-			startLine := m.LineNumber - len(m.Context)/2
+			startLine := m.ContextStartLine
 			if startLine < 1 {
 				startLine = 1
 			}

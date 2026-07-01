@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestSearchFileForPackage(t *testing.T) {
@@ -93,6 +97,51 @@ func TestSearchFileForPackage(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOutputWhereTextContextNearEOFUsesOriginalLineNumbers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "package.json")
+	content := strings.Join([]string{
+		"{",
+		`  "scripts": {},`,
+		`  "devDependencies": {},`,
+		`  "dependencies": {`,
+		`    "other": "1.0.0",`,
+		`    "left-pad": "1.3.0"`,
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	matches, err := searchFileForPackage(root, "package.json", "package.json", "left-pad", "npm", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("got %d matches, want 1", len(matches))
+	}
+
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := outputWhereText(cmd, matches, true); err != nil {
+		t.Fatal(err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, `     5:     "other": "1.0.0",`) {
+		t.Fatalf("context output did not preserve preceding line number:\n%s", got)
+	}
+	if !strings.Contains(got, `>    6:     "left-pad": "1.3.0"`) {
+		t.Fatalf("context output did not mark the matched line:\n%s", got)
 	}
 }
 
