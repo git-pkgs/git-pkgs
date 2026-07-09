@@ -14,6 +14,7 @@ import (
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
+	"github.com/git-pkgs/sarif"
 	"github.com/git-pkgs/vers"
 	"github.com/git-pkgs/vulns"
 	"github.com/git-pkgs/vulns/osv"
@@ -652,68 +653,14 @@ func outputVulnsText(cmd *cobra.Command, results []VulnResult) {
 	}
 }
 
-// SARIF output for integration with CI/CD tools
-type SARIFReport struct {
-	Schema  string     `json:"$schema"`
-	Version string     `json:"version"`
-	Runs    []SARIFRun `json:"runs"`
-}
-
-type SARIFRun struct {
-	Tool    SARIFTool     `json:"tool"`
-	Results []SARIFResult `json:"results"`
-}
-
-type SARIFTool struct {
-	Driver SARIFDriver `json:"driver"`
-}
-
-type SARIFDriver struct {
-	Name           string      `json:"name"`
-	Version        string      `json:"version"`
-	InformationURI string      `json:"informationUri"`
-	Rules          []SARIFRule `json:"rules"`
-}
-
-type SARIFRule struct {
-	ID               string         `json:"id"`
-	ShortDescription SARIFMessage   `json:"shortDescription"`
-	FullDescription  SARIFMessage   `json:"fullDescription,omitempty"`
-	Help             SARIFMessage   `json:"help,omitempty"`
-	Properties       map[string]any `json:"properties,omitempty"`
-}
-
-type SARIFResult struct {
-	RuleID    string          `json:"ruleId"`
-	Level     string          `json:"level"`
-	Message   SARIFMessage    `json:"message"`
-	Locations []SARIFLocation `json:"locations,omitempty"`
-}
-
-type SARIFMessage struct {
-	Text string `json:"text"`
-}
-
-type SARIFLocation struct {
-	PhysicalLocation SARIFPhysicalLocation `json:"physicalLocation"`
-}
-
-type SARIFPhysicalLocation struct {
-	ArtifactLocation SARIFArtifactLocation `json:"artifactLocation"`
-}
-
-type SARIFArtifactLocation struct {
-	URI string `json:"uri"`
-}
-
 func outputVulnsSARIF(cmd *cobra.Command, results []VulnResult) error {
-	report := SARIFReport{
-		Schema:  "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-		Version: "2.1.0",
-		Runs: []SARIFRun{
+	report := sarif.Log{
+		SchemaURI: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+		Version:   "2.1.0",
+		Runs: []sarif.Run{
 			{
-				Tool: SARIFTool{
-					Driver: SARIFDriver{
+				Tool: sarif.Tool{
+					Driver: sarif.ToolComponent{
 						Name:           "git-pkgs",
 						Version:        "1.0.0",
 						InformationURI: "https://github.com/git-pkgs/git-pkgs",
@@ -727,10 +674,10 @@ func outputVulnsSARIF(cmd *cobra.Command, results []VulnResult) error {
 	for _, r := range results {
 		if !ruleMap[r.ID] {
 			ruleMap[r.ID] = true
-			rule := SARIFRule{
+			rule := sarif.ReportingDescriptor{
 				ID:               r.ID,
-				ShortDescription: SARIFMessage{Text: r.Summary},
-				Properties: map[string]any{
+				ShortDescription: sarif.MultiformatMessageString{Text: r.Summary},
+				Properties: sarif.PropertyBag{
 					"security-severity": severityToScore(r.Severity),
 				},
 			}
@@ -742,14 +689,14 @@ func outputVulnsSARIF(cmd *cobra.Command, results []VulnResult) error {
 			level = "error"
 		}
 
-		result := SARIFResult{
+		result := sarif.Result{
 			RuleID:  r.ID,
 			Level:   level,
-			Message: SARIFMessage{Text: fmt.Sprintf("%s@%s is vulnerable", r.Package, r.Version)},
-			Locations: []SARIFLocation{
+			Message: sarif.Message{Text: fmt.Sprintf("%s@%s is vulnerable", r.Package, r.Version)},
+			Locations: []sarif.Location{
 				{
-					PhysicalLocation: SARIFPhysicalLocation{
-						ArtifactLocation: SARIFArtifactLocation{URI: r.ManifestPath},
+					PhysicalLocation: sarif.PhysicalLocation{
+						ArtifactLocation: sarif.ArtifactLocation{URI: r.ManifestPath},
 					},
 				},
 			},

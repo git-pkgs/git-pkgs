@@ -233,6 +233,8 @@ github.com/git-pkgs/registries v0.6.2 h1:26G5zW6Q7x1CSfNkaEqEjRMJiA4JwfdKOCJ7Qm+
 github.com/git-pkgs/registries v0.6.2/go.mod h1:GR0Bu6nC3NQe6f7lfDoEVqAnoQkMocf4M98B12a7B3E=
 github.com/git-pkgs/resolve v0.2.2 h1:jjr6qa/8b/edg3tub5WYyYV04OpfWCuGZzgVYnfGl3I=
 github.com/git-pkgs/resolve v0.2.2/go.mod h1:KT894HOGMudjhSUWGHW1mC4r01eBaVaf0ujYhEHPMvo=
+github.com/git-pkgs/sarif v0.1.0 h1:ghUtzYaG/VDxBNF7aDI7EeT5mke4admqd2cqXcNzG1Q=
+github.com/git-pkgs/sarif v0.1.0/go.mod h1:NGg7Ft2+nvR0CBo+Ya9oSX+Yh/p1d7FVyhPe2/0v9V4=
 github.com/git-pkgs/sbom v0.1.2 h1:18LkdFRBG8jkWf5cclGvwam5GwM3o3lK9/qUmup15+0=
 github.com/git-pkgs/sbom v0.1.2/go.mod h1:42YiJ+W9jBsPZnYJQs6tUlOtWlC0vDBOtND8TMwE8ek=
 github.com/git-pkgs/spdx v0.1.4 h1:eQ0waEV3uUeItpWAOvdN1K1rL9hTgsU7fF74r1mDXMs=
