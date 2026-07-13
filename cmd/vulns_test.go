@@ -433,12 +433,12 @@ func TestOutputVulnsSARIF(t *testing.T) {
 	}
 	for i, result := range log.Runs[0].Results {
 		if result.RuleIndex != -1 || result.Rank != -1 {
-			t.Fatalf("result %d has serialized defaults: rule index %d, rank %v", i, result.RuleIndex, result.Rank)
+			t.Fatalf("result %d lost constructor defaults: ruleIndex=%d rank=%v", i, result.RuleIndex, result.Rank)
 		}
 		location := result.Locations[0]
 		if location.ID != -1 || location.PhysicalLocation.ArtifactLocation.Index != -1 {
 			t.Fatalf(
-				"result %d location has serialized defaults: location id %d, artifact index %d",
+				"result %d location lost constructor defaults: id=%d artifactIndex=%d",
 				i,
 				location.ID,
 				location.PhysicalLocation.ArtifactLocation.Index,
