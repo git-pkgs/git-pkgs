@@ -654,32 +654,29 @@ func outputVulnsText(cmd *cobra.Command, results []VulnResult) {
 }
 
 func outputVulnsSARIF(cmd *cobra.Command, results []VulnResult) error {
+	driver := sarif.NewToolComponent()
+	driver.Name = "git-pkgs"
+	driver.Version = "1.0.0"
+	driver.InformationURI = "https://github.com/git-pkgs/git-pkgs"
+	tool := sarif.NewTool()
+	tool.Driver = driver
+	run := sarif.NewRun()
+	run.Tool = tool
 	report := sarif.Log{
 		SchemaURI: "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
 		Version:   "2.1.0",
-		Runs: []sarif.Run{
-			{
-				Tool: sarif.Tool{
-					Driver: sarif.ToolComponent{
-						Name:           "git-pkgs",
-						Version:        "1.0.0",
-						InformationURI: "https://github.com/git-pkgs/git-pkgs",
-					},
-				},
-			},
-		},
+		Runs:      []sarif.Run{run},
 	}
 
 	ruleMap := make(map[string]bool)
 	for _, r := range results {
 		if !ruleMap[r.ID] {
 			ruleMap[r.ID] = true
-			rule := sarif.ReportingDescriptor{
-				ID:               r.ID,
-				ShortDescription: sarif.MultiformatMessageString{Text: r.Summary},
-				Properties: sarif.PropertyBag{
-					"security-severity": severityToScore(r.Severity),
-				},
+			rule := sarif.NewReportingDescriptor()
+			rule.ID = r.ID
+			rule.ShortDescription = sarif.MultiformatMessageString{Text: r.Summary}
+			rule.Properties = sarif.PropertyBag{
+				"security-severity": severityToScore(r.Severity),
 			}
 			report.Runs[0].Tool.Driver.Rules = append(report.Runs[0].Tool.Driver.Rules, rule)
 		}
@@ -689,17 +686,16 @@ func outputVulnsSARIF(cmd *cobra.Command, results []VulnResult) error {
 			level = "error"
 		}
 
-		result := sarif.Result{
-			RuleID:  r.ID,
-			Level:   level,
-			Message: sarif.Message{Text: fmt.Sprintf("%s@%s is vulnerable", r.Package, r.Version)},
-			Locations: []sarif.Location{
-				{
-					PhysicalLocation: sarif.PhysicalLocation{
-						ArtifactLocation: sarif.ArtifactLocation{URI: r.ManifestPath},
-					},
-				},
-			},
+		artifactLocation := sarif.NewArtifactLocation()
+		artifactLocation.URI = r.ManifestPath
+		location := sarif.NewLocation()
+		location.PhysicalLocation = sarif.PhysicalLocation{ArtifactLocation: artifactLocation}
+		result := sarif.NewResult()
+		result.RuleID = r.ID
+		result.Level = level
+		result.Message = sarif.Message{Text: fmt.Sprintf("%s@%s is vulnerable", r.Package, r.Version)}
+		result.Locations = []sarif.Location{
+			location,
 		}
 		report.Runs[0].Results = append(report.Runs[0].Results, result)
 	}

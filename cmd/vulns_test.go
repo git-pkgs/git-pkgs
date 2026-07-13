@@ -389,6 +389,14 @@ func TestOutputVulnsSARIF(t *testing.T) {
 			Version:      "4.17.20",
 			ManifestPath: "package-lock.json",
 		},
+		{
+			ID:           "GHSA-0002",
+			Summary:      "Another vulnerability",
+			Severity:     "medium",
+			Package:      "express",
+			Version:      "4.18.1",
+			ManifestPath: "package-lock.json",
+		},
 	}
 
 	if err := outputVulnsSARIF(cmd, results); err != nil {
@@ -411,11 +419,31 @@ func TestOutputVulnsSARIF(t *testing.T) {
 	if got := log.Runs[0].Tool.Driver.Rules[0].ID; got != "GHSA-0001" {
 		t.Fatalf("rule ID = %q, want GHSA-0001", got)
 	}
+	if got := log.Runs[0].Tool.Driver.Rules[1].ID; got != "GHSA-0002" {
+		t.Fatalf("second rule ID = %q, want GHSA-0002", got)
+	}
 	if got := log.Runs[0].Results[0].Level; got != "error" {
 		t.Fatalf("result level = %q, want error", got)
 	}
+	if got := log.Runs[0].Results[1].Level; got != "warning" {
+		t.Fatalf("second result level = %q, want warning", got)
+	}
 	if got := log.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI; got != "package-lock.json" {
 		t.Fatalf("location URI = %q, want package-lock.json", got)
+	}
+	for i, result := range log.Runs[0].Results {
+		if result.RuleIndex != -1 || result.Rank != -1 {
+			t.Fatalf("result %d has serialized defaults: rule index %d, rank %v", i, result.RuleIndex, result.Rank)
+		}
+		location := result.Locations[0]
+		if location.ID != -1 || location.PhysicalLocation.ArtifactLocation.Index != -1 {
+			t.Fatalf(
+				"result %d location has serialized defaults: location id %d, artifact index %d",
+				i,
+				location.ID,
+				location.PhysicalLocation.ArtifactLocation.Index,
+			)
+		}
 	}
 }
 
