@@ -158,7 +158,13 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	}
 	resolvedVersionPURLs, resolvedDeps := resolvedLicenseVersions(purlToDep, deps)
 	// Version metadata is optional; package metadata remains the fallback.
-	versionLicenses, _ := loadLicenseVersionLicenses(db, resolvedDeps, offline)
+	versionLicenses, versionLicenseErr := loadLicenseVersionLicenses(db, resolvedDeps, offline)
+	if versionLicenseErr != nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"Warning: version license lookup failed; using package metadata where version data is unavailable: %v\n",
+			versionLicenseErr,
+		)
+	}
 
 	// Normalize allow/deny lists to SPDX identifiers
 	allowSet := make(map[string]bool)
@@ -644,7 +650,7 @@ func loadLicenseVersionLicenses(db *database.DB, deps []database.Dependency, off
 	}
 	if offline {
 		return result, fmt.Errorf(
-			"offline mode: license metadata is not cached for %d package version(s); run 'git pkgs licenses --drift' without --offline to populate the cache",
+			"offline mode: license metadata is not cached for %d package version(s); rerun without --offline to populate the cache",
 			len(missing),
 		)
 	}

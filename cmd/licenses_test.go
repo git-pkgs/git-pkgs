@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type mockEnrichmentClient struct {
 	getVersionsCalls int
 	getVersionCalls  int
 	bulkLookupCalls  int
+	getVersionErr    error
 }
 
 func (m *mockEnrichmentClient) BulkLookup(_ context.Context, purls []string) (map[string]*enrichment.PackageInfo, error) {
@@ -54,6 +56,9 @@ func (m *mockEnrichmentClient) GetVersion(_ context.Context, purl string) (*enri
 	defer m.mu.Unlock()
 
 	m.getVersionCalls++
+	if m.getVersionErr != nil {
+		return nil, m.getVersionErr
+	}
 	if info, ok := m.versionInfos[purl]; ok {
 		return info, nil
 	}
@@ -203,6 +208,7 @@ func TestLicensesCommand(t *testing.T) {
 		versionLicense string
 		wantLicense    string
 		wantViolation  bool
+		wantWarning    bool
 	}{
 		{
 			name:           "license policies use installed version metadata",
@@ -213,6 +219,12 @@ func TestLicensesCommand(t *testing.T) {
 			name:          "license policies fall back to package metadata",
 			wantLicense:   "AGPL-3.0-or-later",
 			wantViolation: true,
+		},
+		{
+			name:          "license policies warn when version lookup fails",
+			wantLicense:   "AGPL-3.0-or-later",
+			wantViolation: true,
+			wantWarning:   true,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -230,15 +242,22 @@ func TestLicensesCommand(t *testing.T) {
 				},
 			)
 			defer restore()
+			if tt.wantWarning {
+				mock.getVersionErr = errors.New("enrichment unavailable")
+			}
 
 			initRepoWithFiles(t, map[string]string{
 				"package.json":      uaParserPackageJSON,
 				"package-lock.json": uaParserPackageLockJSON,
 			})
 
-			stdout, _, err := runCmd(t, "licenses", "--deny", "AGPL-3.0-or-later", "--format", "json")
+			stdout, stderr, err := runCmd(t, "licenses", "--deny", "AGPL-3.0-or-later", "--format", "json")
 			if (err != nil) != tt.wantViolation {
 				t.Fatalf("licenses error = %v, want violation %v", err, tt.wantViolation)
+			}
+			gotWarning := strings.Contains(stderr, "Warning: version license lookup failed")
+			if gotWarning != tt.wantWarning {
+				t.Fatalf("version lookup warning = %v, want %v; stderr: %s", gotWarning, tt.wantWarning, stderr)
 			}
 
 			var result []cmd.LicenseInfo

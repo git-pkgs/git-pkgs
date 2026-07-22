@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/git-pkgs/git-pkgs/internal/database"
@@ -80,5 +81,27 @@ func TestResolvedLicenseVersions(t *testing.T) {
 				t.Fatalf("resolved dependencies = %d, want %d", len(resolvedDeps), wantDeps)
 			}
 		})
+	}
+}
+
+func TestLoadLicenseVersionLicensesOfflineCacheMiss(t *testing.T) {
+	_, err := loadLicenseVersionLicenses(nil, []database.Dependency{
+		{
+			Name:         "ua-parser-js",
+			Ecosystem:    "npm",
+			PURL:         "pkg:npm/ua-parser-js@1.0.41",
+			Requirement:  "1.0.41",
+			ManifestPath: "package-lock.json",
+			ManifestKind: manifestKindLockfile,
+		},
+	}, true)
+	if err == nil {
+		t.Fatal("offline cache miss error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "rerun without --offline") {
+		t.Fatalf("offline cache miss error = %q, want generic rerun guidance", err)
+	}
+	if strings.Contains(err.Error(), "--drift") {
+		t.Fatalf("offline cache miss error = %q, should apply to both license modes", err)
 	}
 }
