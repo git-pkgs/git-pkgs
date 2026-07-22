@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -155,6 +156,9 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("looking up packages: %w", err)
 	}
+	resolvedVersionPURLs, resolvedDeps := resolvedLicenseVersions(purlToDep, deps)
+	// Version metadata is optional; package metadata remains the fallback.
+	versionLicenses, _ := loadLicenseVersionLicenses(db, resolvedDeps, offline)
 
 	// Normalize allow/deny lists to SPDX identifiers
 	allowSet := make(map[string]bool)
@@ -197,8 +201,12 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 			PURL:         purl,
 		}
 
-		if data.License != "" {
-			info.Licenses = []string{data.License}
+		license := data.License
+		if versionLicense := versionLicenses[resolvedVersionPURLs[purl]]; versionLicense != "" {
+			license = versionLicense
+		}
+		if license != "" {
+			info.Licenses = []string{license}
 		}
 
 		// Check for violations
@@ -417,6 +425,67 @@ func getLicenseData(
 	return result, nil
 }
 
+func resolvedLicenseVersions(
+	purlToDep map[string]database.Dependency,
+	deps []database.Dependency,
+) (map[string]string, []database.Dependency) {
+	// Manifest requirements are usually ranges, so only pair them with a
+	// lockfile when that package resolves to one version in the same directory.
+	candidatesByLocation := make(map[string]map[string]database.Dependency)
+	for _, dep := range deps {
+		if !isResolvedDependency(dep) {
+			continue
+		}
+		versionedPURL := versionedPURLForDependency(dep)
+		if versionedPURL == "" {
+			continue
+		}
+		location := licenseDependencyLocation(dep)
+		if candidatesByLocation[location] == nil {
+			candidatesByLocation[location] = make(map[string]database.Dependency)
+		}
+		candidatesByLocation[location][versionedPURL] = dep
+	}
+
+	resolvedVersionPURLs := make(map[string]string)
+	resolvedByPURL := make(map[string]database.Dependency)
+	for lookupPURL, directDep := range purlToDep {
+		if isResolvedDependency(directDep) {
+			versionedPURL := versionedPURLForDependency(directDep)
+			if versionedPURL != "" {
+				resolvedVersionPURLs[lookupPURL] = versionedPURL
+				resolvedByPURL[versionedPURL] = directDep
+			}
+			continue
+		}
+
+		candidates := candidatesByLocation[licenseDependencyLocation(directDep)]
+		if len(candidates) != 1 {
+			continue
+		}
+		for versionedPURL, dep := range candidates {
+			resolvedVersionPURLs[lookupPURL] = versionedPURL
+			resolvedByPURL[versionedPURL] = dep
+		}
+	}
+
+	versionedPURLs := make([]string, 0, len(resolvedByPURL))
+	for versionedPURL := range resolvedByPURL {
+		versionedPURLs = append(versionedPURLs, versionedPURL)
+	}
+	sort.Strings(versionedPURLs)
+
+	resolvedDeps := make([]database.Dependency, 0, len(versionedPURLs))
+	for _, versionedPURL := range versionedPURLs {
+		resolvedDeps = append(resolvedDeps, resolvedByPURL[versionedPURL])
+	}
+	return resolvedVersionPURLs, resolvedDeps
+}
+
+func licenseDependencyLocation(dep database.Dependency) string {
+	return strings.ToLower(dep.Ecosystem) + "\x00" + strings.ToLower(dep.Name) + "\x00" + path.Dir(dep.ManifestPath)
+}
+
 func runLicenseDrift(cmd *cobra.Command, db *database.DB, deps []database.Dependency, format string, offline bool) error {
 	resolved := make([]database.Dependency, 0, len(deps))
 	for _, dep := range deps {
@@ -474,7 +543,7 @@ func computeLicenseDrift(db *database.DB, deps []database.Dependency, offline bo
 		return nil, fmt.Errorf("looking up package licenses: %w", err)
 	}
 
-	versionLicenses, err := loadLicenseDriftVersionLicenses(db, deps, offline)
+	versionLicenses, err := loadLicenseVersionLicenses(db, deps, offline)
 	if err != nil {
 		return nil, fmt.Errorf("looking up version licenses: %w", err)
 	}
@@ -542,7 +611,7 @@ func licensePackagePURLForDependency(dep database.Dependency) string {
 	return purl.MakePURLString(dep.Ecosystem, dep.Name, "")
 }
 
-func loadLicenseDriftVersionLicenses(db *database.DB, deps []database.Dependency, offline bool) (map[string]string, error) {
+func loadLicenseVersionLicenses(db *database.DB, deps []database.Dependency, offline bool) (map[string]string, error) {
 	needed := make(map[string]map[string]bool)
 	for _, dep := range deps {
 		versionedPURL := versionedPURLForDependency(dep)
@@ -574,7 +643,7 @@ func loadLicenseDriftVersionLicenses(db *database.DB, deps []database.Dependency
 		return result, nil
 	}
 	if offline {
-		return nil, fmt.Errorf(
+		return result, fmt.Errorf(
 			"offline mode: license metadata is not cached for %d package version(s); run 'git pkgs licenses --drift' without --offline to populate the cache",
 			len(missing),
 		)
@@ -582,7 +651,7 @@ func loadLicenseDriftVersionLicenses(db *database.DB, deps []database.Dependency
 
 	client, err := newEnrichmentClient()
 	if err != nil {
-		return nil, err
+		return result, err
 	}
 
 	const licenseDriftLookupTimeout = 5 * time.Minute
@@ -598,7 +667,7 @@ func loadLicenseDriftVersionLicenses(db *database.DB, deps []database.Dependency
 		result[fetchedVersion.VersionedPURL] = normalizeLicenseString(fetchedVersion.Version.License)
 	}
 	if len(fetchErrors) == len(missing) {
-		return nil, fmt.Errorf("fetching license drift metadata failed for all %d uncached versions: %w",
+		return result, fmt.Errorf("fetching license version metadata failed for all %d uncached versions: %w",
 			len(missing), wrapEcosystemsError(errors.Join(fetchErrors...)))
 	}
 
