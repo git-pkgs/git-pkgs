@@ -4,12 +4,12 @@ go 1.25.12
 
 require (
 	github.com/git-pkgs/changelog v0.1.3
-	github.com/git-pkgs/enrichment v0.6.3
+	github.com/git-pkgs/enrichment v0.6.4
 	github.com/git-pkgs/gitignore v1.2.0
 	github.com/git-pkgs/managers v0.10.1
-	github.com/git-pkgs/manifests v0.6.0
+	github.com/git-pkgs/manifests v0.6.1
 	github.com/git-pkgs/purl v0.1.15
-	github.com/git-pkgs/registries v0.6.2
+	github.com/git-pkgs/registries v0.6.4
 	github.com/git-pkgs/resolve v0.2.2
 	github.com/git-pkgs/sarif v0.1.1
 	github.com/git-pkgs/sbom v0.1.3
@@ -88,7 +88,7 @@ require (
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ecosyste-ms/ecosystems-go v0.3.0 // indirect
+	github.com/ecosyste-ms/ecosystems-go v0.4.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -181,7 +181,8 @@ require (
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
-	github.com/oapi-codegen/runtime v1.4.2 // indirect
+	github.com/oapi-codegen/nullable v1.1.0 // indirect
+	github.com/oapi-codegen/runtime v1.6.0 // indirect
 	github.com/package-url/packageurl-go v0.1.6 // indirect
 	github.com/pandatix/go-cvss v0.6.2 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
