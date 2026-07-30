@@ -16,7 +16,7 @@ require (
 	github.com/git-pkgs/spdx v0.1.4
 	github.com/git-pkgs/vers v0.3.0
 	github.com/git-pkgs/vulns v0.2.1
-	github.com/go-git/go-billy/v5 v5.9.0
+	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/mattn/go-isatty v0.0.23
 	github.com/spf13/cobra v1.10.2
@@ -254,7 +254,7 @@ require (
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
