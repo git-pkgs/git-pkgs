@@ -404,7 +404,7 @@ func TestScanLiveWithSourceBatchErrorIdentifiesDependency(t *testing.T) {
 	}
 }
 
-func TestGetVulnsAtRefAppliesEcosystemConfig(t *testing.T) {
+func TestGetVulnsAtCommitAppliesEcosystemConfig(t *testing.T) {
 	db := newTestDB(t)
 	branch, err := db.GetOrCreateBranch("main")
 	if err != nil {
@@ -462,18 +462,18 @@ func TestGetVulnsAtRefAppliesEcosystemConfig(t *testing.T) {
 		t.Fatalf("InsertVulnerabilityPackage: %v", err)
 	}
 
-	unfiltered, err := getVulnsAtRef(db, branch.ID, commitSHA, "", config.NewEcosystemFilter(nil, nil))
+	unfiltered, err := getVulnsAtCommit(db, branch.ID, commitSHA, "", config.NewEcosystemFilter(nil, nil))
 	if err != nil {
-		t.Fatalf("getVulnsAtRef without filter: %v", err)
+		t.Fatalf("getVulnsAtCommit without filter: %v", err)
 	}
 	if len(unfiltered) != 1 || unfiltered[0].Package != "foo" {
 		t.Fatalf("expected seeded npm vuln before filtering, got: %#v", unfiltered)
 	}
 
 	filter := config.NewEcosystemFilter(nil, []string{"npm"})
-	results, err := getVulnsAtRef(db, branch.ID, commitSHA, "", filter)
+	results, err := getVulnsAtCommit(db, branch.ID, commitSHA, "", filter)
 	if err != nil {
-		t.Fatalf("getVulnsAtRef: %v", err)
+		t.Fatalf("getVulnsAtCommit: %v", err)
 	}
 	if len(results) != 0 {
 		t.Fatalf("expected ignored npm vuln to be filtered, got: %#v", results)

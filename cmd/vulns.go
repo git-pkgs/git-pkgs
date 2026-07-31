@@ -1083,8 +1083,13 @@ func analyzeVulnExposure(vuln *vulns.Vulnerability, ref, branchName string) (*Vu
 		return nil, err
 	}
 
+	sha, err := resolveVulnsRef(repo, ref)
+	if err != nil {
+		return nil, err
+	}
+
 	// Get dependencies at the specified ref
-	deps, err := db.GetDependenciesAtRef(ref, branch.ID)
+	deps, err := db.GetDependenciesAtRef(sha, branch.ID)
 	if err != nil {
 		return nil, fmt.Errorf("getting dependencies: %w", err)
 	}
@@ -1211,12 +1216,12 @@ func runVulnsDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get vulnerabilities at both refs
-	fromVulns, err := getVulnsAtRef(db, branch.ID, fromRef, ecosystem, ecosystemFilter)
+	fromVulns, err := getVulnsAtRef(repo, db, branch.ID, fromRef, ecosystem, ecosystemFilter)
 	if err != nil {
 		return fmt.Errorf("getting vulns at %s: %w", fromRef, err)
 	}
 
-	toVulns, err := getVulnsAtRef(db, branch.ID, toRef, ecosystem, ecosystemFilter)
+	toVulns, err := getVulnsAtRef(repo, db, branch.ID, toRef, ecosystem, ecosystemFilter)
 	if err != nil {
 		return fmt.Errorf("getting vulns at %s: %w", toRef, err)
 	}
@@ -1289,8 +1294,37 @@ func runVulnsDiff(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func getVulnsAtRef(db *database.DB, branchID int64, ref, ecosystem string, filter config.EcosystemFilter) ([]VulnResult, error) {
-	deps, err := db.GetDependenciesAtRef(ref, branchID)
+func getVulnsAtRef(
+	repo *git.Repository,
+	db *database.DB,
+	branchID int64,
+	ref, ecosystem string,
+	filter config.EcosystemFilter,
+) ([]VulnResult, error) {
+	sha, err := resolveVulnsRef(repo, ref)
+	if err != nil {
+		return nil, err
+	}
+
+	return getVulnsAtCommit(db, branchID, sha, ecosystem, filter)
+}
+
+func resolveVulnsRef(repo *git.Repository, ref string) (string, error) {
+	hash, err := repo.ResolveRevision(ref)
+	if err != nil {
+		return "", fmt.Errorf("resolving %q: %w", ref, err)
+	}
+
+	return hash.String(), nil
+}
+
+func getVulnsAtCommit(
+	db *database.DB,
+	branchID int64,
+	sha, ecosystem string,
+	filter config.EcosystemFilter,
+) ([]VulnResult, error) {
+	deps, err := db.GetDependenciesAtRef(sha, branchID)
 	if err != nil {
 		return nil, err
 	}
@@ -1331,7 +1365,7 @@ func getAllTimeVulns(db *database.DB, branchID int64, ecosystem string, filter c
 	seen := make(map[string]VulnResult) // key: vulnID:package:version
 
 	for _, c := range commits {
-		vulns, err := getVulnsAtRef(db, branchID, c.SHA, ecosystem, filter)
+		vulns, err := getVulnsAtCommit(db, branchID, c.SHA, ecosystem, filter)
 		if err != nil {
 			continue
 		}
@@ -1413,7 +1447,7 @@ func runVulnsBlame(cmd *cobra.Command, args []string) error {
 	if allTime {
 		vulns, err = getAllTimeVulns(db, branch.ID, ecosystem, ecosystemFilter)
 	} else {
-		vulns, err = getVulnsAtRef(db, branch.ID, refHEAD, ecosystem, ecosystemFilter)
+		vulns, err = getVulnsAtRef(repo, db, branch.ID, refHEAD, ecosystem, ecosystemFilter)
 	}
 	if err != nil {
 		return fmt.Errorf("getting vulnerabilities: %w", err)
@@ -1621,7 +1655,7 @@ func runVulnsLog(cmd *cobra.Command, args []string) error {
 
 	for i, c := range commits {
 		// Get vulns at this commit
-		currentVulns, err := getVulnsAtRef(db, branch.ID, c.SHA, ecosystem, ecosystemFilter)
+		currentVulns, err := getVulnsAtCommit(db, branch.ID, c.SHA, ecosystem, ecosystemFilter)
 		if err != nil {
 			continue
 		}
@@ -1934,7 +1968,7 @@ func runVulnsExposure(cmd *cobra.Command, args []string) error {
 		// Get all historical vulnerabilities by scanning commit history
 		vulns, err = getAllTimeVulns(db, branch.ID, ecosystem, ecosystemFilter)
 	} else {
-		vulns, err = getVulnsAtRef(db, branch.ID, targetRef, ecosystem, ecosystemFilter)
+		vulns, err = getVulnsAtRef(repo, db, branch.ID, targetRef, ecosystem, ecosystemFilter)
 	}
 	if err != nil {
 		return fmt.Errorf("getting vulnerabilities: %w", err)
@@ -2188,7 +2222,7 @@ func runVulnsPraise(cmd *cobra.Command, args []string) error {
 	var prevVulns []VulnResult
 
 	for i, c := range commits {
-		currentVulns, err := getVulnsAtRef(db, branch.ID, c.SHA, ecosystem, ecosystemFilter)
+		currentVulns, err := getVulnsAtCommit(db, branch.ID, c.SHA, ecosystem, ecosystemFilter)
 		if err != nil {
 			continue
 		}
