@@ -560,6 +560,44 @@ func TestComputeDiffByEcosystem_IgnoresLockfileMigration(t *testing.T) {
 	}
 }
 
+func TestFilterDiffResult_Kind(t *testing.T) {
+	fromDeps := []database.Dependency{
+		{Name: "lodash", Ecosystem: "npm", Requirement: "^4.0.0", ManifestPath: "package.json", ManifestKind: manifestKindManifest},
+		{Name: "lodash", Ecosystem: "npm", Requirement: "4.17.20", ManifestPath: "package-lock.json", ManifestKind: manifestKindLockfile},
+		{Name: "chalk", Ecosystem: "npm", Requirement: "5.3.0", ManifestPath: "package-lock.json", ManifestKind: manifestKindLockfile},
+	}
+	toDeps := []database.Dependency{
+		{Name: "lodash", Ecosystem: "npm", Requirement: "^4.0.0", ManifestPath: "package.json", ManifestKind: manifestKindManifest},
+		{Name: "lodash", Ecosystem: "npm", Requirement: "4.17.21", ManifestPath: "package-lock.json", ManifestKind: manifestKindLockfile},
+		{Name: "express", Ecosystem: "npm", Requirement: "^4.18.0", ManifestPath: "package.json", ManifestKind: manifestKindManifest},
+		{Name: "express", Ecosystem: "npm", Requirement: "4.18.2", ManifestPath: "package-lock.json", ManifestKind: manifestKindLockfile},
+	}
+
+	result := computeDiff(fromDeps, toDeps)
+
+	lock := filterDiffResult(result, "", "", manifestKindLockfile)
+	if len(lock.Added) != 1 || lock.Added[0].ManifestPath != "package-lock.json" {
+		t.Fatalf("lockfile added = %+v, want 1 from package-lock.json", lock.Added)
+	}
+	if len(lock.Modified) != 1 || lock.Modified[0].ToRequirement != "4.17.21" {
+		t.Fatalf("lockfile modified = %+v, want 1 lodash 4.17.21", lock.Modified)
+	}
+	if len(lock.Removed) != 1 || lock.Removed[0].Name != "chalk" {
+		t.Fatalf("lockfile removed = %+v, want 1 chalk", lock.Removed)
+	}
+
+	manifest := filterDiffResult(result, "", "", manifestKindManifest)
+	if len(manifest.Added) != 1 || manifest.Added[0].ManifestPath != "package.json" {
+		t.Fatalf("manifest added = %+v, want 1 from package.json", manifest.Added)
+	}
+	if len(manifest.Modified) != 0 {
+		t.Fatalf("manifest modified = %+v, want 0", manifest.Modified)
+	}
+	if len(manifest.Removed) != 0 {
+		t.Fatalf("manifest removed = %+v, want 0", manifest.Removed)
+	}
+}
+
 func TestComputeDiffByEcosystem_ReportsVersionChangeAcrossLockfileMigration(t *testing.T) {
 	fromDeps := []database.Dependency{
 		{Name: "express", Ecosystem: "npm", Requirement: "4.18.2", ManifestPath: "package-lock.json", ManifestKind: manifestKindLockfile},

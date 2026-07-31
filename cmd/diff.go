@@ -27,6 +27,7 @@ Supports range syntax (main..feature) or explicit --from/--to flags.`,
 	diffCmd.Flags().String("to", "", "Ending commit (default: working tree)")
 	diffCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	diffCmd.Flags().StringP("type", "t", "", "Filter by dependency type (runtime, development, etc.)")
+	diffCmd.Flags().String("kind", "", "Filter by manifest kind: manifest, lockfile")
 	diffCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	diffCmd.Flags().String("by", diffByManifest, "Match dependencies by: manifest, ecosystem")
 	diffCmd.Flags().Bool("stat", false, "Show aggregate dependency change counts")
@@ -49,6 +50,7 @@ type DiffEntry struct {
 	Name            string `json:"name"`
 	Ecosystem       string `json:"ecosystem,omitempty"`
 	ManifestPath    string `json:"manifest_path"`
+	ManifestKind    string `json:"manifest_kind,omitempty"`
 	DependencyType  string `json:"dependency_type,omitempty"`
 	FromRequirement string `json:"from_requirement,omitempty"`
 	ToRequirement   string `json:"to_requirement,omitempty"`
@@ -69,6 +71,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	toRef, _ := cmd.Flags().GetString("to")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	depType, _ := cmd.Flags().GetString("type")
+	kind, _ := cmd.Flags().GetString("kind")
 	format, err := getFormatFlag(cmd, formatText, formatJSON)
 	if err != nil {
 		return err
@@ -80,6 +83,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 
 	if by != diffByManifest && by != diffByEcosystem {
 		return fmt.Errorf("--by must be one of: %s, %s", diffByManifest, diffByEcosystem)
+	}
+	if kind != "" && kind != manifestKindManifest && kind != manifestKindLockfile {
+		return fmt.Errorf("--kind must be one of: %s, %s", manifestKindManifest, manifestKindLockfile)
 	}
 
 	// Parse range syntax if provided
@@ -118,8 +124,8 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Apply filters
-	if ecosystem != "" || depType != "" {
-		result = filterDiffResult(result, ecosystem, depType)
+	if ecosystem != "" || depType != "" || kind != "" {
+		result = filterDiffResult(result, ecosystem, depType, kind)
 	}
 
 	if stat || summary {
@@ -225,6 +231,7 @@ func computeDiffBy(fromDeps, toDeps []database.Dependency, by string) *DiffResul
 					Name:           d.Name,
 					Ecosystem:      d.Ecosystem,
 					ManifestPath:   d.ManifestPath,
+					ManifestKind:   d.ManifestKind,
 					DependencyType: d.DependencyType,
 					ToRequirement:  d.Requirement,
 				})
@@ -239,6 +246,7 @@ func computeDiffBy(fromDeps, toDeps []database.Dependency, by string) *DiffResul
 					Name:            toList[0].Name,
 					Ecosystem:       toList[0].Ecosystem,
 					ManifestPath:    toList[0].ManifestPath,
+					ManifestKind:    toList[0].ManifestKind,
 					DependencyType:  toList[0].DependencyType,
 					FromRequirement: fromList[0].Requirement,
 					ToRequirement:   toList[0].Requirement,
@@ -298,6 +306,7 @@ func computeDiffBy(fromDeps, toDeps []database.Dependency, by string) *DiffResul
 				Name:            ref.Name,
 				Ecosystem:       ref.Ecosystem,
 				ManifestPath:    ref.ManifestPath,
+				ManifestKind:    ref.ManifestKind,
 				DependencyType:  ref.DependencyType,
 				FromRequirement: removedVersions[i],
 				ToRequirement:   addedVersions[i],
@@ -309,6 +318,7 @@ func computeDiffBy(fromDeps, toDeps []database.Dependency, by string) *DiffResul
 				Name:           ref.Name,
 				Ecosystem:      ref.Ecosystem,
 				ManifestPath:   ref.ManifestPath,
+				ManifestKind:   ref.ManifestKind,
 				DependencyType: ref.DependencyType,
 				ToRequirement:  addedVersions[i],
 			})
@@ -319,6 +329,7 @@ func computeDiffBy(fromDeps, toDeps []database.Dependency, by string) *DiffResul
 				Name:            ref.Name,
 				Ecosystem:       ref.Ecosystem,
 				ManifestPath:    ref.ManifestPath,
+				ManifestKind:    ref.ManifestKind,
 				DependencyType:  ref.DependencyType,
 				FromRequirement: removedVersions[i],
 			})
@@ -333,6 +344,7 @@ func computeDiffBy(fromDeps, toDeps []database.Dependency, by string) *DiffResul
 					Name:            d.Name,
 					Ecosystem:       d.Ecosystem,
 					ManifestPath:    d.ManifestPath,
+					ManifestKind:    d.ManifestKind,
 					DependencyType:  d.DependencyType,
 					FromRequirement: d.Requirement,
 				})
@@ -370,37 +382,36 @@ func sortDiffEntries(entries []DiffEntry) {
 	})
 }
 
-func filterDiffResult(result *DiffResult, ecosystem, depType string) *DiffResult {
-	filtered := &DiffResult{}
-
-	for _, e := range result.Added {
+func filterDiffResult(result *DiffResult, ecosystem, depType, kind string) *DiffResult {
+	keep := func(e DiffEntry) bool {
 		if ecosystem != "" && !strings.EqualFold(e.Ecosystem, ecosystem) {
-			continue
+			return false
 		}
 		if depType != "" && !strings.EqualFold(e.DependencyType, depType) {
-			continue
+			return false
 		}
-		filtered.Added = append(filtered.Added, e)
+		if kind != "" && e.ManifestKind != kind {
+			return false
+		}
+		return true
+	}
+
+	filtered := &DiffResult{}
+	for _, e := range result.Added {
+		if keep(e) {
+			filtered.Added = append(filtered.Added, e)
+		}
 	}
 	for _, e := range result.Modified {
-		if ecosystem != "" && !strings.EqualFold(e.Ecosystem, ecosystem) {
-			continue
+		if keep(e) {
+			filtered.Modified = append(filtered.Modified, e)
 		}
-		if depType != "" && !strings.EqualFold(e.DependencyType, depType) {
-			continue
-		}
-		filtered.Modified = append(filtered.Modified, e)
 	}
 	for _, e := range result.Removed {
-		if ecosystem != "" && !strings.EqualFold(e.Ecosystem, ecosystem) {
-			continue
+		if keep(e) {
+			filtered.Removed = append(filtered.Removed, e)
 		}
-		if depType != "" && !strings.EqualFold(e.DependencyType, depType) {
-			continue
-		}
-		filtered.Removed = append(filtered.Removed, e)
 	}
-
 	return filtered
 }
 

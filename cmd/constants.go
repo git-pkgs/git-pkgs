@@ -25,7 +25,10 @@ const (
 )
 
 // Manifest kinds
-const manifestKindLockfile = "lockfile"
+const (
+	manifestKindManifest = "manifest"
+	manifestKindLockfile = "lockfile"
+)
 
 // Update severity levels
 const (
