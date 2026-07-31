@@ -72,6 +72,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
 	depType, _ := cmd.Flags().GetString("type")
 	kind, _ := cmd.Flags().GetString("kind")
+	kind = strings.ToLower(kind)
 	format, err := getFormatFlag(cmd, formatText, formatJSON)
 	if err != nil {
 		return err
@@ -115,17 +116,17 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	// When comparing to working tree, use direct parsing since there's
 	// no database state for uncommitted changes
 	if toRef == "" {
-		result, err = diffWithWorkingTree(repo, fromRef, includeSubmodules, by)
+		result, err = diffWithWorkingTree(repo, fromRef, includeSubmodules, by, kind)
 	} else {
-		result, err = diffBetweenCommits(repo, fromRef, toRef, by)
+		result, err = diffBetweenCommits(repo, fromRef, toRef, by, kind)
 	}
 	if err != nil {
 		return err
 	}
 
 	// Apply filters
-	if ecosystem != "" || depType != "" || kind != "" {
-		result = filterDiffResult(result, ecosystem, depType, kind)
+	if ecosystem != "" || depType != "" {
+		result = filterDiffResult(result, ecosystem, depType)
 	}
 
 	if stat || summary {
@@ -147,7 +148,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 }
 
 // diffBetweenCommits compares dependencies between two commits using on-demand indexing.
-func diffBetweenCommits(repo *git.Repository, fromRef, toRef, by string) (*DiffResult, error) {
+func diffBetweenCommits(repo *git.Repository, fromRef, toRef, by, kind string) (*DiffResult, error) {
 	fromDeps, err := repo.GetDependencies(fromRef, "")
 	if err != nil {
 		return nil, fmt.Errorf("getting deps at %s: %w", fromRef, err)
@@ -158,11 +159,11 @@ func diffBetweenCommits(repo *git.Repository, fromRef, toRef, by string) (*DiffR
 		return nil, fmt.Errorf("getting deps at %s: %w", toRef, err)
 	}
 
-	return computeDiffBy(fromDeps, toDeps, by), nil
+	return computeDiffBy(filterDepsByKind(fromDeps, kind), filterDepsByKind(toDeps, kind), by), nil
 }
 
 // diffWithWorkingTree compares dependencies between a commit and the working tree.
-func diffWithWorkingTree(repo *git.Repository, fromRef string, includeSubmodules bool, by string) (*DiffResult, error) {
+func diffWithWorkingTree(repo *git.Repository, fromRef string, includeSubmodules bool, by, kind string) (*DiffResult, error) {
 	fromDeps, err := repo.GetDependencies(fromRef, "")
 	if err != nil {
 		return nil, fmt.Errorf("getting deps at %s: %w", fromRef, err)
@@ -181,7 +182,24 @@ func diffWithWorkingTree(repo *git.Repository, fromRef string, includeSubmodules
 	}
 	toDeps := changesToDeps(toChanges)
 
-	return computeDiffBy(fromDeps, toDeps, by), nil
+	return computeDiffBy(filterDepsByKind(fromDeps, kind), filterDepsByKind(toDeps, kind), by), nil
+}
+
+// filterDepsByKind drops dependencies whose ManifestKind doesn't match kind.
+// Filtering before computeDiffBy (rather than on the result) means --by
+// ecosystem never merges manifest and lockfile rows into the same bucket,
+// so a lockfile-only version bump can't be masked by a manifest row.
+func filterDepsByKind(deps []database.Dependency, kind string) []database.Dependency {
+	if kind == "" {
+		return deps
+	}
+	out := make([]database.Dependency, 0, len(deps))
+	for _, d := range deps {
+		if d.ManifestKind == kind {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func changesToDeps(changes []analyzer.Change) []database.Dependency {
@@ -382,15 +400,12 @@ func sortDiffEntries(entries []DiffEntry) {
 	})
 }
 
-func filterDiffResult(result *DiffResult, ecosystem, depType, kind string) *DiffResult {
+func filterDiffResult(result *DiffResult, ecosystem, depType string) *DiffResult {
 	keep := func(e DiffEntry) bool {
 		if ecosystem != "" && !strings.EqualFold(e.Ecosystem, ecosystem) {
 			return false
 		}
 		if depType != "" && !strings.EqualFold(e.DependencyType, depType) {
-			return false
-		}
-		if kind != "" && e.ManifestKind != kind {
 			return false
 		}
 		return true
