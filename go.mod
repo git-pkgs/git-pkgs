@@ -13,7 +13,7 @@ require (
 	github.com/git-pkgs/resolve v0.2.2
 	github.com/git-pkgs/sarif v0.1.1
 	github.com/git-pkgs/sbom v0.1.3
-	github.com/git-pkgs/spdx v0.1.4
+	github.com/git-pkgs/spdx v0.2.0
 	github.com/git-pkgs/vers v0.3.0
 	github.com/git-pkgs/vulns v0.2.1
 	github.com/go-git/go-billy/v5 v5.9.1
