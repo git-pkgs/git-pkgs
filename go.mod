@@ -1,6 +1,6 @@
 module github.com/git-pkgs/git-pkgs
 
-go 1.25.12
+go 1.26.5
 
 require (
 	github.com/git-pkgs/changelog v0.1.3

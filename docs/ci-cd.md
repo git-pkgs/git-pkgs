@@ -324,7 +324,7 @@ Use `git pkgs licenses --offline` after a cache has been populated when the chec
 Use git-pkgs in a Dockerfile:
 
 ```dockerfile
-FROM golang:1.25 as builder
+FROM golang:1.26 as builder
 RUN curl -sL https://github.com/git-pkgs/git-pkgs/releases/latest/download/git-pkgs-linux-amd64 -o /usr/local/bin/git-pkgs \
     && chmod +x /usr/local/bin/git-pkgs
 
