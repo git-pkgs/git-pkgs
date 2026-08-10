@@ -422,6 +422,7 @@ func TestGetVulnsAtCommitAppliesEcosystemConfig(t *testing.T) {
 	snapshots := []database.SnapshotInfo{
 		{
 			ManifestPath:   "package-lock.json",
+			Kind:           "lockfile",
 			Name:           "foo",
 			Ecosystem:      "npm",
 			PURL:           "pkg:npm/foo@1.0.0",
@@ -431,6 +432,7 @@ func TestGetVulnsAtCommitAppliesEcosystemConfig(t *testing.T) {
 		},
 		{
 			ManifestPath:   "Gemfile.lock",
+			Kind:           "lockfile",
 			Name:           "bar",
 			Ecosystem:      "rubygems",
 			PURL:           "pkg:gem/bar@1.0.0",

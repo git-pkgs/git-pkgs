@@ -130,6 +130,7 @@ func (r *Repository) IndexCommitSnapshot(db *database.DB, branchID int64, sha st
 	for _, c := range changes {
 		snapshots = append(snapshots, database.SnapshotInfo{
 			ManifestPath:   c.ManifestPath,
+			Kind:           c.Kind,
 			Name:           c.Name,
 			Ecosystem:      c.Ecosystem,
 			PURL:           c.PURL,

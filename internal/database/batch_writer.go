@@ -41,6 +41,7 @@ type ChangeInfo struct {
 
 type SnapshotInfo struct {
 	ManifestPath   string
+	Kind           string
 	Name           string
 	Ecosystem      string
 	PURL           string

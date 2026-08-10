@@ -3007,13 +3007,9 @@ func (db *DB) StoreSnapshot(branchID int64, commit CommitInfo, snapshots []Snaps
 		if !ok {
 			err = tx.QueryRow("SELECT id FROM manifests WHERE path = ?", s.ManifestPath).Scan(&manifestID)
 			if err == sql.ErrNoRows {
-				kind := "manifest"
-				if s.Integrity != "" {
-					kind = "lockfile"
-				}
 				result, err := tx.Exec(
 					"INSERT INTO manifests (path, ecosystem, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-					s.ManifestPath, s.Ecosystem, kind, now, now,
+					s.ManifestPath, s.Ecosystem, s.Kind, now, now,
 				)
 				if err != nil {
 					return fmt.Errorf("inserting manifest: %w", err)
