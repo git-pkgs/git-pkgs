@@ -42,7 +42,7 @@ git pkgs why rails      # why was this added?
 git pkgs diff                 # HEAD vs working tree
 git pkgs diff --from=HEAD~10  # what changed recently?
 git pkgs diff main..feature   # compare branches
-git pkgs vulns          # scan for known CVEs
+git pkgs vulns scan     # scan for known CVEs
 git pkgs vulns blame    # who introduced each vulnerability
 git pkgs outdated       # find packages with newer versions
 git pkgs freshness      # release-age freshness metrics
