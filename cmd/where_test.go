@@ -3,11 +3,13 @@ package cmd
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	gitrepo "github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/spf13/cobra"
 )
 
@@ -132,9 +134,7 @@ func TestOutputWhereTextContextNearEOFUsesOriginalLineNumbers(t *testing.T) {
 	cmd := &cobra.Command{}
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	if err := outputWhereText(cmd, matches, true); err != nil {
-		t.Fatal(err)
-	}
+	outputWhereText(cmd, matches, true)
 
 	got := out.String()
 	if !strings.Contains(got, `     5:     "other": "1.0.0",`) {
@@ -190,4 +190,54 @@ func TestSearchFileForPackageRejectsSymlinkEscape(t *testing.T) {
 	if len(matches) != 1 {
 		t.Fatalf("expected 1 match for lodash, got %d", len(matches))
 	}
+}
+
+func TestWhereSubmoduleMap(t *testing.T) {
+	dir := t.TempDir()
+	repo := openWhereTestRepository(t, dir)
+	modules := `[submodule "example"]
+	path = vendor/example
+	url = https://example.com/example.git
+`
+	if err := os.WriteFile(filepath.Join(dir, ".gitmodules"), []byte(modules), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := whereSubmoduleMap(repo, false)
+	if !got["vendor/example"] {
+		t.Fatalf("submodule map = %v, want vendor/example", got)
+	}
+	if got := whereSubmoduleMap(repo, true); got != nil {
+		t.Fatalf("included submodule map = %v, want nil", got)
+	}
+}
+
+func TestFindWhereMatchesMissingRoot(t *testing.T) {
+	dir := t.TempDir()
+	repo := openWhereTestRepository(t, dir)
+	if _, err := repo.EcosystemFilter(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := findWhereMatches(repo, whereOptions{packageName: "lodash"})
+	if err == nil || !strings.Contains(err.Error(), "opening root") {
+		t.Fatalf("findWhereMatches error = %v, want opening root error", err)
+	}
+}
+
+func openWhereTestRepository(t *testing.T, dir string) *gitrepo.Repository {
+	t.Helper()
+	command := exec.Command("git", "init", "--initial-branch=main")
+	command.Dir = dir
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	repo, err := gitrepo.OpenRepository(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repo
 }
