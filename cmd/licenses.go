@@ -85,27 +85,25 @@ type LicenseDriftResult struct {
 	Dependencies []LicenseDriftEntry `json:"dependencies"`
 }
 
+type licenseOptions struct {
+	commit         string
+	branchName     string
+	ecosystem      string
+	format         string
+	allowList      []string
+	denyList       []string
+	flagPermissive bool
+	flagCopyleft   bool
+	flagUnknown    bool
+	groupBy        bool
+	driftOnly      bool
+	offline        bool
+}
+
 func runLicenses(cmd *cobra.Command, args []string) error {
-	commit, _ := cmd.Flags().GetString("commit")
-	branchName, _ := cmd.Flags().GetString("branch")
-	ecosystem, _ := cmd.Flags().GetString("ecosystem")
-	format, err := getFormatFlag(cmd, formatText, formatJSON, formatCSV)
+	opts, err := licenseOptionsFromCommand(cmd)
 	if err != nil {
 		return err
-	}
-	allowList, _ := cmd.Flags().GetStringSlice("allow")
-	denyList, _ := cmd.Flags().GetStringSlice("deny")
-	flagPermissive, _ := cmd.Flags().GetBool("permissive")
-	flagCopyleft, _ := cmd.Flags().GetBool("copyleft")
-	flagUnknown, _ := cmd.Flags().GetBool("unknown")
-	groupBy, _ := cmd.Flags().GetBool("group")
-	driftOnly, _ := cmd.Flags().GetBool("drift")
-	offline, _ := cmd.Flags().GetBool("offline")
-
-	if driftOnly {
-		if err := validateLicenseDriftFlags(allowList, denyList, flagPermissive, flagCopyleft, flagUnknown, groupBy); err != nil {
-			return err
-		}
 	}
 
 	repo, err := git.OpenRepository(".")
@@ -113,7 +111,7 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	deps, db, err := repo.GetDependenciesWithDB(commit, branchName)
+	deps, db, err := repo.GetDependenciesWithDB(opts.commit, opts.branchName)
 	if db != nil {
 		defer func() { _ = db.Close() }()
 	}
@@ -121,50 +119,28 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading dependencies: %w", err)
 	}
 
-	deps = filterByEcosystem(deps, ecosystem)
+	deps = filterByEcosystem(deps, opts.ecosystem)
 
-	if driftOnly {
-		return runLicenseDrift(cmd, db, deps, format, offline)
+	if opts.driftOnly {
+		return runLicenseDrift(cmd, db, deps, opts.format, opts.offline)
 	}
 
-	// Filter to manifest dependencies (direct deps)
-	var directDeps []database.Dependency
-	for _, d := range deps {
-		if d.ManifestKind == "manifest" {
-			directDeps = append(directDeps, d)
-		}
-	}
-
+	directDeps := directLicenseDependencies(deps)
 	if len(directDeps) == 0 {
-		if format == formatJSON {
+		if opts.format == formatJSON {
 			return outputLicensesJSON(cmd, nil)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No direct dependencies found.")
 		return nil
 	}
 
-	// Build PURLs
-	purls := make([]string, 0, len(directDeps))
-	purlToDep := make(map[string]database.Dependency)
-	for _, d := range directDeps {
-		purlStr := d.PURL
-		if purlStr == "" {
-			purlStr = purl.MakePURLString(d.Ecosystem, d.Name, "")
-		}
-		if purlStr != "" {
-			purls = append(purls, purlStr)
-			purlToDep[purlStr] = d
-		}
-	}
-
-	// Get license data (from cache or API)
-	packageData, err := getLicenseData(db, purls, purlToDep, offline)
+	purls, purlToDep := licensePackageLookups(directDeps)
+	packageData, err := getLicenseData(db, purls, opts.offline)
 	if err != nil {
 		return fmt.Errorf("looking up packages: %w", err)
 	}
 	resolvedVersionPURLs, resolvedDeps, ambiguousVersions := resolvedLicenseVersions(purlToDep, deps)
-	// Version metadata is optional; package metadata remains the fallback.
-	versionLicenses, versionLicenseErr := loadLicenseVersionLicenses(db, resolvedDeps, offline)
+	versionLicenses, versionLicenseErr := loadLicenseVersionLicenses(db, resolvedDeps, opts.offline)
 	if versionLicenseErr != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 			"Warning: version license lookup failed; using package metadata where version data is unavailable: %v\n",
@@ -172,166 +148,266 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		)
 	}
 
-	// Normalize allow/deny lists to SPDX identifiers
-	allowSet := make(map[string]bool)
-	for _, l := range allowList {
-		if normalized, err := spdx.Normalize(l); err == nil {
-			allowSet[normalized] = true
-		} else {
-			allowSet[strings.ToLower(l)] = true
-		}
-	}
-	denySet := make(map[string]bool)
-	for _, l := range denyList {
-		if normalized, err := spdx.Normalize(l); err == nil {
-			denySet[normalized] = true
-		} else {
-			denySet[strings.ToLower(l)] = true
-		}
-	}
+	result := buildLicenseInfos(
+		packageData,
+		purlToDep,
+		resolvedVersionPURLs,
+		versionLicenses,
+		ambiguousVersions,
+		newLicensePolicy(opts),
+	)
+	warnAmbiguousLicenseFallbacks(cmd, result.ambiguousFallbacks)
 
-	// Build license info
-	var licenseInfos []LicenseInfo
-	var ambiguousFallbacks []string
-	hasViolations := false
-
-	for lookupPURL, data := range packageData {
-		dep := purlToDep[lookupPURL]
-
-		// Use API data when dep lookup failed (PURL mismatch)
-		name := dep.Name
-		ecosystem := dep.Ecosystem
-		if name == "" && data.Name != "" {
-			name = data.Name
-			ecosystem = data.Ecosystem
-		}
-
-		info := LicenseInfo{
-			Name:         name,
-			Ecosystem:    ecosystem,
-			Version:      dep.Requirement,
-			ManifestPath: dep.ManifestPath,
-			PURL:         lookupPURL,
-		}
-
-		license := data.License
-		versionedPURL := resolvedVersionPURLs[lookupPURL]
-		if versionLicense := versionLicenses[versionedPURL]; versionLicense != "" {
-			license = versionLicense
-			info.LicenseSource = licenseSourceVersion
-			info.PURL = versionedPURL
-			if parsed, parseErr := purl.Parse(versionedPURL); parseErr == nil {
-				info.Version = parsed.Version
-			}
-		} else if license != "" {
-			info.LicenseSource = licenseSourcePackage
-			if ambiguousVersions[lookupPURL] {
-				ambiguousFallbacks = append(ambiguousFallbacks, lookupPURL)
-			}
-		}
-		if license != "" {
-			info.Licenses = []string{license}
-		}
-
-		// Check for violations
-		if len(info.Licenses) == 0 {
-			info.Licenses = []string{"Unknown"}
-			if flagUnknown {
-				info.Flagged = true
-				info.FlagReason = "unknown license"
-				hasViolations = true
-			}
-		} else {
-			for _, lic := range info.Licenses {
-				// Check allow list (compare normalized forms)
-				if len(allowSet) > 0 {
-					inAllowList := allowSet[lic]
-					if !inAllowList {
-						if normalized, err := spdx.Normalize(lic); err == nil {
-							inAllowList = allowSet[normalized]
-						}
-					}
-					if !inAllowList {
-						inAllowList = allowSet[strings.ToLower(lic)]
-					}
-					if !inAllowList {
-						info.Flagged = true
-						info.FlagReason = fmt.Sprintf("license %q not in allow list", lic)
-						hasViolations = true
-					}
-				}
-
-				// Check deny list (compare normalized forms)
-				inDenyList := denySet[lic]
-				if !inDenyList {
-					if normalized, err := spdx.Normalize(lic); err == nil {
-						inDenyList = denySet[normalized]
-					}
-				}
-				if !inDenyList {
-					inDenyList = denySet[strings.ToLower(lic)]
-				}
-				if inDenyList {
-					info.Flagged = true
-					info.FlagReason = fmt.Sprintf("license %q is denied", lic)
-					hasViolations = true
-				}
-
-				// Check permissive using spdx library
-				if flagPermissive && !spdx.IsFullyPermissive(lic) {
-					info.Flagged = true
-					info.FlagReason = fmt.Sprintf("license %q is not permissive", lic)
-					hasViolations = true
-				}
-
-				// Check copyleft using spdx library
-				if flagCopyleft && spdx.HasCopyleft(lic) {
-					info.Flagged = true
-					info.FlagReason = fmt.Sprintf("license %q is copyleft", lic)
-					hasViolations = true
-				}
-			}
-		}
-
-		licenseInfos = append(licenseInfos, info)
-	}
-	if len(ambiguousFallbacks) > 0 {
-		sort.Strings(ambiguousFallbacks)
-		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
-			"Warning: could not determine installed versions for %d dependencies; using package-level license metadata: %s\n",
-			len(ambiguousFallbacks), strings.Join(ambiguousFallbacks, ", "),
-		)
-	}
-
-	// Sort by name
-	sort.Slice(licenseInfos, func(i, j int) bool {
-		if licenseInfos[i].Name != licenseInfos[j].Name {
-			return licenseInfos[i].Name < licenseInfos[j].Name
-		}
-		return licenseInfos[i].Version < licenseInfos[j].Version
-	})
-
-	switch format {
-	case formatJSON:
-		err = outputLicensesJSON(cmd, licenseInfos)
-	case "csv":
-		err = outputLicensesCSV(cmd, licenseInfos)
-	default:
-		if groupBy {
-			outputLicensesGrouped(cmd, licenseInfos)
-		} else {
-			outputLicensesText(cmd, licenseInfos)
-		}
-	}
-
-	if err != nil {
+	if err := outputLicenses(cmd, result.infos, opts.format, opts.groupBy); err != nil {
 		return err
 	}
-
-	if hasViolations {
+	if result.hasViolations {
 		return fmt.Errorf("license violations found")
 	}
 	return nil
+}
+
+func licenseOptionsFromCommand(cmd *cobra.Command) (licenseOptions, error) {
+	opts := licenseOptions{}
+	opts.commit, _ = cmd.Flags().GetString("commit")
+	opts.branchName, _ = cmd.Flags().GetString("branch")
+	opts.ecosystem, _ = cmd.Flags().GetString("ecosystem")
+	opts.allowList, _ = cmd.Flags().GetStringSlice("allow")
+	opts.denyList, _ = cmd.Flags().GetStringSlice("deny")
+	opts.flagPermissive, _ = cmd.Flags().GetBool("permissive")
+	opts.flagCopyleft, _ = cmd.Flags().GetBool("copyleft")
+	opts.flagUnknown, _ = cmd.Flags().GetBool("unknown")
+	opts.groupBy, _ = cmd.Flags().GetBool("group")
+	opts.driftOnly, _ = cmd.Flags().GetBool("drift")
+	opts.offline, _ = cmd.Flags().GetBool("offline")
+
+	format, err := getFormatFlag(cmd, formatText, formatJSON, formatCSV)
+	if err != nil {
+		return licenseOptions{}, err
+	}
+	opts.format = format
+	if opts.driftOnly {
+		err = validateLicenseDriftFlags(
+			opts.allowList,
+			opts.denyList,
+			opts.flagPermissive,
+			opts.flagCopyleft,
+			opts.flagUnknown,
+			opts.groupBy,
+		)
+	}
+	return opts, err
+}
+
+func directLicenseDependencies(deps []database.Dependency) []database.Dependency {
+	direct := make([]database.Dependency, 0, len(deps))
+	for _, dep := range deps {
+		if dep.ManifestKind == manifestKindManifest {
+			direct = append(direct, dep)
+		}
+	}
+	return direct
+}
+
+func licensePackageLookups(deps []database.Dependency) ([]string, map[string]database.Dependency) {
+	purls := make([]string, 0, len(deps))
+	purlToDep := make(map[string]database.Dependency)
+	for _, dep := range deps {
+		lookupPURL := dep.PURL
+		if lookupPURL == "" {
+			lookupPURL = purl.MakePURLString(dep.Ecosystem, dep.Name, "")
+		}
+		if lookupPURL == "" {
+			continue
+		}
+		purls = append(purls, lookupPURL)
+		purlToDep[lookupPURL] = dep
+	}
+	return purls, purlToDep
+}
+
+type licensePolicy struct {
+	allowSet       map[string]bool
+	denySet        map[string]bool
+	flagPermissive bool
+	flagCopyleft   bool
+	flagUnknown    bool
+}
+
+func newLicensePolicy(opts licenseOptions) licensePolicy {
+	return licensePolicy{
+		allowSet:       normalizedLicenseSet(opts.allowList),
+		denySet:        normalizedLicenseSet(opts.denyList),
+		flagPermissive: opts.flagPermissive,
+		flagCopyleft:   opts.flagCopyleft,
+		flagUnknown:    opts.flagUnknown,
+	}
+}
+
+func normalizedLicenseSet(licenses []string) map[string]bool {
+	set := make(map[string]bool, len(licenses))
+	for _, license := range licenses {
+		normalized, err := spdx.Normalize(license)
+		if err == nil {
+			set[normalized] = true
+			continue
+		}
+		set[strings.ToLower(license)] = true
+	}
+	return set
+}
+
+func (policy licensePolicy) evaluate(licenses []string) (bool, string) {
+	if len(licenses) == 0 {
+		if policy.flagUnknown {
+			return true, "unknown license"
+		}
+		return false, ""
+	}
+
+	flagged := false
+	reason := ""
+	for _, license := range licenses {
+		if len(policy.allowSet) > 0 && !licenseSetContains(policy.allowSet, license) {
+			flagged = true
+			reason = fmt.Sprintf("license %q not in allow list", license)
+		}
+		if licenseSetContains(policy.denySet, license) {
+			flagged = true
+			reason = fmt.Sprintf("license %q is denied", license)
+		}
+		if policy.flagPermissive && !spdx.IsFullyPermissive(license) {
+			flagged = true
+			reason = fmt.Sprintf("license %q is not permissive", license)
+		}
+		if policy.flagCopyleft && spdx.HasCopyleft(license) {
+			flagged = true
+			reason = fmt.Sprintf("license %q is copyleft", license)
+		}
+	}
+	return flagged, reason
+}
+
+func licenseSetContains(set map[string]bool, license string) bool {
+	if set[license] {
+		return true
+	}
+	if normalized, err := spdx.Normalize(license); err == nil && set[normalized] {
+		return true
+	}
+	return set[strings.ToLower(license)]
+}
+
+type licenseBuildResult struct {
+	infos              []LicenseInfo
+	ambiguousFallbacks []string
+	hasViolations      bool
+}
+
+func buildLicenseInfos(
+	packageData map[string]*licenseData,
+	purlToDep map[string]database.Dependency,
+	resolvedVersionPURLs map[string]string,
+	versionLicenses map[string]string,
+	ambiguousVersions map[string]bool,
+	policy licensePolicy,
+) licenseBuildResult {
+	result := licenseBuildResult{infos: make([]LicenseInfo, 0, len(packageData))}
+	for lookupPURL, data := range packageData {
+		info, ambiguousFallback := buildLicenseInfo(
+			lookupPURL,
+			data,
+			purlToDep[lookupPURL],
+			resolvedVersionPURLs[lookupPURL],
+			versionLicenses,
+			ambiguousVersions[lookupPURL],
+		)
+		if ambiguousFallback {
+			result.ambiguousFallbacks = append(result.ambiguousFallbacks, lookupPURL)
+		}
+		info.Flagged, info.FlagReason = policy.evaluate(info.Licenses)
+		if info.Flagged {
+			result.hasViolations = true
+		}
+		if len(info.Licenses) == 0 {
+			info.Licenses = []string{"Unknown"}
+		}
+		result.infos = append(result.infos, info)
+	}
+
+	sort.Slice(result.infos, func(i, j int) bool {
+		if result.infos[i].Name != result.infos[j].Name {
+			return result.infos[i].Name < result.infos[j].Name
+		}
+		return result.infos[i].Version < result.infos[j].Version
+	})
+	return result
+}
+
+func buildLicenseInfo(
+	lookupPURL string,
+	data *licenseData,
+	dep database.Dependency,
+	versionedPURL string,
+	versionLicenses map[string]string,
+	ambiguousVersion bool,
+) (LicenseInfo, bool) {
+	name := dep.Name
+	ecosystem := dep.Ecosystem
+	if name == "" && data.Name != "" {
+		name = data.Name
+		ecosystem = data.Ecosystem
+	}
+
+	info := LicenseInfo{
+		Name:         name,
+		Ecosystem:    ecosystem,
+		Version:      dep.Requirement,
+		ManifestPath: dep.ManifestPath,
+		PURL:         lookupPURL,
+	}
+	license := data.License
+	if versionLicense := versionLicenses[versionedPURL]; versionLicense != "" {
+		license = versionLicense
+		info.LicenseSource = licenseSourceVersion
+		info.PURL = versionedPURL
+		if parsed, err := purl.Parse(versionedPURL); err == nil {
+			info.Version = parsed.Version
+		}
+	} else if license != "" {
+		info.LicenseSource = licenseSourcePackage
+	}
+	if license != "" {
+		info.Licenses = []string{license}
+	}
+	return info, license != "" && info.LicenseSource == licenseSourcePackage && ambiguousVersion
+}
+
+func warnAmbiguousLicenseFallbacks(cmd *cobra.Command, fallbacks []string) {
+	if len(fallbacks) == 0 {
+		return
+	}
+	sort.Strings(fallbacks)
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+		"Warning: could not determine installed versions for %d dependencies; using package-level license metadata: %s\n",
+		len(fallbacks), strings.Join(fallbacks, ", "),
+	)
+}
+
+func outputLicenses(cmd *cobra.Command, infos []LicenseInfo, format string, groupBy bool) error {
+	switch format {
+	case formatJSON:
+		return outputLicensesJSON(cmd, infos)
+	case formatCSV:
+		return outputLicensesCSV(cmd, infos)
+	default:
+		if groupBy {
+			outputLicensesGrouped(cmd, infos)
+		} else {
+			outputLicensesText(cmd, infos)
+		}
+		return nil
+	}
 }
 
 func validateLicenseDriftFlags(allowList, denyList []string, flagPermissive, flagCopyleft, flagUnknown, groupBy bool) error {
@@ -370,90 +446,110 @@ type licenseData struct {
 func getLicenseData(
 	db *database.DB,
 	purls []string,
-	purlToDep map[string]database.Dependency,
 	offline bool,
 ) (map[string]*licenseData, error) {
-	result := make(map[string]*licenseData)
-	var uncachedPurls []string
-
-	// Check cache if DB is available
-	if db != nil {
-		var cached map[string]*database.CachedPackage
-		var err error
-		if offline {
-			cached, err = db.GetCachedPackagesIncludingStale(purls)
-		} else {
-			cached, err = db.GetCachedPackages(purls, enrichmentCacheTTL)
-		}
-		if err != nil {
-			return nil, err
-		}
-		for purl, cp := range cached {
-			result[purl] = &licenseData{
-				License:       cp.License,
-				Name:          cp.Name,
-				Ecosystem:     cp.Ecosystem,
-				LatestVersion: cp.LatestVersion,
-			}
-		}
-		// Find uncached PURLs
-		for _, purl := range purls {
-			if _, ok := cached[purl]; !ok {
-				uncachedPurls = append(uncachedPurls, purl)
-			}
-		}
-	} else {
-		uncachedPurls = purls
+	result, uncachedPURLs, err := cachedLicenseData(db, purls, offline)
+	if err != nil {
+		return nil, err
 	}
-	if offline && len(uncachedPurls) > 0 {
+	if offline && len(uncachedPURLs) > 0 {
 		return nil, fmt.Errorf(
 			"offline mode: license metadata is not cached for %d package(s); run 'git pkgs licenses' without --offline to populate the cache",
-			len(uncachedPurls),
+			len(uncachedPURLs),
 		)
 	}
-
-	// Fetch uncached from API
-	if len(uncachedPurls) > 0 {
-		client, err := newEnrichmentClient()
-		if err != nil {
-			return nil, err
-		}
-
-		const licensesTimeout = 5 * time.Minute
-		ctx, cancel := context.WithTimeout(context.Background(), licensesTimeout)
-		defer cancel()
-
-		packages, err := client.BulkLookup(ctx, uncachedPurls)
-		if err != nil {
-			return nil, wrapEcosystemsError(err)
-		}
-
-		for purl, pkg := range packages {
-			data := &licenseData{}
-			if pkg != nil {
-				data.Name = pkg.Name
-				data.Ecosystem = pkg.Ecosystem
-				data.LatestVersion = pkg.LatestVersion
-				// Normalize license to SPDX identifier
-				if pkg.License != "" {
-					if normalized, err := spdx.Normalize(pkg.License); err == nil {
-						data.License = normalized
-					} else {
-						data.License = pkg.License
-					}
-				}
-			}
-			result[purl] = data
-
-			// Save to cache if DB available
-			if db != nil && pkg != nil {
-				// Use API data for ecosystem/name (in case PURL was canonicalized)
-				_ = db.SavePackageEnrichment(purl, pkg.Ecosystem, pkg.Name, pkg.LatestVersion, pkg.License, pkg.RegistryURL, pkg.Source)
-			}
-		}
+	if len(uncachedPURLs) == 0 {
+		return result, nil
 	}
 
+	fetched, err := fetchLicenseData(db, uncachedPURLs)
+	if err != nil {
+		return nil, err
+	}
+	for purl, data := range fetched {
+		result[purl] = data
+	}
 	return result, nil
+}
+
+func cachedLicenseData(
+	db *database.DB,
+	purls []string,
+	includeStale bool,
+) (map[string]*licenseData, []string, error) {
+	result := make(map[string]*licenseData)
+	if db == nil {
+		return result, purls, nil
+	}
+
+	var cached map[string]*database.CachedPackage
+	var err error
+	if includeStale {
+		cached, err = db.GetCachedPackagesIncludingStale(purls)
+	} else {
+		cached, err = db.GetCachedPackages(purls, enrichmentCacheTTL)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for purl, pkg := range cached {
+		result[purl] = &licenseData{
+			License:       pkg.License,
+			Name:          pkg.Name,
+			Ecosystem:     pkg.Ecosystem,
+			LatestVersion: pkg.LatestVersion,
+		}
+	}
+	uncached := make([]string, 0, len(purls)-len(cached))
+	for _, purl := range purls {
+		if _, ok := cached[purl]; !ok {
+			uncached = append(uncached, purl)
+		}
+	}
+	return result, uncached, nil
+}
+
+func fetchLicenseData(db *database.DB, purls []string) (map[string]*licenseData, error) {
+	client, err := newEnrichmentClient()
+	if err != nil {
+		return nil, err
+	}
+
+	const licensesTimeout = 5 * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), licensesTimeout)
+	defer cancel()
+
+	packages, err := client.BulkLookup(ctx, purls)
+	if err != nil {
+		return nil, wrapEcosystemsError(err)
+	}
+
+	result := make(map[string]*licenseData, len(packages))
+	for purl, pkg := range packages {
+		result[purl] = licenseDataFromPackage(pkg)
+		if db != nil && pkg != nil {
+			_ = db.SavePackageEnrichment(purl, pkg.Ecosystem, pkg.Name, pkg.LatestVersion, pkg.License, pkg.RegistryURL, pkg.Source)
+		}
+	}
+	return result, nil
+}
+
+func licenseDataFromPackage(pkg *enrichment.PackageInfo) *licenseData {
+	data := &licenseData{}
+	if pkg == nil {
+		return data
+	}
+	data.Name = pkg.Name
+	data.Ecosystem = pkg.Ecosystem
+	data.LatestVersion = pkg.LatestVersion
+	data.License = pkg.License
+	if data.License != "" {
+		if normalized, err := spdx.Normalize(data.License); err == nil {
+			data.License = normalized
+		}
+	}
+	return data
 }
 
 func resolvedLicenseVersions(
@@ -585,7 +681,6 @@ func computeLicenseDrift(db *database.DB, deps []database.Dependency, offline bo
 	result.Summary.TotalDependencies = len(deps)
 
 	packagePURLs := make([]string, 0, len(deps))
-	purlToDep := make(map[string]database.Dependency)
 	seenPURLs := make(map[string]bool)
 	for _, dep := range deps {
 		packagePURL := licensePackagePURLForDependency(dep)
@@ -595,11 +690,10 @@ func computeLicenseDrift(db *database.DB, deps []database.Dependency, offline bo
 		if !seenPURLs[packagePURL] {
 			seenPURLs[packagePURL] = true
 			packagePURLs = append(packagePURLs, packagePURL)
-			purlToDep[packagePURL] = dep
 		}
 	}
 
-	packageLicenses, err := getLicenseData(db, packagePURLs, purlToDep, offline)
+	packageLicenses, err := getLicenseData(db, packagePURLs, offline)
 	if err != nil {
 		return nil, fmt.Errorf("looking up package licenses: %w", err)
 	}

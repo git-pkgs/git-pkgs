@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/git-pkgs/git-pkgs/internal/database"
+	"github.com/spf13/cobra"
 )
 
 func TestResolvedLicenseVersions(t *testing.T) {
@@ -121,5 +123,183 @@ func TestLoadLicenseVersionLicensesOfflineCacheMiss(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "--drift") {
 		t.Fatalf("offline cache miss error = %q, should apply to both license modes", err)
+	}
+}
+
+func TestLicensePolicyEvaluate(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		opts        licenseOptions
+		licenses    []string
+		wantFlagged bool
+		wantReason  string
+	}{
+		{
+			name:     "no policy",
+			licenses: []string{"MIT"},
+		},
+		{
+			name:        "unknown license",
+			opts:        licenseOptions{flagUnknown: true},
+			wantFlagged: true,
+			wantReason:  "unknown license",
+		},
+		{
+			name:     "normalized allow list",
+			opts:     licenseOptions{allowList: []string{"mit"}},
+			licenses: []string{"MIT"},
+		},
+		{
+			name:        "license outside allow list",
+			opts:        licenseOptions{allowList: []string{"Apache-2.0"}},
+			licenses:    []string{"MIT"},
+			wantFlagged: true,
+			wantReason:  `license "MIT" not in allow list`,
+		},
+		{
+			name:        "normalized deny list",
+			opts:        licenseOptions{denyList: []string{"mit"}},
+			licenses:    []string{"MIT"},
+			wantFlagged: true,
+			wantReason:  `license "MIT" is denied`,
+		},
+		{
+			name:        "non-permissive license",
+			opts:        licenseOptions{flagPermissive: true},
+			licenses:    []string{"LGPL-3.0-or-later"},
+			wantFlagged: true,
+			wantReason:  `license "LGPL-3.0-or-later" is not permissive`,
+		},
+		{
+			name:        "copyleft license",
+			opts:        licenseOptions{flagCopyleft: true},
+			licenses:    []string{"GPL-3.0-only"},
+			wantFlagged: true,
+			wantReason:  `license "GPL-3.0-only" is copyleft`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			flagged, reason := newLicensePolicy(tt.opts).evaluate(tt.licenses)
+			if flagged != tt.wantFlagged {
+				t.Errorf("flagged = %v, want %v", flagged, tt.wantFlagged)
+			}
+			if reason != tt.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tt.wantReason)
+			}
+		})
+	}
+}
+
+func TestOutputLicenses(t *testing.T) {
+	infos := []LicenseInfo{{
+		Name:         "example",
+		Ecosystem:    "npm",
+		Version:      "1.0.0",
+		Licenses:     []string{"MIT"},
+		ManifestPath: "package.json",
+		Flagged:      true,
+		FlagReason:   "test policy",
+	}}
+
+	for _, tt := range []struct {
+		name    string
+		format  string
+		groupBy bool
+		want    []string
+	}{
+		{
+			name:   "csv",
+			format: formatCSV,
+			want:   []string{"Name,Ecosystem,Version,Licenses,Manifest,Flagged,Reason", "example,npm,1.0.0,MIT,package.json,yes,test policy"},
+		},
+		{
+			name:    "grouped text",
+			format:  formatText,
+			groupBy: true,
+			want:    []string{"MIT:", "example [FLAGGED: test policy]"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var output bytes.Buffer
+			command := &cobra.Command{}
+			command.SetOut(&output)
+			if err := outputLicenses(command, infos, tt.format, tt.groupBy); err != nil {
+				t.Fatalf("outputLicenses: %v", err)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(output.String(), want) {
+					t.Errorf("output missing %q: %s", want, output.String())
+				}
+			}
+		})
+	}
+}
+
+func TestOutputLicenseDriftCSV(t *testing.T) {
+	var output bytes.Buffer
+	command := &cobra.Command{}
+	command.SetOut(&output)
+	entries := []LicenseDriftEntry{{
+		Name:           "example",
+		Ecosystem:      "npm",
+		CurrentVersion: "1.0.0",
+		LatestVersion:  "2.0.0",
+		CurrentLicense: "MIT",
+		LatestLicense:  "Apache-2.0",
+		ManifestPath:   "package-lock.json",
+		PURL:           "pkg:npm/example@1.0.0",
+	}}
+
+	if err := outputLicenseDriftCSV(command, entries); err != nil {
+		t.Fatalf("outputLicenseDriftCSV: %v", err)
+	}
+	for _, want := range []string{
+		"Name,Ecosystem,Current Version,Latest Version,Current License,Latest License,Manifest,PURL",
+		"example,npm,1.0.0,2.0.0,MIT,Apache-2.0,package-lock.json,pkg:npm/example@1.0.0",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("output missing %q: %s", want, output.String())
+		}
+	}
+}
+
+func TestOutputLicenseDriftText(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		result *LicenseDriftResult
+		want   []string
+	}{
+		{
+			name: "empty with unresolved dependencies",
+			result: &LicenseDriftResult{
+				Summary: LicenseDriftSummary{UnresolvedDependencies: 2},
+			},
+			want: []string{"No license drift detected.", "Unresolved dependencies: 2"},
+		},
+		{
+			name: "drift without latest version",
+			result: &LicenseDriftResult{
+				Dependencies: []LicenseDriftEntry{{
+					Name:           "example",
+					Ecosystem:      "npm",
+					CurrentVersion: "1.0.0",
+					CurrentLicense: "MIT",
+					LatestLicense:  "Apache-2.0",
+				}},
+			},
+			want: []string{"Found 1 dependencies with license drift:", "example (npm): 1.0.0 MIT -> latest Apache-2.0"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var output bytes.Buffer
+			command := &cobra.Command{}
+			command.SetOut(&output)
+			outputLicenseDriftText(command, tt.result)
+			for _, want := range tt.want {
+				if !strings.Contains(output.String(), want) {
+					t.Errorf("output missing %q: %s", want, output.String())
+				}
+			}
+		})
 	}
 }
