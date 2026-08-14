@@ -495,7 +495,7 @@ func cachedLicenseData(
 
 	for purl, pkg := range cached {
 		result[purl] = &licenseData{
-			License:       pkg.License,
+			License:       normalizeLicenseString(pkg.License),
 			Name:          pkg.Name,
 			Ecosystem:     pkg.Ecosystem,
 			LatestVersion: pkg.LatestVersion,
@@ -543,12 +543,7 @@ func licenseDataFromPackage(pkg *enrichment.PackageInfo) *licenseData {
 	data.Name = pkg.Name
 	data.Ecosystem = pkg.Ecosystem
 	data.LatestVersion = pkg.LatestVersion
-	data.License = pkg.License
-	if data.License != "" {
-		if normalized, err := spdx.Normalize(data.License); err == nil {
-			data.License = normalized
-		}
-	}
+	data.License = normalizeLicenseString(pkg.License)
 	return data
 }
 

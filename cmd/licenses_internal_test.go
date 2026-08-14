@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/spf13/cobra"
 )
@@ -123,6 +125,41 @@ func TestLoadLicenseVersionLicensesOfflineCacheMiss(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "--drift") {
 		t.Fatalf("offline cache miss error = %q, should apply to both license modes", err)
+	}
+}
+
+func TestCachedLicenseDataMatchesFetchedNormalization(t *testing.T) {
+	const packagePURL = "pkg:npm/example"
+	rawLicense := " mit "
+
+	db, _, err := database.OpenOrCreate(filepath.Join(t.TempDir(), "pkgs.sqlite3"))
+	if err != nil {
+		t.Fatalf("OpenOrCreate: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.SavePackageEnrichment(packagePURL, "npm", "example", "1.0.0", rawLicense, "", "test"); err != nil {
+		t.Fatalf("SavePackageEnrichment: %v", err)
+	}
+
+	cached, missing, err := cachedLicenseData(db, []string{packagePURL}, true)
+	if err != nil {
+		t.Fatalf("cachedLicenseData: %v", err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("missing PURLs = %q, want none", missing)
+	}
+	fetched := licenseDataFromPackage(&enrichment.PackageInfo{
+		Ecosystem:     "npm",
+		Name:          "example",
+		LatestVersion: "1.0.0",
+		License:       rawLicense,
+	})
+
+	if cached[packagePURL].License != fetched.License {
+		t.Fatalf("cached license = %q, fetched license = %q", cached[packagePURL].License, fetched.License)
+	}
+	if fetched.License != "MIT" {
+		t.Fatalf("normalized license = %q, want MIT", fetched.License)
 	}
 }
 
