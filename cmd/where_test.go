@@ -192,6 +192,39 @@ func TestSearchFileForPackageRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestFindWhereMatchesRejectsSymlinkedNestedGitignore(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks require elevation on windows")
+	}
+
+	dir := t.TempDir()
+	repo := openWhereTestRepository(t, dir)
+	packagesDir := filepath.Join(dir, "packages")
+	if err := os.Mkdir(packagesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := []byte(`{"dependencies":{"lodash":"4.17.21"}}`)
+	if err := os.WriteFile(filepath.Join(packagesDir, "package.json"), manifest, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outsideIgnore := filepath.Join(t.TempDir(), ".gitignore")
+	if err := os.WriteFile(outsideIgnore, []byte("package.json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideIgnore, filepath.Join(packagesDir, ".gitignore")); err != nil {
+		t.Fatal(err)
+	}
+
+	matches, err := findWhereMatches(repo, whereOptions{packageName: "lodash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].FilePath != "packages/package.json" {
+		t.Fatalf("matches = %v, want packages/package.json", matches)
+	}
+}
+
 func TestWhereSubmoduleMap(t *testing.T) {
 	dir := t.TempDir()
 	repo := openWhereTestRepository(t, dir)

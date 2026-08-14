@@ -155,13 +155,13 @@ func (search *whereSearch) visit(path string, entry os.DirEntry, walkErr error) 
 	osRel, _ := filepath.Rel(search.workDir, path)
 	relPath := filepath.ToSlash(osRel)
 	if entry.IsDir() {
-		return search.visitDirectory(path, entry, relPath)
+		return search.visitDirectory(osRel, entry, relPath)
 	}
 	search.visitFile(osRel, relPath)
 	return nil
 }
 
-func (search *whereSearch) visitDirectory(path string, entry os.DirEntry, relPath string) error {
+func (search *whereSearch) visitDirectory(osRel string, entry os.DirEntry, relPath string) error {
 	if entry.Name() == ".git" {
 		return filepath.SkipDir
 	}
@@ -174,9 +174,14 @@ func (search *whereSearch) visitDirectory(path string, entry os.DirEntry, relPat
 	if relPath == "." {
 		return nil
 	}
-	nestedIgnore := filepath.Join(path, ".gitignore")
-	if _, err := os.Stat(nestedIgnore); err == nil {
-		search.matcher.AddFromFile(nestedIgnore, relPath)
+	nestedIgnore := filepath.Join(osRel, ".gitignore")
+	info, err := search.root.Lstat(nestedIgnore)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	patterns, err := search.root.ReadFile(nestedIgnore)
+	if err == nil {
+		search.matcher.AddPatterns(patterns, relPath)
 	}
 	return nil
 }
