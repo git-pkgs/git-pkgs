@@ -3,19 +3,19 @@ module github.com/git-pkgs/git-pkgs
 go 1.26.5
 
 require (
-	github.com/git-pkgs/changelog v0.1.3
-	github.com/git-pkgs/enrichment v0.6.4
+	github.com/git-pkgs/changelog v0.2.0
+	github.com/git-pkgs/enrichment v0.6.5
 	github.com/git-pkgs/gitignore v1.2.0
 	github.com/git-pkgs/managers v0.10.1
-	github.com/git-pkgs/manifests v0.7.1
-	github.com/git-pkgs/purl v0.1.15
-	github.com/git-pkgs/registries v0.6.4
+	github.com/git-pkgs/manifests v0.8.0
+	github.com/git-pkgs/purl v0.1.16
+	github.com/git-pkgs/registries v0.7.0
 	github.com/git-pkgs/resolve v0.2.2
-	github.com/git-pkgs/sarif v0.1.1
-	github.com/git-pkgs/sbom v0.1.4
-	github.com/git-pkgs/spdx v0.3.0
-	github.com/git-pkgs/vers v0.3.0
-	github.com/git-pkgs/vulns v0.2.1
+	github.com/git-pkgs/sarif v0.1.2
+	github.com/git-pkgs/sbom v0.1.5
+	github.com/git-pkgs/spdx v0.3.1
+	github.com/git-pkgs/vers v0.3.1
+	github.com/git-pkgs/vulns v0.2.2
 	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/mattn/go-isatty v0.0.24
@@ -63,6 +63,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bkielbasa/cyclop v1.2.3 // indirect
 	github.com/blizzy78/varnamelen v0.8.0 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/bombsimon/wsl/v4 v4.7.0 // indirect
 	github.com/bombsimon/wsl/v5 v5.8.0 // indirect
 	github.com/breml/bidichk v0.3.3 // indirect
@@ -102,7 +103,7 @@ require (
 	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/ghostiam/protogetter v0.3.20 // indirect
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
-	github.com/git-pkgs/pom v0.1.5 // indirect
+	github.com/git-pkgs/pom v0.1.6 // indirect
 	github.com/github/go-spdx/v2 v2.7.0 // indirect
 	github.com/go-critic/go-critic v0.14.3 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
@@ -185,7 +186,7 @@ require (
 	github.com/nishanths/exhaustive v0.12.0 // indirect
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
-	github.com/oapi-codegen/nullable v1.1.0 // indirect
+	github.com/oapi-codegen/nullable v1.2.0 // indirect
 	github.com/oapi-codegen/runtime v1.6.0 // indirect
 	github.com/package-url/packageurl-go v0.1.6 // indirect
 	github.com/pandatix/go-cvss v0.6.2 // indirect
@@ -211,7 +212,7 @@ require (
 	github.com/ryancurrah/gomodguard/v2 v2.1.3 // indirect
 	github.com/ryanrolds/sqlclosecheck v0.6.0 // indirect
 	github.com/sanposhiho/wastedassign/v2 v2.1.0 // indirect
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/sashamelentyev/interfacebloat v1.1.0 // indirect
 	github.com/sashamelentyev/usestdlibvars v1.29.0 // indirect
 	github.com/securego/gosec/v2 v2.26.1 // indirect
