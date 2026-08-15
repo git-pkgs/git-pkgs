@@ -58,7 +58,7 @@ func runBranchList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("database not found. Run 'git pkgs init' first")
 	}
 
-	db, err := database.Open(dbPath)
+	db, err := openDatabaseForRepository(repo)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
@@ -106,7 +106,7 @@ func runBranchAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("branch %q not found in repository", branchName)
 	}
 
-	db, err := database.Open(dbPath)
+	db, err := openDatabaseForRepository(repo)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
@@ -157,7 +157,7 @@ func runBranchRemove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("database not found. Run 'git pkgs init' first")
 	}
 
-	db, err := database.Open(dbPath)
+	db, err := openDatabaseForRepository(repo)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}

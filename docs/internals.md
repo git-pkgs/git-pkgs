@@ -104,7 +104,11 @@ The `BatchWriter` in `internal/database` buffers records and flushes them in tra
 
 ## Schema Upgrades
 
-The database stores its schema version in the `schema_info` table. When git-pkgs updates and the schema changes, commands detect the mismatch and prompt you to run `git pkgs upgrade`, which rebuilds the database from scratch.
+The database stores its schema version in `schema_info` and its indexed-data version in SQLite's `user_version`. Commands upgrade an older database when they open it, without prompting for input.
+
+Schema migrations run in one transaction. An indexed-data version change means the current parsers must process the Git history again. In that case, git-pkgs creates a database beside the existing file and reindexes every tracked branch. It copies notes and enrichment caches to the replacement, then swaps files after the rebuild succeeds. A failed rebuild leaves the existing database in place. `git pkgs upgrade` runs this path directly.
+
+Increment `SchemaVersion` and add a migration for schema changes. Increment `IndexVersion` when a parser or indexer change affects stored history, even if the schema stays the same. Keep parser-derived data out of schema migrations; the index rebuild supplies it.
 
 ## Point-in-Time Reconstruction
 

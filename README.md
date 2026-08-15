@@ -646,13 +646,13 @@ git pkgs hooks --uninstall  # remove hooks
 
 ### Upgrading
 
-After updating git-pkgs, you may need to rebuild the database if the schema has changed:
+After updating git-pkgs, the first command that opens an existing database upgrades it automatically. Schema-only changes are applied in place. If a parser or another indexing change requires fresh historical data, git-pkgs builds a replacement database, reindexes every tracked branch, and installs it after the rebuild succeeds. Notes and cached package, version, and vulnerability data are preserved.
+
+The upgrade does not prompt for input, so the same path works in hooks and CI. Run this command to perform the work before another command needs the database:
 
 ```bash
 git pkgs upgrade
 ```
-
-This is detected automatically and you'll see a message if an upgrade is needed.
 
 ### Show database schema
 

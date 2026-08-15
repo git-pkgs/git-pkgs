@@ -111,7 +111,7 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	deps, db, err := repo.GetDependenciesWithDB(opts.commit, opts.branchName)
+	deps, db, err := getDependenciesWithDB(repo, opts.commit, opts.branchName)
 	if db != nil {
 		defer func() { _ = db.Close() }()
 	}

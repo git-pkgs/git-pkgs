@@ -296,7 +296,7 @@ Cache the git-pkgs binary to speed up workflows:
           fi
 ```
 
-Cache the SQLite database to reuse enrichment metadata, including licenses, across workflow runs. A unique primary key lets each run save refreshed data, while the restore key selects the newest earlier cache:
+Cache the SQLite database to reuse enrichment metadata, including licenses, across workflow runs. A database restored from an older git-pkgs release is upgraded automatically when a command opens it; no separate upgrade step is needed. A unique primary key lets each run save refreshed data, while the restore key selects the newest earlier cache:
 
 ```yaml
 env:

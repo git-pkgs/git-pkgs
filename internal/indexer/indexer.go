@@ -16,6 +16,7 @@ import (
 
 type Options struct {
 	Branch           string
+	Revision         string
 	Since            string
 	Output           io.Writer
 	Quiet            bool
@@ -132,7 +133,11 @@ func (idx *Indexer) Run() (*Result, error) {
 		sinceSHA = idx.opts.Since
 	}
 
-	commits, err := idx.collectCommits(branch, sinceSHA)
+	revision := idx.opts.Revision
+	if revision == "" {
+		revision = branch
+	}
+	commits, err := idx.collectCommits(revision, sinceSHA)
 	if err != nil {
 		return nil, fmt.Errorf("collecting commits: %w", err)
 	}

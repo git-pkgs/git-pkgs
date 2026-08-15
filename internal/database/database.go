@@ -9,7 +9,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const SchemaVersion = 15
+const (
+	// SchemaVersion changes when the SQLite schema changes.
+	SchemaVersion = 15
+	// IndexVersion changes when existing Git history must be processed again,
+	// including parser changes and new derived data.
+	IndexVersion = 1
+)
 
 type DB struct {
 	*sql.DB
@@ -32,7 +38,7 @@ func Create(path string) (*DB, error) {
 		}
 	}
 
-	db, err := Open(path)
+	db, err := open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +62,7 @@ func OpenOrCreate(path string) (*DB, bool, error) {
 		return nil, false, err
 	}
 
-	db, err := Open(path)
+	db, err := open(path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -77,6 +83,26 @@ func ensureParentDir(path string) error {
 }
 
 func Open(path string) (*DB, error) {
+	db, _, err := OpenWithRebuild(path, nil)
+	return db, err
+}
+
+func openAndUpgrade(path string) (*DB, UpgradeResult, error) {
+	db, err := open(path)
+	if err != nil {
+		return nil, UpgradeResult{}, err
+	}
+
+	result, err := db.UpgradeSchema()
+	if err != nil {
+		_ = db.Close()
+		return nil, result, err
+	}
+
+	return db, result, nil
+}
+
+func open(path string) (*DB, error) {
 	sqlDB, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)

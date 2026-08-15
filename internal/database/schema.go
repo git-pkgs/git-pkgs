@@ -195,6 +195,9 @@ func (db *DB) CreateSchema() error {
 	if _, err := db.Exec("INSERT INTO schema_info (version) VALUES (?)", SchemaVersion); err != nil {
 		return fmt.Errorf("setting schema version: %w", err)
 	}
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", IndexVersion)); err != nil {
+		return fmt.Errorf("setting index version: %w", err)
+	}
 
 	return db.OptimizeForReads()
 }
