@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"sort"
 
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
@@ -11,6 +12,11 @@ import (
 
 func openDatabaseForRepository(repo *git.Repository) (*database.DB, error) {
 	db, _, err := openRepositoryDatabase(repo, io.Discard, true)
+	return db, err
+}
+
+func openDatabaseForBranchRemoval(repo *git.Repository, branchName string) (*database.DB, error) {
+	db, _, err := openRepositoryDatabaseExceptBranch(repo, io.Discard, true, branchName)
 	return db, err
 }
 
@@ -47,6 +53,15 @@ func openRepositoryDatabase(
 	output io.Writer,
 	quiet bool,
 ) (*database.DB, database.UpgradeResult, error) {
+	return openRepositoryDatabaseExceptBranch(repo, output, quiet, "")
+}
+
+func openRepositoryDatabaseExceptBranch(
+	repo *git.Repository,
+	output io.Writer,
+	quiet bool,
+	excludedBranch string,
+) (*database.DB, database.UpgradeResult, error) {
 	return database.OpenWithRebuild(repo.DatabasePath(), func(previous, replacement *database.DB) error {
 		branches, err := previous.GetBranches()
 		if err != nil {
@@ -68,7 +83,16 @@ func openRepositoryDatabase(
 		if !quiet {
 			_, _ = fmt.Fprintln(output, "Database index is out of date. Rebuilding it now...")
 		}
+		sort.Slice(branches, func(i, j int) bool {
+			return branches[i].ID < branches[j].ID
+		})
 		for _, branch := range branches {
+			if branch.ID != 0 && branch.Name == excludedBranch {
+				if _, err := replacement.GetOrCreateBranch(branch.Name); err != nil {
+					return fmt.Errorf("preserving branch %q for removal: %w", branch.Name, err)
+				}
+				continue
+			}
 			revision, err := rebuildRevision(repo, branch)
 			if err != nil {
 				return err

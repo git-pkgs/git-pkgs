@@ -1,6 +1,7 @@
 package cmd_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -83,6 +84,71 @@ func TestCommandAutomaticallyRebuildsOutdatedIndex(t *testing.T) {
 	}
 	if len(branches) != 2 {
 		t.Errorf("expected 2 tracked branches, got %d", len(branches))
+	}
+	defaultBranch, err := db.GetDefaultBranch()
+	if err != nil {
+		t.Fatalf("reading default branch failed: %v", err)
+	}
+	if defaultBranch.Name != "main" {
+		t.Errorf("expected main to remain the default branch, got %q", defaultBranch.Name)
+	}
+}
+
+func TestBranchRemoveRecoversFromUnresolvableOutdatedBranch(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add package manifest")
+
+	cleanup := chdir(t, repoDir)
+	defer cleanup()
+
+	if _, _, err := runCmd(t, "init", "--no-hooks", "--quiet"); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+	gitBranch(t, repoDir, "feature")
+	if _, _, err := runCmd(t, "branch", "add", "feature", "--quiet"); err != nil {
+		t.Fatalf("adding tracked branch failed: %v", err)
+	}
+
+	dbPath := filepath.Join(repoDir, ".git", "pkgs.sqlite3")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("opening database failed: %v", err)
+	}
+	if _, err := db.Exec(`
+		UPDATE branches SET last_analyzed_sha = '0000000000000000000000000000000000000000'
+		WHERE name = 'feature';
+		PRAGMA user_version = 2147483647;
+	`); err != nil {
+		t.Fatalf("preparing stale tracked branch failed: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("closing outdated database failed: %v", err)
+	}
+
+	deleteBranch := exec.Command("git", "branch", "-D", "feature")
+	deleteBranch.Dir = repoDir
+	if output, err := deleteBranch.CombinedOutput(); err != nil {
+		t.Fatalf("deleting Git branch failed: %v\n%s", err, output)
+	}
+
+	if _, _, err := runCmd(t, "branch", "remove", "feature"); err != nil {
+		t.Fatalf("removing unresolvable tracked branch failed: %v", err)
+	}
+
+	db, err = database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("opening rebuilt database failed: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.GetBranch("feature"); err != sql.ErrNoRows {
+		t.Fatalf("expected feature branch to be removed, got: %v", err)
+	}
+	defaultBranch, err := db.GetDefaultBranch()
+	if err != nil {
+		t.Fatalf("reading default branch failed: %v", err)
+	}
+	if defaultBranch.Name != "main" {
+		t.Errorf("expected main to remain the default branch, got %q", defaultBranch.Name)
 	}
 }
 
