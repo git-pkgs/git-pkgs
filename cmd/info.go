@@ -119,6 +119,7 @@ func outputInfoText(cmd *cobra.Command, info *database.DatabaseInfo) {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Location: %s\n", info.Path)
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Size: %s\n", formatBytes(info.SizeBytes))
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Schema version: %d\n", info.SchemaVersion)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Index version: %d\n", info.IndexVersion)
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
 
 	if info.BranchName != "" {

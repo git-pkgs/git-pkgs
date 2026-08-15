@@ -139,6 +139,8 @@ func openExistingDatabase(cmd *cobra.Command, repo *git.Repository, quiet bool) 
 	switch {
 	case result.Rebuilt && result.FromSchemaVersion == result.ToSchemaVersion:
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Rebuilt existing database index.")
+	case result.Rebuilt:
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Upgraded existing database from schema version %d to %d and rebuilt its index.\n", result.FromSchemaVersion, result.ToSchemaVersion)
 	case result.Upgraded():
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Upgraded existing database from schema version %d to %d.\n", result.FromSchemaVersion, result.ToSchemaVersion)
 	default:
