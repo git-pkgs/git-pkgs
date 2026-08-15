@@ -493,7 +493,7 @@ func runBisectLog(cmd *cobra.Command, args []string) error {
 }
 
 func doBisectStep(cmd *cobra.Command, repo *git.Repository, mgr *bisect.Manager, state *bisect.State) error {
-	db, err := database.Open(repo.DatabasePath())
+	db, err := openDatabaseForRepository(repo)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
@@ -611,7 +611,7 @@ func doBisectStep(cmd *cobra.Command, repo *git.Repository, mgr *bisect.Manager,
 }
 
 func checkBisectComplete(repo *git.Repository, mgr *bisect.Manager, state *bisect.State) (bool, string, error) {
-	db, err := database.Open(repo.DatabasePath())
+	db, err := openDatabaseForRepository(repo)
 	if err != nil {
 		return false, "", err
 	}
@@ -701,7 +701,7 @@ func printCulprit(cmd *cobra.Command, repo *git.Repository, sha string) error {
 	_, _ = fmt.Fprintln(cmd.OutOrStdout())
 
 	// Show dependency changes
-	db, err := database.Open(repo.DatabasePath())
+	db, err := openDatabaseForRepository(repo)
 	if err == nil {
 		defer func() { _ = db.Close() }()
 

@@ -156,12 +156,12 @@ func runDiff(cmd *cobra.Command, args []string) error {
 
 // diffBetweenCommits compares dependencies between two commits using on-demand indexing.
 func diffBetweenCommits(repo *git.Repository, fromRef, toRef, by, kind string) (*DiffResult, error) {
-	fromDeps, err := repo.GetDependencies(fromRef, "")
+	fromDeps, err := getDependencies(repo, fromRef, "")
 	if err != nil {
 		return nil, fmt.Errorf("getting deps at %s: %w", fromRef, err)
 	}
 
-	toDeps, err := repo.GetDependencies(toRef, "")
+	toDeps, err := getDependencies(repo, toRef, "")
 	if err != nil {
 		return nil, fmt.Errorf("getting deps at %s: %w", toRef, err)
 	}
@@ -171,7 +171,7 @@ func diffBetweenCommits(repo *git.Repository, fromRef, toRef, by, kind string) (
 
 // diffWithWorkingTree compares dependencies between a commit and the working tree.
 func diffWithWorkingTree(repo *git.Repository, fromRef string, includeSubmodules bool, by, kind string) (*DiffResult, error) {
-	fromDeps, err := repo.GetDependencies(fromRef, "")
+	fromDeps, err := getDependencies(repo, fromRef, "")
 	if err != nil {
 		return nil, fmt.Errorf("getting deps at %s: %w", fromRef, err)
 	}

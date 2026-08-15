@@ -103,7 +103,7 @@ func getChangesForCommit(repo *git.Repository, commitRef string) ([]database.Cha
 	// Try database first
 	dbPath := repo.DatabasePath()
 	if database.Exists(dbPath) {
-		db, err := database.Open(dbPath)
+		db, err := openDatabaseForRepository(repo)
 		if err == nil {
 			defer func() { _ = db.Close() }()
 			changes, err := db.GetChangesForCommit(sha)

@@ -95,7 +95,7 @@ func runProvenance(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	deps, err := repo.GetDependencies(commit, branchName)
+	deps, err := getDependencies(repo, commit, branchName)
 	if err != nil {
 		return fmt.Errorf("loading dependencies: %w", err)
 	}
