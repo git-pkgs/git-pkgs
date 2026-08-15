@@ -690,6 +690,7 @@ type DatabaseInfo struct {
 	Path            string           `json:"path"`
 	SizeBytes       int64            `json:"size_bytes"`
 	SchemaVersion   int              `json:"schema_version"`
+	IndexVersion    int              `json:"index_version"`
 	BranchName      string           `json:"branch_name"`
 	LastAnalyzedSHA string           `json:"last_analyzed_sha"`
 	RowCounts       map[string]int   `json:"row_counts"`
@@ -708,6 +709,9 @@ func (db *DB) GetDatabaseInfo() (*DatabaseInfo, error) {
 		return nil, err
 	}
 	info.SchemaVersion = version
+	if err := db.QueryRow("PRAGMA user_version").Scan(&info.IndexVersion); err != nil {
+		return nil, err
+	}
 
 	// Get branch info
 	branchInfo, err := db.GetDefaultBranch()

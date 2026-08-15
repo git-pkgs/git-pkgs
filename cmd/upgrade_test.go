@@ -2,8 +2,10 @@ package cmd_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/git-pkgs/git-pkgs/internal/database"
@@ -81,6 +83,61 @@ func TestCommandAutomaticallyRebuildsOutdatedIndex(t *testing.T) {
 	}
 	if len(branches) != 2 {
 		t.Errorf("expected 2 tracked branches, got %d", len(branches))
+	}
+}
+
+func TestExplicitCommandsReportSchemaAndIndexUpgrade(t *testing.T) {
+	fromVersion := database.SchemaVersion - 1
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "upgrade",
+			args: []string{"upgrade"},
+			want: fmt.Sprintf("Upgraded database from schema version %d to %d and rebuilt its index.", fromVersion, database.SchemaVersion),
+		},
+		{
+			name: "existing init",
+			args: []string{"init", "--no-hooks"},
+			want: fmt.Sprintf("Upgraded existing database from schema version %d to %d and rebuilt its index.", fromVersion, database.SchemaVersion),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoDir := createTestRepo(t)
+			addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add package manifest")
+
+			cleanup := chdir(t, repoDir)
+			defer cleanup()
+
+			if _, _, err := runCmd(t, "init", "--no-hooks", "--quiet"); err != nil {
+				t.Fatalf("init failed: %v", err)
+			}
+			db, err := database.Open(filepath.Join(repoDir, ".git", "pkgs.sqlite3"))
+			if err != nil {
+				t.Fatalf("opening database failed: %v", err)
+			}
+			if _, err := db.Exec("UPDATE schema_info SET version = ?", fromVersion); err != nil {
+				t.Fatalf("marking database outdated failed: %v", err)
+			}
+			if _, err := db.Exec("PRAGMA user_version = 0"); err != nil {
+				t.Fatalf("marking database index outdated failed: %v", err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatalf("closing database failed: %v", err)
+			}
+
+			stdout, _, err := runCmd(t, test.args...)
+			if err != nil {
+				t.Fatalf("command failed: %v", err)
+			}
+			if !strings.Contains(stdout, test.want) {
+				t.Errorf("expected %q in output, got: %s", test.want, stdout)
+			}
+		})
 	}
 }
 

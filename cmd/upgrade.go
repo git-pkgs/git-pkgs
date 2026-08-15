@@ -44,6 +44,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		switch {
 		case result.Rebuilt && result.FromSchemaVersion == result.ToSchemaVersion:
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Rebuilt database index.")
+		case result.Rebuilt:
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Upgraded database from schema version %d to %d and rebuilt its index.\n", result.FromSchemaVersion, result.ToSchemaVersion)
 		case result.Upgraded():
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Upgraded database from schema version %d to %d.\n", result.FromSchemaVersion, result.ToSchemaVersion)
 		default:
