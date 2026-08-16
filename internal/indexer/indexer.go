@@ -15,15 +15,16 @@ import (
 )
 
 type Options struct {
-	Branch           string
-	Revision         string
-	Since            string
-	Output           io.Writer
-	Quiet            bool
-	Incremental      bool // Use existing branch and continue from last SHA
-	BatchSize        int  // Commits to buffer before flushing (default 500)
-	SnapshotInterval int  // Store snapshot every N commits with changes (default 50)
-	EcosystemFilter  config.EcosystemFilter
+	Branch            string
+	Revision          string
+	Since             string
+	Output            io.Writer
+	Quiet             bool
+	FailOnCommitError bool // Stop instead of skipping commits that cannot be loaded or analyzed
+	Incremental       bool // Use existing branch and continue from last SHA
+	BatchSize         int  // Commits to buffer before flushing (default 500)
+	SnapshotInterval  int  // Store snapshot every N commits with changes (default 50)
+	EcosystemFilter   config.EcosystemFilter
 }
 
 type Result struct {
@@ -181,11 +182,17 @@ func (idx *Indexer) Run() (*Result, error) {
 
 			commit, err := idx.repo.CommitObject(hash)
 			if err != nil {
+				if idx.opts.FailOnCommitError {
+					return nil, fmt.Errorf("loading commit %s: %w", hash, err)
+				}
 				continue
 			}
 
 			analysisResult, err := idx.analyzer.AnalyzeCommit(commit, snapshot)
 			if err != nil {
+				if idx.opts.FailOnCommitError {
+					return nil, fmt.Errorf("analyzing commit %s: %w", hash, err)
+				}
 				continue
 			}
 
