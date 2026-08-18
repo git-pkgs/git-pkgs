@@ -2,6 +2,8 @@ module github.com/git-pkgs/git-pkgs
 
 go 1.26.5
 
+toolchain go1.26.6
+
 require (
 	github.com/git-pkgs/changelog v0.2.0
 	github.com/git-pkgs/enrichment v0.6.5
