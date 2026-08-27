@@ -57,6 +57,10 @@ func buildOSVQueries(deps []database.Dependency, includeVersion bool) (queries [
 		}
 
 		packagePURL := purl.MakePURL(dep.Ecosystem, dep.Name, version)
+		if packagePURL == nil {
+			skipped = append(skipped, dep)
+			continue
+		}
 		osvEcosystem, supported, overrideType := osvEcosystemForPURLType(packagePURL.Type)
 		if !supported {
 			skipped = append(skipped, dep)
@@ -1839,9 +1843,13 @@ func runVulnsHistory(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		p := purl.MakePURL(pkgDep.Ecosystem, pkgDep.Name, pkgDep.Requirement)
+		if p == nil {
+			continue
+		}
+
 		// Query for vulnerabilities
 		ctx, cancel := context.WithTimeout(context.Background(), vulnsHistoryTimeout)
-		p := purl.MakePURL(pkgDep.Ecosystem, pkgDep.Name, pkgDep.Requirement)
 		queryResults, err := source.Query(ctx, p)
 		cancel()
 		if err != nil {

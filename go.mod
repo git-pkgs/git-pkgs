@@ -10,13 +10,13 @@ require (
 	github.com/git-pkgs/gitignore v1.2.0
 	github.com/git-pkgs/managers v0.10.1
 	github.com/git-pkgs/manifests v0.8.0
-	github.com/git-pkgs/purl v0.1.16
+	github.com/git-pkgs/purl v0.1.19
 	github.com/git-pkgs/registries v0.8.0
 	github.com/git-pkgs/resolve v0.2.2
 	github.com/git-pkgs/sarif v0.1.2
 	github.com/git-pkgs/sbom v0.1.5
 	github.com/git-pkgs/spdx v0.3.1
-	github.com/git-pkgs/vers v0.3.1
+	github.com/git-pkgs/vers v0.6.0
 	github.com/git-pkgs/vulns v0.2.2
 	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/go-git/go-git/v5 v5.19.2
@@ -190,7 +190,7 @@ require (
 	github.com/nunnatsa/ginkgolinter v0.23.0 // indirect
 	github.com/oapi-codegen/nullable v1.2.0 // indirect
 	github.com/oapi-codegen/runtime v1.6.0 // indirect
-	github.com/package-url/packageurl-go v0.1.6 // indirect
+	github.com/package-url/packageurl-go v0.1.7 // indirect
 	github.com/pandatix/go-cvss v0.6.2 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect

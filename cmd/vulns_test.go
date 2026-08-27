@@ -245,8 +245,9 @@ func TestSyncVulnerabilitiesForDepsSkipsUnsupportedEcosystems(t *testing.T) {
 
 func TestBuildOSVQueriesUsesCurrentAPIMapping(t *testing.T) {
 	deps := []database.Dependency{
-		{Ecosystem: "swift", Name: "example", Requirement: "1.0.0", ManifestPath: "Package.resolved", ManifestKind: "lockfile"},
+		{Ecosystem: "swift", Name: "github.com/apple/swift-argument-parser", Requirement: "1.0.0", ManifestPath: "Package.resolved", ManifestKind: "lockfile"},
 		{Ecosystem: "maven", Name: "org.apache.commons:commons-text", Requirement: "1.9", ManifestPath: "pom.xml", ManifestKind: "lockfile"},
+		{Ecosystem: "swift", Name: "apple.swift-argument-parser", Requirement: "1.0.0", ManifestPath: "Package.resolved", ManifestKind: "lockfile"},
 		{Ecosystem: "cocoapods", Name: "Alamofire", Requirement: "5.0.0", ManifestPath: "Podfile.lock", ManifestKind: "lockfile"},
 	}
 
@@ -254,8 +255,8 @@ func TestBuildOSVQueriesUsesCurrentAPIMapping(t *testing.T) {
 	if len(queries) != 2 {
 		t.Fatalf("queries = %d, want 2", len(queries))
 	}
-	if got := queries[0].purl.String(); got != "pkg:swift/example@1.0.0" {
-		t.Errorf("PURL = %q, want pkg:swift/example@1.0.0", got)
+	if got := queries[0].purl.String(); got != "pkg:swift/github.com/apple/swift-argument-parser@1.0.0" {
+		t.Errorf("PURL = %q, want pkg:swift/github.com/apple/swift-argument-parser@1.0.0", got)
 	}
 	if got := queries[0].requestPURL.Type; got != "SwiftURL" {
 		t.Errorf("OSV request type = %q, want SwiftURL", got)
@@ -266,8 +267,8 @@ func TestBuildOSVQueriesUsesCurrentAPIMapping(t *testing.T) {
 	if got := queries[1].requestPURL.FullName(); got != "org.apache.commons:commons-text" {
 		t.Errorf("Maven request name = %q, want org.apache.commons:commons-text", got)
 	}
-	if len(skipped) != 1 || skipped[0].Ecosystem != "cocoapods" {
-		t.Fatalf("skipped = %#v, want CocoaPods dependency", skipped)
+	if len(skipped) != 2 || skipped[0].Name != "apple.swift-argument-parser" || skipped[1].Ecosystem != "cocoapods" {
+		t.Fatalf("skipped = %#v, want Swift registry identity then CocoaPods dependency", skipped)
 	}
 }
 
@@ -345,7 +346,7 @@ func TestQueryOSVBatchesAppliesErrorOffset(t *testing.T) {
 func TestScanLiveWithSourceSkipsUnsupportedEcosystems(t *testing.T) {
 	source := &mockSource{batchRes: [][]vulns.Vulnerability{nil}}
 	deps := []database.Dependency{
-		{Ecosystem: "swift", Name: "example", Requirement: "1.0.0", ManifestPath: "Package.resolved", ManifestKind: "lockfile"},
+		{Ecosystem: "swift", Name: "github.com/apple/swift-argument-parser", Requirement: "1.0.0", ManifestPath: "Package.resolved", ManifestKind: "lockfile"},
 		{Ecosystem: "cocoapods", Name: "Alamofire", Requirement: "5.0.0", ManifestPath: "Podfile.lock", ManifestKind: "lockfile"},
 	}
 
