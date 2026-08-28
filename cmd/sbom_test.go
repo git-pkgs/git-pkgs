@@ -53,19 +53,37 @@ func (c *sbomEnrichmentClient) GetVersion(_ context.Context, purlStr string) (*e
 }
 
 func TestBuildSBOM(t *testing.T) {
-	deps := []database.Dependency{
-		{
-			Ecosystem:    "npm",
-			Name:         "lodash",
-			Requirement:  "4.17.21",
-			PURL:         "pkg:npm/lodash",
-			ManifestKind: manifestKindLockfile,
-		},
-		{Ecosystem: "npm", Name: "react", Requirement: "18.2.0"},
+	lodashDep := database.Dependency{
+		Ecosystem:      "npm",
+		Name:           "lodash",
+		Requirement:    "4.17.21",
+		PURL:           "pkg:npm/lodash",
+		ManifestPath:   "package-lock.json",
+		ManifestKind:   manifestKindLockfile,
+		DependencyType: "runtime",
+	}
+	lodashDeclaration := database.Dependency{
+		Ecosystem:      "npm",
+		Name:           "lodash",
+		Requirement:    "^4.17.0",
+		PURL:           "pkg:npm/lodash",
+		ManifestPath:   "package.json",
+		ManifestKind:   manifestKindManifest,
+		DependencyType: "runtime",
+	}
+	reactDep := database.Dependency{
+		Ecosystem:    "npm",
+		Name:         "react",
+		Requirement:  "18.2.0",
+		ManifestPath: "package.json",
+	}
+	components := []sbomComponent{
+		{primary: lodashDep, occurrences: []database.Dependency{lodashDeclaration, lodashDep}},
+		{primary: reactDep, occurrences: []database.Dependency{reactDep}},
 	}
 	licenses := map[string]string{"pkg:npm/lodash@4.17.21": "MIT"}
 
-	doc := buildSBOM(deps, licenses, "demo", "1.0.0", projectLicenses{})
+	doc := buildSBOM(components, licenses, "demo", "1.0.0", projectLicenses{}, true)
 
 	if len(doc.Packages) != 2 {
 		t.Fatalf("Packages = %d, want 2", len(doc.Packages))
@@ -79,6 +97,17 @@ func TestBuildSBOM(t *testing.T) {
 	}
 	if lodash.LicenseDeclared != licenses["pkg:npm/lodash@4.17.21"] {
 		t.Errorf("lodash license = %q", lodash.LicenseDeclared)
+	}
+	wantProperties := []sbom.Property{
+		{Name: "git-pkgs:occurrence:0:manifest_path", Value: "package.json"},
+		{Name: "git-pkgs:occurrence:0:requirement", Value: "^4.17.0"},
+		{Name: "git-pkgs:occurrence:0:dependency_type", Value: "runtime"},
+		{Name: "git-pkgs:occurrence:1:manifest_path", Value: "package-lock.json"},
+		{Name: "git-pkgs:occurrence:1:requirement", Value: "4.17.21"},
+		{Name: "git-pkgs:occurrence:1:dependency_type", Value: "runtime"},
+	}
+	if !slices.Equal(lodash.Properties, wantProperties) {
+		t.Errorf("lodash properties = %+v, want %+v", lodash.Properties, wantProperties)
 	}
 	react := doc.Packages[1]
 	if react.PURL() == "" {
@@ -98,6 +127,305 @@ func TestBuildSBOM(t *testing.T) {
 			t.Errorf("encoded output missing purl:\n%s", buf.String())
 		}
 	}
+}
+
+func TestEncodeSBOMOccurrencePropertiesCycloneDX(t *testing.T) {
+	dep := database.Dependency{
+		Ecosystem:      "npm",
+		Name:           "lodash",
+		Requirement:    "4.17.21",
+		PURL:           "pkg:npm/lodash",
+		ManifestPath:   "package-lock.json",
+		ManifestKind:   manifestKindLockfile,
+		DependencyType: "runtime",
+	}
+	document := buildSBOM([]sbomComponent{{primary: dep, occurrences: []database.Dependency{dep}}},
+		nil, "demo", "1.0.0", projectLicenses{}, true)
+
+	var jsonOutput bytes.Buffer
+	if err := sbom.Encode(&jsonOutput, document, sbom.FormatCycloneDXJSON); err != nil {
+		t.Fatalf("Encode(CycloneDX JSON): %v", err)
+	}
+	parsed, err := sbom.Parse(jsonOutput.Bytes())
+	if err != nil {
+		t.Fatalf("Parse(CycloneDX JSON): %v\n%s", err, jsonOutput.String())
+	}
+	if len(parsed.Packages) != 1 || !slices.Equal(parsed.Packages[0].Properties, document.Packages[0].Properties) {
+		t.Fatalf("properties after CycloneDX JSON round trip = %+v, want %+v",
+			parsed.Packages, document.Packages[0].Properties)
+	}
+
+	var xmlOutput bytes.Buffer
+	if err := sbom.Encode(&xmlOutput, document, sbom.FormatCycloneDXXML); err != nil {
+		t.Fatalf("Encode(CycloneDX XML): %v", err)
+	}
+	var xmlDocument struct {
+		Components []struct {
+			Properties []struct {
+				Name  string `xml:"name,attr"`
+				Value string `xml:",chardata"`
+			} `xml:"properties>property"`
+		} `xml:"components>component"`
+	}
+	if err := xml.Unmarshal(xmlOutput.Bytes(), &xmlDocument); err != nil {
+		t.Fatalf("Unmarshal(CycloneDX XML): %v\n%s", err, xmlOutput.String())
+	}
+	if len(xmlDocument.Components) != 1 {
+		t.Fatalf("CycloneDX XML components = %d, want 1\n%s", len(xmlDocument.Components), xmlOutput.String())
+	}
+	properties := make([]sbom.Property, 0, len(xmlDocument.Components[0].Properties))
+	for _, property := range xmlDocument.Components[0].Properties {
+		properties = append(properties, sbom.Property(property))
+	}
+	if !slices.Equal(properties, document.Packages[0].Properties) {
+		t.Fatalf("properties after CycloneDX XML encoding = %+v, want %+v",
+			properties, document.Packages[0].Properties)
+	}
+}
+
+func TestBuildSBOMOmitsOccurrencePropertiesForSPDX(t *testing.T) {
+	dep := database.Dependency{
+		Ecosystem:      "npm",
+		Name:           "lodash",
+		Requirement:    "4.17.21",
+		ManifestPath:   "package-lock.json",
+		ManifestKind:   manifestKindLockfile,
+		DependencyType: "runtime",
+	}
+	document := buildSBOM([]sbomComponent{{primary: dep, occurrences: []database.Dependency{dep}}},
+		nil, "demo", "1.0.0", projectLicenses{}, false)
+
+	if len(document.Packages) != 1 || len(document.Packages[0].Properties) != 0 {
+		t.Fatalf("SPDX package properties = %+v, want none", document.Packages)
+	}
+	var output bytes.Buffer
+	if err := sbom.Encode(&output, document, sbom.FormatSPDXJSON); err != nil {
+		t.Fatalf("Encode(SPDX JSON): %v", err)
+	}
+	if strings.Contains(output.String(), "git-pkgs:occurrence") {
+		t.Fatalf("SPDX output contains CycloneDX occurrence properties:\n%s", output.String())
+	}
+}
+
+func TestSBOMCommandAssociatesWorkspaceManifestWithRootLockfile(t *testing.T) {
+	repoDir := t.TempDir()
+	repository, err := gitgo.PlainInit(repoDir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	commitSBOMFile(t, repository, repoDir, "package.json", `{
+  "name": "workspace-root",
+  "private": true,
+  "workspaces": ["packages/*"]
+}`, "add workspace root")
+	commitSBOMFile(t, repository, repoDir, "packages/web/package.json", `{
+  "name": "web",
+  "version": "1.0.0",
+  "dependencies": {"lodash": "^4.17.0"}
+}`, "add workspace package")
+	commitSBOMFile(t, repository, repoDir, "package-lock.json", `{
+  "name": "workspace-root",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "workspace-root",
+      "workspaces": ["packages/*"]
+    },
+    "packages/web": {
+      "name": "web",
+      "version": "1.0.0",
+      "dependencies": {"lodash": "^4.17.0"}
+    },
+    "node_modules/lodash": {
+      "version": "4.17.21"
+    }
+  }
+}`, "add workspace lockfile")
+
+	document := runSBOMCommandForTest(t, repoDir)
+	var lodashPackages []sbom.Package
+	for _, pkg := range document.Packages {
+		if pkg.Name == "lodash" {
+			lodashPackages = append(lodashPackages, pkg)
+		}
+	}
+	if len(lodashPackages) != 1 {
+		t.Fatalf("lodash components = %d, want 1", len(lodashPackages))
+	}
+	lodash := lodashPackages[0]
+	if lodash.PURL() != "pkg:npm/lodash@4.17.21" {
+		t.Fatalf("lodash PURL = %q, want resolved version", lodash.PURL())
+	}
+	if !sbomPropertiesContain(lodash.Properties, "manifest_path", "packages/web/package.json") {
+		t.Fatalf("lodash properties = %+v, want workspace manifest occurrence", lodash.Properties)
+	}
+}
+
+func TestSBOMCommandDoesNotResolveDirectDeclarationToTransitiveVersion(t *testing.T) {
+	repoDir := t.TempDir()
+	repository, err := gitgo.PlainInit(repoDir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	commitSBOMFile(t, repository, repoDir, "package.json", `{
+  "name": "direct-precedence",
+  "version": "1.0.0",
+  "dependencies": {"foo": "^5.0.0"}
+}`, "add package manifest")
+	commitSBOMFile(t, repository, repoDir, "package-lock.json", `{
+  "name": "direct-precedence",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "direct-precedence",
+      "version": "1.0.0",
+      "dependencies": {"foo": "^5.0.0"}
+    },
+    "node_modules/foo": {
+      "version": "4.0.0"
+    },
+    "node_modules/bar": {
+      "version": "1.0.0",
+      "dependencies": {"foo": "5.1.0"}
+    },
+    "node_modules/bar/node_modules/foo": {
+      "version": "5.1.0"
+    }
+  }
+}`, "add package lockfile")
+
+	document := runSBOMCommandForTest(t, repoDir)
+	fooByVersion := make(map[string]sbom.Package)
+	for _, pkg := range document.Packages {
+		if pkg.Name == "foo" {
+			fooByVersion[pkg.Version] = pkg
+		}
+	}
+	if len(fooByVersion) != 3 {
+		t.Fatalf("foo components = %+v, want unresolved declaration and two resolved versions", fooByVersion)
+	}
+	declaration, ok := fooByVersion["^5.0.0"]
+	if !ok || declaration.PURL() != "pkg:npm/foo" ||
+		!sbomPropertiesContain(declaration.Properties, "manifest_path", "package.json") {
+		t.Fatalf("unresolved foo declaration = %+v, want package.json occurrence", declaration)
+	}
+	transitive, ok := fooByVersion["5.1.0"]
+	if !ok || sbomPropertiesContain(transitive.Properties, "manifest_path", "package.json") {
+		t.Fatalf("transitive foo component = %+v, must not contain package.json occurrence", transitive)
+	}
+}
+
+func TestSBOMCommandScopesDirectPreferenceToLockfileDirectory(t *testing.T) {
+	repoDir := t.TempDir()
+	repository, err := gitgo.PlainInit(repoDir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	commitSBOMFile(t, repository, repoDir, "package.json", `{
+  "name": "workspace-root",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "dependencies": {"foo": "^4.0.0"}
+}`, "add workspace root")
+	commitSBOMFile(t, repository, repoDir, "packages/web/package.json", `{
+  "name": "web",
+  "version": "1.0.0",
+  "dependencies": {"foo": "^5.0.0"}
+}`, "add workspace package")
+	commitSBOMFile(t, repository, repoDir, "package-lock.json", `{
+  "name": "workspace-root",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "workspace-root",
+      "workspaces": ["packages/*"],
+      "dependencies": {"foo": "^4.0.0"}
+    },
+    "packages/web": {
+      "name": "web",
+      "version": "1.0.0",
+      "dependencies": {"foo": "^5.0.0"}
+    },
+    "node_modules/foo": {
+      "version": "4.0.0"
+    },
+    "packages/web/node_modules/foo": {
+      "version": "5.1.0"
+    }
+  }
+}`, "add workspace lockfile")
+
+	document := runSBOMCommandForTest(t, repoDir)
+	fooByVersion := make(map[string]sbom.Package)
+	for _, pkg := range document.Packages {
+		if pkg.Name == "foo" {
+			fooByVersion[pkg.Version] = pkg
+		}
+	}
+	if len(fooByVersion) != 2 {
+		t.Fatalf("foo components = %+v, want two resolved versions", fooByVersion)
+	}
+	root := fooByVersion["4.0.0"]
+	if !sbomPropertiesContain(root.Properties, "manifest_path", "package.json") ||
+		sbomPropertiesContain(root.Properties, "manifest_path", "packages/web/package.json") {
+		t.Fatalf("root foo properties = %+v, want only root declaration", root.Properties)
+	}
+	workspace := fooByVersion["5.1.0"]
+	if !sbomPropertiesContain(workspace.Properties, "manifest_path", "packages/web/package.json") ||
+		sbomPropertiesContain(workspace.Properties, "manifest_path", "package.json") {
+		t.Fatalf("workspace foo properties = %+v, want only workspace declaration", workspace.Properties)
+	}
+}
+
+func runSBOMCommandForTest(t *testing.T, repoDir string) *sbom.SBOM {
+	t.Helper()
+	oldDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("Chdir(%s): %v", repoDir, err)
+	}
+	defer func() {
+		if err := os.Chdir(oldDirectory); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	}()
+
+	command := NewRootCmd()
+	command.SetArgs([]string{"init", "--no-hooks"})
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("git pkgs init: %v", err)
+	}
+
+	var output bytes.Buffer
+	command = NewRootCmd()
+	command.SetArgs([]string{"sbom", "--skip-enrichment", "--format", "json"})
+	command.SetOut(&output)
+	command.SetErr(&bytes.Buffer{})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("git pkgs sbom: %v", err)
+	}
+
+	document, err := sbom.Parse(output.Bytes())
+	if err != nil {
+		t.Fatalf("parse SBOM: %v\n%s", err, output.String())
+	}
+	return document
+}
+
+func sbomPropertiesContain(properties []sbom.Property, suffix, value string) bool {
+	for _, property := range properties {
+		if strings.HasSuffix(property.Name, ":"+suffix) && property.Value == value {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProjectLicenseAtRevision(t *testing.T) {
@@ -287,7 +615,7 @@ func testRootLicenses() (*sbom.SBOM, projectLicenses) {
 			Text: "Custom file terms\n",
 		}},
 	}
-	document := buildSBOM(nil, nil, "demo", "1.0.0", licenses)
+	document := buildSBOM(nil, nil, "demo", "1.0.0", licenses, true)
 	return document, licenses
 }
 
@@ -451,11 +779,82 @@ func TestSelectSBOMDependenciesPrefersResolvedVersions(t *testing.T) {
 	if len(selected) != 2 {
 		t.Fatalf("selected dependencies = %d, want 2", len(selected))
 	}
-	if got := sbomPURLForDependency(selected[0]); got != "pkg:npm/ua-parser-js@1.0.41" {
+	if got := sbomPURLForDependency(selected[0].primary); got != "pkg:npm/ua-parser-js@1.0.41" {
 		t.Fatalf("first PURL = %q, want version 1.0.41", got)
 	}
-	if got := sbomPURLForDependency(selected[1]); got != "pkg:npm/ua-parser-js@2.0.10" {
+	if got := sbomPURLForDependency(selected[1].primary); got != "pkg:npm/ua-parser-js@2.0.10" {
 		t.Fatalf("second PURL = %q, want version 2.0.10", got)
+	}
+	if got := selected[0].occurrences; len(got) != 3 || got[0] != direct || got[1] != resolved || got[2] != resolved {
+		t.Fatalf("first component occurrences = %+v, want direct declaration and both matching lockfile rows", got)
+	}
+	if got := selected[1].occurrences; len(got) != 1 || got[0] != nested {
+		t.Fatalf("second component occurrences = %+v, want only nested lockfile row", got)
+	}
+}
+
+func TestSelectSBOMDependenciesRetainsWorkspaceOccurrences(t *testing.T) {
+	webDeclaration := database.Dependency{
+		Ecosystem:      "npm",
+		Name:           "lodash",
+		Requirement:    "^4.17.0",
+		PURL:           "pkg:npm/lodash",
+		ManifestPath:   "web/package.json",
+		ManifestKind:   manifestKindManifest,
+		DependencyType: "runtime",
+	}
+	apiDeclaration := webDeclaration
+	apiDeclaration.Requirement = "~4.17.15"
+	apiDeclaration.ManifestPath = "api/package.json"
+	webResolved := webDeclaration
+	webResolved.Requirement = "4.17.21"
+	webResolved.ManifestPath = "web/package-lock.json"
+	webResolved.ManifestKind = manifestKindLockfile
+	webResolved.Direct = true
+	apiResolved := webResolved
+	apiResolved.ManifestPath = "api/package-lock.json"
+
+	components := selectSBOMDependencies([]database.Dependency{
+		apiDeclaration,
+		apiResolved,
+		webDeclaration,
+		webResolved,
+	})
+	if len(components) != 1 {
+		t.Fatalf("components = %d, want 1", len(components))
+	}
+	if got := sbomPURLForDependency(components[0].primary); got != "pkg:npm/lodash@4.17.21" {
+		t.Fatalf("component PURL = %q, want resolved PURL", got)
+	}
+	wantOccurrences := []database.Dependency{apiDeclaration, apiResolved, webDeclaration, webResolved}
+	if !slices.Equal(components[0].occurrences, wantOccurrences) {
+		t.Fatalf("occurrences = %+v, want %+v", components[0].occurrences, wantOccurrences)
+	}
+}
+
+func TestSelectSBOMDependenciesKeepsUnmatchedValidConstraintUnresolved(t *testing.T) {
+	declaration := database.Dependency{
+		Ecosystem:    "npm",
+		Name:         "lodash",
+		Requirement:  "^5.0.0",
+		PURL:         "pkg:npm/lodash",
+		ManifestPath: "package.json",
+		ManifestKind: manifestKindManifest,
+	}
+	resolved := declaration
+	resolved.Requirement = "4.17.21"
+	resolved.ManifestPath = "package-lock.json"
+	resolved.ManifestKind = manifestKindLockfile
+
+	components := selectSBOMDependencies([]database.Dependency{declaration, resolved})
+	if len(components) != 2 {
+		t.Fatalf("components = %d, want unresolved declaration and resolved lockfile", len(components))
+	}
+	if components[0].primary != declaration || !slices.Equal(components[0].occurrences, []database.Dependency{declaration}) {
+		t.Fatalf("unresolved component = %+v, want declaration only", components[0])
+	}
+	if components[1].primary != resolved || !slices.Equal(components[1].occurrences, []database.Dependency{resolved}) {
+		t.Fatalf("resolved component = %+v, want lockfile occurrence only", components[1])
 	}
 }
 
@@ -469,7 +868,7 @@ func TestSelectSBOMDependenciesKeepsDependenciesWithoutPURL(t *testing.T) {
 		t.Fatalf("selected dependencies = %d, want 2", len(selected))
 	}
 	for _, selectedDep := range selected {
-		if got := sbomPURLForDependency(selectedDep); got != "" {
+		if got := sbomPURLForDependency(selectedDep.primary); got != "" {
 			t.Fatalf("PURL = %q, want empty", got)
 		}
 	}

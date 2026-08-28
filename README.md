@@ -489,7 +489,7 @@ git pkgs sbom -f xml               # XML instead of JSON
 git pkgs sbom --name my-project    # custom project name
 ```
 
-Includes package URLs (purls), versions, and licenses (fetched from registries). Use `--skip-enrichment` to omit license lookups.
+Includes package URLs (purls), versions, and licenses (fetched from registries). CycloneDX output also includes each component's manifest path, declared requirement, and dependency type as occurrence properties. SPDX output omits occurrence metadata because SPDX 2.3 has no package-properties field. Use `--skip-enrichment` to omit license lookups.
 
 ### Diff between commits or working tree
 

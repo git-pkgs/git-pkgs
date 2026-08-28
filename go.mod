@@ -1,8 +1,6 @@
 module github.com/git-pkgs/git-pkgs
 
-go 1.26.5
-
-toolchain go1.26.6
+go 1.26.7
 
 require (
 	github.com/git-pkgs/changelog v0.2.0
@@ -14,7 +12,7 @@ require (
 	github.com/git-pkgs/registries v0.8.0
 	github.com/git-pkgs/resolve v0.2.2
 	github.com/git-pkgs/sarif v0.1.2
-	github.com/git-pkgs/sbom v0.1.5
+	github.com/git-pkgs/sbom v0.1.6
 	github.com/git-pkgs/spdx v0.3.1
 	github.com/git-pkgs/vers v0.6.0
 	github.com/git-pkgs/vulns v0.2.2
