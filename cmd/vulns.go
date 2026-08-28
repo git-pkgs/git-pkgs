@@ -1845,7 +1845,11 @@ func runVulnsHistory(cmd *cobra.Command, args []string) error {
 
 		p := purl.MakePURL(pkgDep.Ecosystem, pkgDep.Name, pkgDep.Requirement)
 		if p == nil {
-			continue
+			return fmt.Errorf(
+				"querying OSV for %s package %q: package identity cannot be represented as a PURL",
+				pkgDep.Ecosystem,
+				pkgDep.Name,
+			)
 		}
 
 		// Query for vulnerabilities
