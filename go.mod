@@ -9,7 +9,7 @@ require (
 	github.com/git-pkgs/enrichment v0.7.0
 	github.com/git-pkgs/gitignore v1.2.0
 	github.com/git-pkgs/managers v0.10.1
-	github.com/git-pkgs/manifests v0.8.0
+	github.com/git-pkgs/manifests v0.10.0
 	github.com/git-pkgs/purl v0.1.19
 	github.com/git-pkgs/registries v0.8.0
 	github.com/git-pkgs/resolve v0.2.2
@@ -105,7 +105,7 @@ require (
 	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/ghostiam/protogetter v0.3.20 // indirect
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
-	github.com/git-pkgs/pom v0.1.6 // indirect
+	github.com/git-pkgs/pom v0.1.7 // indirect
 	github.com/github/go-spdx/v2 v2.7.0 // indirect
 	github.com/go-critic/go-critic v0.14.3 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect

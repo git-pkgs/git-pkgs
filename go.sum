@@ -231,12 +231,12 @@ github.com/git-pkgs/gitignore v1.2.0 h1:7vdR8/SvF31dvXqIdC1bKgCvyySefXuN8aY3xJLu
 github.com/git-pkgs/gitignore v1.2.0/go.mod h1:Lr0XwhbvP071rZF/zIIhkY1gEhFDoWHH91lngwLpeUg=
 github.com/git-pkgs/managers v0.10.1 h1:T877XtuXoJNweDTMGj1H6AOeVolDO44IvsgDN5jq3Ko=
 github.com/git-pkgs/managers v0.10.1/go.mod h1:8DR7tIQEEyPyJ7QGzStVbovnGl7tAJcrhQLzjQPzFzc=
-github.com/git-pkgs/manifests v0.8.0 h1:7Fc9wfXj+e0sTAyEYflVT65GkYKwJ1jrxPX1v4XO/Kk=
-github.com/git-pkgs/manifests v0.8.0/go.mod h1:aVjtyRMknvJkuwLnLaf8Eo2Q7Pu9MLEEBpOKZwsusZ8=
+github.com/git-pkgs/manifests v0.10.0 h1:wRYoX8l5mdTxSQ2/99gIByLQPBJUPW2VdrBSX0If2fA=
+github.com/git-pkgs/manifests v0.10.0/go.mod h1:y1p9ICibE2tqveiHJEJZz4mayo+mt6MhaBY3LHHr1mY=
 github.com/git-pkgs/packageurl-go v0.3.1 h1:WM3RBABQZLaRBxgKyYughc3cVBE8KyQxbSC6Jt5ak7M=
 github.com/git-pkgs/packageurl-go v0.3.1/go.mod h1:rcIxiG37BlQLB6FZfgdj9Fm7yjhRQd3l+5o7J0QPAk4=
-github.com/git-pkgs/pom v0.1.6 h1:OecrZgRChYQybf35YVF5yKfPIh6zsJ5gGgE3FKghJoc=
-github.com/git-pkgs/pom v0.1.6/go.mod h1:ufdMBe1lKzqOeP9IUb9NPZ458xKV8E8NvuyBMxOfwIk=
+github.com/git-pkgs/pom v0.1.7 h1:4yKdtw6eyShtjul6bcZdyz7yLQ+jdrYeYkKbskDGi4c=
+github.com/git-pkgs/pom v0.1.7/go.mod h1:ufdMBe1lKzqOeP9IUb9NPZ458xKV8E8NvuyBMxOfwIk=
 github.com/git-pkgs/purl v0.1.19 h1:AT9ReTQjZIqEr+trKhfFJ/YZoh4pwdWsyJKKZWzs23c=
 github.com/git-pkgs/purl v0.1.19/go.mod h1:hthV5mp+Q67HpQ9+LnRLLmsReu5ooyQ5EaJsCGrA8yE=
 github.com/git-pkgs/registries v0.8.0 h1:RTn9EmAoSEawqp2qfPZlgEnSjSxrBknHsQMPpjzBrP8=
