@@ -45,11 +45,23 @@ type osvQuery struct {
 	requestPURL *purl.PURL
 }
 
+type osvSkipReason uint8
+
+const (
+	osvSkipUnsupportedEcosystem osvSkipReason = iota
+	osvSkipUnrepresentablePURL
+)
+
+type skippedOSVDependency struct {
+	dependency database.Dependency
+	reason     osvSkipReason
+}
+
 // osvBatchSize must not exceed the OSV client's internal batch size so error
 // indexes can be offset to the original query list.
 const osvBatchSize = 1000
 
-func buildOSVQueries(deps []database.Dependency, includeVersion bool) (queries []osvQuery, skipped []database.Dependency) {
+func buildOSVQueries(deps []database.Dependency, includeVersion bool) (queries []osvQuery, skipped []skippedOSVDependency) {
 	for _, dep := range deps {
 		version := ""
 		if includeVersion {
@@ -58,12 +70,12 @@ func buildOSVQueries(deps []database.Dependency, includeVersion bool) (queries [
 
 		packagePURL := purl.MakePURL(dep.Ecosystem, dep.Name, version)
 		if packagePURL == nil {
-			skipped = append(skipped, dep)
+			skipped = append(skipped, skippedOSVDependency{dependency: dep, reason: osvSkipUnrepresentablePURL})
 			continue
 		}
 		osvEcosystem, supported, overrideType := osvEcosystemForPURLType(packagePURL.Type)
 		if !supported {
-			skipped = append(skipped, dep)
+			skipped = append(skipped, skippedOSVDependency{dependency: dep, reason: osvSkipUnsupportedEcosystem})
 			continue
 		}
 
@@ -126,7 +138,22 @@ func osvEcosystemForPURLType(purlType string) (string, bool, bool) {
 	}
 }
 
-func reportSkippedOSVDependencies(w io.Writer, skipped []database.Dependency) {
+func reportSkippedOSVDependencies(w io.Writer, skipped []skippedOSVDependency) {
+	var unsupported, unrepresentable []database.Dependency
+	for _, item := range skipped {
+		switch item.reason {
+		case osvSkipUnsupportedEcosystem:
+			unsupported = append(unsupported, item.dependency)
+		case osvSkipUnrepresentablePURL:
+			unrepresentable = append(unrepresentable, item.dependency)
+		}
+	}
+
+	reportUnsupportedOSVDependencies(w, unsupported)
+	reportUnrepresentableOSVDependencies(w, unrepresentable)
+}
+
+func reportUnsupportedOSVDependencies(w io.Writer, skipped []database.Dependency) {
 	if len(skipped) == 0 {
 		return
 	}
@@ -162,6 +189,42 @@ func reportSkippedOSVDependencies(w io.Writer, skipped []database.Dependency) {
 		len(skipped),
 		dependencyLabel,
 		ecosystemLabel,
+		strings.Join(values, ", "),
+	)
+}
+
+func reportUnrepresentableOSVDependencies(w io.Writer, skipped []database.Dependency) {
+	if len(skipped) == 0 {
+		return
+	}
+
+	labels := make(map[string]bool, len(skipped))
+	for _, dep := range skipped {
+		label := fmt.Sprintf("%s package %q", dep.Ecosystem, dep.Name)
+		if dep.ManifestPath != "" {
+			label += " (" + dep.ManifestPath + ")"
+		}
+		labels[label] = true
+	}
+
+	values := make([]string, 0, len(labels))
+	for label := range labels {
+		values = append(values, label)
+	}
+	sort.Strings(values)
+
+	dependencyLabel := "dependency with a package identity"
+	purlLabel := "a PURL"
+	if len(skipped) != 1 {
+		dependencyLabel = "dependencies with package identities"
+		purlLabel = "PURLs"
+	}
+	_, _ = fmt.Fprintf(
+		w,
+		"Skipping %d %s that cannot be represented as %s: %s.\n",
+		len(skipped),
+		dependencyLabel,
+		purlLabel,
 		strings.Join(values, ", "),
 	)
 }
@@ -653,7 +716,7 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 
 	if live || db == nil {
 		// Live query mode - use OSV API directly
-		var skipped []database.Dependency
+		var skipped []skippedOSVDependency
 		vulnResults, skipped, err = scanLive(lockfileDeps, minSeverity)
 		if err != nil {
 			return err
@@ -694,12 +757,12 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func scanLive(deps []database.Dependency, minSeverity int) ([]VulnResult, []database.Dependency, error) {
+func scanLive(deps []database.Dependency, minSeverity int) ([]VulnResult, []skippedOSVDependency, error) {
 	source := osv.New(osv.WithUserAgent(userAgent))
 	return scanLiveWithSource(source, deps, minSeverity)
 }
 
-func scanLiveWithSource(source vulns.Source, deps []database.Dependency, minSeverity int) ([]VulnResult, []database.Dependency, error) {
+func scanLiveWithSource(source vulns.Source, deps []database.Dependency, minSeverity int) ([]VulnResult, []skippedOSVDependency, error) {
 	queries, skipped := buildOSVQueries(deps, true)
 	if len(queries) == 0 {
 		return nil, skipped, nil

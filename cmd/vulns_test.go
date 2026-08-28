@@ -267,7 +267,9 @@ func TestBuildOSVQueriesUsesCurrentAPIMapping(t *testing.T) {
 	if got := queries[1].requestPURL.FullName(); got != "org.apache.commons:commons-text" {
 		t.Errorf("Maven request name = %q, want org.apache.commons:commons-text", got)
 	}
-	if len(skipped) != 2 || skipped[0].Name != "apple.swift-argument-parser" || skipped[1].Ecosystem != "cocoapods" {
+	if len(skipped) != 2 ||
+		skipped[0].reason != osvSkipUnrepresentablePURL || skipped[0].dependency.Name != "apple.swift-argument-parser" ||
+		skipped[1].reason != osvSkipUnsupportedEcosystem || skipped[1].dependency.Ecosystem != "cocoapods" {
 		t.Fatalf("skipped = %#v, want Swift registry identity then CocoaPods dependency", skipped)
 	}
 }
@@ -360,7 +362,7 @@ func TestScanLiveWithSourceSkipsUnsupportedEcosystems(t *testing.T) {
 	if len(source.batchPURLs) != 1 || source.batchPURLs[0].Type != "SwiftURL" {
 		t.Fatalf("OSV query PURLs = %#v, want one SwiftURL query", source.batchPURLs)
 	}
-	if len(skipped) != 1 || skipped[0].ManifestPath != "Podfile.lock" {
+	if len(skipped) != 1 || skipped[0].reason != osvSkipUnsupportedEcosystem || skipped[0].dependency.ManifestPath != "Podfile.lock" {
 		t.Fatalf("skipped = %#v, want CocoaPods dependency", skipped)
 	}
 }
@@ -381,7 +383,7 @@ func TestScanLiveWithSourceWithOnlyUnsupportedEcosystems(t *testing.T) {
 	if source.batchCalls != 0 {
 		t.Errorf("batch calls = %d, want 0", source.batchCalls)
 	}
-	if len(skipped) != 1 || skipped[0].ManifestPath != "Podfile.lock" {
+	if len(skipped) != 1 || skipped[0].reason != osvSkipUnsupportedEcosystem || skipped[0].dependency.ManifestPath != "Podfile.lock" {
 		t.Fatalf("skipped = %#v, want CocoaPods dependency", skipped)
 	}
 }
