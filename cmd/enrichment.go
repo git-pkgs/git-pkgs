@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/git-pkgs/enrichment"
 )
@@ -25,6 +27,24 @@ var NewEnrichmentClient = enrichment.NewClient
 // applied consistently.
 func newEnrichmentClient() (enrichment.Client, error) {
 	return NewEnrichmentClient(enrichmentOptions()...)
+}
+
+func enrichmentDirectMode() bool {
+	if value := os.Getenv("GIT_PKGS_DIRECT"); value != "" {
+		return isTruthy(value)
+	}
+
+	output, err := exec.Command("git", "config", "--get", "pkgs.direct").Output()
+	return err == nil && isTruthy(string(output))
+}
+
+func isTruthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func enrichmentOptions() []enrichment.Option {

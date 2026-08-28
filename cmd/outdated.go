@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -71,6 +70,11 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 	}
 
 	deps = filterByEcosystem(deps, ecosystem)
+	sources := newSourceTracker()
+	for _, ecosystem := range ecosystemsFromDependencies(deps) {
+		upstream, supported := registrySource(ecosystem)
+		sources.consider(ecosystem, upstream, supported)
+	}
 
 	// Filter to resolved dependencies (lockfiles and Go modules)
 	var lockfileDeps []database.Dependency
@@ -82,7 +86,10 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 
 	if len(lockfileDeps) == 0 {
 		if format == formatJSON {
-			return outputOutdatedJSON(cmd, nil)
+			if err := outputOutdatedJSON(cmd, nil, sources); err != nil {
+				return err
+			}
+			return sources.unavailableError()
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No lockfile dependencies found.")
 		return nil
@@ -92,11 +99,17 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 	purls := make([]string, 0, len(lockfileDeps))
 	purlToDep := make(map[string]database.Dependency)
 	for _, d := range lockfileDeps {
+		if _, supported := registrySource(d.Ecosystem); !supported {
+			continue
+		}
 		// Build PURL without version for cache lookup
 		purlStr := purl.MakePURLString(d.Ecosystem, d.Name, "")
 		if purlStr != "" {
 			purls = append(purls, purlStr)
 			purlToDep[purlStr] = d
+		} else {
+			upstream, _ := registrySource(d.Ecosystem)
+			sources.markError(d.Ecosystem, upstream, fmt.Errorf("could not build package URL for %s", d.Name))
 		}
 	}
 
@@ -110,7 +123,7 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get package data (from cache or API)
-	packageData, err := getPackageData(db, purls, purlToDep)
+	packageData, err := getPackageData(db, purls, purlToDep, sources)
 	if err != nil {
 		return fmt.Errorf("looking up packages: %w", err)
 	}
@@ -165,7 +178,13 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 	}
 
 	if format == formatJSON {
-		return outputOutdatedJSON(cmd, outdated)
+		if err := outputOutdatedJSON(cmd, outdated, sources); err != nil {
+			return err
+		}
+		return sources.unavailableError()
+	}
+	if err := sources.unavailableError(); err != nil {
+		return err
 	}
 	if len(outdated) == 0 {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "All dependencies are up to date.")
@@ -184,7 +203,12 @@ type packageInfo struct {
 	Source        string
 }
 
-func getPackageData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]*packageInfo, error) {
+func getPackageData(
+	db *database.DB,
+	purls []string,
+	purlToDep map[string]database.Dependency,
+	sources *sourceTracker,
+) (map[string]*packageInfo, error) {
 	result := make(map[string]*packageInfo)
 	var uncachedPurls []string
 
@@ -196,16 +220,22 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 		}
 
 		for purl, cp := range cached {
+			dep := purlToDep[purl]
+			upstream, _ := registrySource(dep.Ecosystem)
+			if cp.LatestVersion == "" {
+				continue
+			}
 			result[purl] = &packageInfo{
 				Ecosystem:     cp.Ecosystem,
 				Name:          cp.Name,
 				LatestVersion: cp.LatestVersion,
 				License:       cp.License,
 			}
+			sources.markOK(dep.Ecosystem, upstream, cp.EnrichedAt)
 		}
 		// Find uncached PURLs
 		for _, purl := range purls {
-			if _, ok := cached[purl]; !ok {
+			if cp, ok := cached[purl]; !ok || cp.LatestVersion == "" {
 				uncachedPurls = append(uncachedPurls, purl)
 			}
 		}
@@ -217,52 +247,81 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 	if len(uncachedPurls) > 0 {
 		client, err := newEnrichmentClient()
 		if err != nil {
-			return nil, err
-		}
-
-		const outdatedTimeout = 60 * time.Second
-		ctx, cancel := context.WithTimeout(context.Background(), outdatedTimeout)
-		defer cancel()
-
-		packages, err := client.BulkLookup(ctx, uncachedPurls)
-		if err != nil {
-			return nil, wrapEcosystemsError(err)
+			for _, purlStr := range uncachedPurls {
+				dep := purlToDep[purlStr]
+				upstream, _ := registrySource(dep.Ecosystem)
+				sources.markError(dep.Ecosystem, upstream, err)
+			}
+			return result, nil
 		}
 
 		var toSave []database.PackageEnrichmentData
-		for purl, pkg := range packages {
-			if pkg == nil {
+		purlsByEcosystem := make(map[string][]string)
+		for _, purlStr := range uncachedPurls {
+			dep := purlToDep[purlStr]
+			purlsByEcosystem[dep.Ecosystem] = append(purlsByEcosystem[dep.Ecosystem], purlStr)
+		}
+		for ecosystem, ecosystemPURLs := range purlsByEcosystem {
+			const outdatedTimeout = 60 * time.Second
+			ctx, cancel := context.WithTimeout(context.Background(), outdatedTimeout)
+			upstream, _ := registrySource(ecosystem)
+			packages, lookupErr := client.BulkLookup(ctx, ecosystemPURLs)
+			cancel()
+			if lookupErr != nil {
+				sources.markError(ecosystem, upstream, wrapEcosystemsError(lookupErr))
 				continue
 			}
+			fetchedAt := time.Now().UTC()
+			for _, purlStr := range ecosystemPURLs {
+				pkg := packages[purlStr]
+				if pkg == nil || pkg.LatestVersion == "" {
+					sources.markError(ecosystem, upstream, fmt.Errorf("latest version unavailable for %s", purlStr))
+					continue
+				}
+				info := &packageInfo{
+					Ecosystem:     pkg.Ecosystem,
+					Name:          pkg.Name,
+					LatestVersion: pkg.LatestVersion,
+					License:       pkg.License,
+					RegistryURL:   pkg.RegistryURL,
+					Source:        pkg.Source,
+				}
+				result[purlStr] = info
+				sources.markOK(ecosystem, upstream, fetchedAt)
 
-			info := &packageInfo{
-				Ecosystem:     pkg.Ecosystem,
-				Name:          pkg.Name,
-				LatestVersion: pkg.LatestVersion,
-				License:       pkg.License,
-				RegistryURL:   pkg.RegistryURL,
-				Source:        pkg.Source,
-			}
-			result[purl] = info
-
-			// Collect for batch save
-			if db != nil {
-				dep := purlToDep[purl]
-				toSave = append(toSave, database.PackageEnrichmentData{
-					PURL:          purl,
-					Ecosystem:     dep.Ecosystem,
-					Name:          dep.Name,
-					LatestVersion: info.LatestVersion,
-					License:       info.License,
-					RegistryURL:   info.RegistryURL,
-					Source:        info.Source,
-				})
+				if db != nil {
+					dep := purlToDep[purlStr]
+					toSave = append(toSave, database.PackageEnrichmentData{
+						PURL:          purlStr,
+						Ecosystem:     dep.Ecosystem,
+						Name:          dep.Name,
+						LatestVersion: info.LatestVersion,
+						License:       info.License,
+						RegistryURL:   info.RegistryURL,
+						Source:        info.Source,
+					})
+				}
 			}
 		}
 
 		// Batch save to cache
 		if db != nil && len(toSave) > 0 {
 			_ = db.SavePackageEnrichmentBatch(toSave)
+		}
+	}
+
+	if db != nil {
+		seen := make(map[string]bool)
+		for purlStr := range result {
+			ecosystem := purlToDep[purlStr].Ecosystem
+			if seen[ecosystem] {
+				continue
+			}
+			seen[ecosystem] = true
+			if syncedAt, ok := db.EcosystemSyncedAt(ecosystem); ok {
+				upstream, _ := registrySource(ecosystem)
+				sources.markOK(ecosystem, upstream, syncedAt)
+			}
 		}
 	}
 
@@ -363,10 +422,9 @@ func classifyUpdate(current, latest string) string {
 	return ""
 }
 
-func outputOutdatedJSON(cmd *cobra.Command, outdated []OutdatedPackage) error {
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(nonNilSlice(outdated))
+func outputOutdatedJSON(cmd *cobra.Command, outdated []OutdatedPackage, trackers ...*sourceTracker) error {
+	sources := sourceTrackerOrNew(trackers)
+	return outputResultEnvelope(cmd, resultEnvelope(sources, outdated, time.Now().UTC()))
 }
 
 func outputOutdatedText(cmd *cobra.Command, outdated []OutdatedPackage) {

@@ -120,28 +120,58 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	}
 
 	deps = filterByEcosystem(deps, opts.ecosystem)
+	sources := newSourceTracker()
+	directMode := enrichmentDirectMode()
 
 	if opts.driftOnly {
-		return runLicenseDrift(cmd, db, deps, opts.format, opts.offline)
+		return runLicenseDrift(cmd, db, deps, opts.format, opts.offline, directMode)
 	}
+
+	considerLicenseSources(sources, deps, directMode)
 
 	directDeps := directLicenseDependencies(deps)
 	if len(directDeps) == 0 {
 		if opts.format == formatJSON {
-			return outputLicensesJSON(cmd, nil)
+			if err := outputLicensesJSON(cmd, nil, sources); err != nil {
+				return err
+			}
+			return sources.unavailableError()
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No direct dependencies found.")
 		return nil
 	}
 
 	purls, purlToDep := licensePackageLookups(directDeps)
-	packageData, err := getLicenseData(db, purls, opts.offline)
+	for _, dep := range directDeps {
+		lookupPURL := dep.PURL
+		if lookupPURL == "" {
+			lookupPURL = purl.MakePURLString(dep.Ecosystem, dep.Name, "")
+		}
+		if lookupPURL == "" {
+			sources.markError(dep.Ecosystem, licenseUpstreamForDependency(dep, directMode), fmt.Errorf("could not build package URL for %s", dep.Name))
+		}
+	}
+	packageData, err := getLicenseData(db, purls, opts.offline, sources, directMode)
 	if err != nil {
 		return fmt.Errorf("looking up packages: %w", err)
 	}
 	resolvedVersionPURLs, resolvedDeps, ambiguousVersions := resolvedLicenseVersions(purlToDep, deps)
-	versionLicenses, versionLicenseErr := loadLicenseVersionLicenses(db, resolvedDeps, opts.offline)
+	versionLicenses, versionLookupErrors, versionLookupSuccesses, versionLicenseErr := loadLicenseVersionLicensesWithReport(db, resolvedDeps, opts.offline)
+	versionFetchedAt := time.Now().UTC()
+	for _, versionedPURL := range versionLookupSuccesses {
+		ecosystem := ecosystemFromPURL(versionedPURL)
+		sources.markOK(ecosystem, licenseUpstreamForPURL(versionedPURL, directMode), versionFetchedAt)
+	}
+	for _, lookupErr := range versionLookupErrors {
+		ecosystem := ecosystemFromPURL(lookupErr.VersionedPURL)
+		sources.markError(ecosystem, licenseUpstreamForPURL(lookupErr.VersionedPURL, directMode), lookupErr.Err)
+	}
 	if versionLicenseErr != nil {
+		if len(versionLookupErrors) == 0 {
+			for _, dep := range resolvedDeps {
+				sources.markError(dep.Ecosystem, licenseUpstreamForDependency(dep, directMode), versionLicenseErr)
+			}
+		}
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 			"Warning: version license lookup failed; using package metadata where version data is unavailable: %v\n",
 			versionLicenseErr,
@@ -158,7 +188,10 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 	)
 	warnAmbiguousLicenseFallbacks(cmd, result.ambiguousFallbacks)
 
-	if err := outputLicenses(cmd, result.infos, opts.format, opts.groupBy); err != nil {
+	if err := outputLicenses(cmd, result.infos, opts.format, opts.groupBy, sources); err != nil {
+		return err
+	}
+	if err := sources.unavailableError(); err != nil {
 		return err
 	}
 	if result.hasViolations {
@@ -394,10 +427,17 @@ func warnAmbiguousLicenseFallbacks(cmd *cobra.Command, fallbacks []string) {
 	)
 }
 
-func outputLicenses(cmd *cobra.Command, infos []LicenseInfo, format string, groupBy bool) error {
+func outputLicenses(
+	cmd *cobra.Command,
+	infos []LicenseInfo,
+	format string,
+	groupBy bool,
+	trackers ...*sourceTracker,
+) error {
+	sources := sourceTrackerOrNew(trackers)
 	switch format {
 	case formatJSON:
-		return outputLicensesJSON(cmd, infos)
+		return outputLicensesJSON(cmd, infos, sources)
 	case formatCSV:
 		return outputLicensesCSV(cmd, infos)
 	default:
@@ -441,28 +481,127 @@ type licenseData struct {
 	Name          string
 	Ecosystem     string
 	LatestVersion string
+	RegistryURL   string
+	Source        string
+	FetchedAt     time.Time
+}
+
+const licenseDefaultUpstream = "packages.ecosyste.ms"
+
+func considerLicenseSources(sources *sourceTracker, deps []database.Dependency, directMode bool) {
+	directEcosystems := make(map[string]bool)
+	for _, dep := range deps {
+		if dep.ManifestKind != manifestKindManifest {
+			continue
+		}
+		directEcosystems[canonicalSourceEcosystem(dep.Ecosystem)] = true
+	}
+	for _, ecosystem := range ecosystemsFromDependencies(deps) {
+		if directEcosystems[canonicalSourceEcosystem(ecosystem)] {
+			continue
+		}
+		upstream := licenseDefaultUpstream
+		if directMode {
+			if registryUpstream, supported := registrySource(ecosystem); supported {
+				upstream = registryUpstream
+			}
+		}
+		sources.consider(ecosystem, upstream, true)
+	}
+}
+
+func licenseUpstreamForDependency(dep database.Dependency, directMode bool) string {
+	purlStr := dep.PURL
+	if purlStr == "" {
+		purlStr = purl.MakePURLString(dep.Ecosystem, dep.Name, "")
+	}
+	return licenseUpstreamForPURL(purlStr, directMode)
+}
+
+func licenseUpstreamForPURL(purlStr string, directMode bool) string {
+	parsed, err := purl.Parse(purlStr)
+	if err == nil {
+		if repositoryURL := parsed.RepositoryURL(); repositoryURL != "" {
+			if isDefaultCargoIndex(parsed.Type, repositoryURL) {
+				if upstream, supported := registrySource(parsed.Type); supported {
+					return upstream
+				}
+			}
+			return sourceHostname(repositoryURL)
+		}
+		if directMode {
+			if upstream, supported := registrySource(parsed.Type); supported {
+				return upstream
+			}
+		}
+	}
+	return licenseDefaultUpstream
+}
+
+func licenseUpstreamForData(purlStr string, data *licenseData, directMode bool) string {
+	if data == nil {
+		return licenseUpstreamForPURL(purlStr, directMode)
+	}
+	switch data.Source {
+	case "registries":
+		if data.RegistryURL != "" {
+			return sourceHostname(data.RegistryURL)
+		}
+		if upstream, supported := registrySource(data.Ecosystem); supported {
+			return upstream
+		}
+	case "depsdev":
+		return "api.deps.dev"
+	case "ecosystems":
+		return licenseDefaultUpstream
+	}
+	return licenseUpstreamForPURL(purlStr, directMode)
+}
+
+func ecosystemFromPURL(purlStr string) string {
+	parsed, err := purl.Parse(purlStr)
+	if err != nil {
+		return ""
+	}
+	return canonicalSourceEcosystem(parsed.Type)
+}
+
+func markLicenseDataSources(sources *sourceTracker, data map[string]*licenseData, directMode bool) {
+	for purlStr, packageData := range data {
+		ecosystem := ecosystemFromPURL(purlStr)
+		upstream := licenseUpstreamForData(purlStr, packageData, directMode)
+		sources.consider(ecosystem, upstream, true)
+		sources.markOK(ecosystem, upstream, packageData.FetchedAt)
+	}
 }
 
 func getLicenseData(
 	db *database.DB,
 	purls []string,
 	offline bool,
+	sources *sourceTracker,
+	directMode bool,
 ) (map[string]*licenseData, error) {
 	result, uncachedPURLs, err := cachedLicenseData(db, purls, offline)
 	if err != nil {
 		return nil, err
 	}
+	markLicenseDataSources(sources, result, directMode)
 	if offline && len(uncachedPURLs) > 0 {
-		return nil, fmt.Errorf(
-			"offline mode: license metadata is not cached for %d package(s); run 'git pkgs licenses' without --offline to populate the cache",
-			len(uncachedPURLs),
-		)
+		for _, purlStr := range uncachedPURLs {
+			sources.markError(
+				ecosystemFromPURL(purlStr),
+				licenseUpstreamForPURL(purlStr, directMode),
+				fmt.Errorf("offline mode: license metadata is not cached for %s", purlStr),
+			)
+		}
+		return result, nil
 	}
 	if len(uncachedPURLs) == 0 {
 		return result, nil
 	}
 
-	fetched, err := fetchLicenseData(db, uncachedPURLs)
+	fetched, err := fetchLicenseData(db, uncachedPURLs, sources, directMode)
 	if err != nil {
 		return nil, err
 	}
@@ -499,6 +638,9 @@ func cachedLicenseData(
 			Name:          pkg.Name,
 			Ecosystem:     pkg.Ecosystem,
 			LatestVersion: pkg.LatestVersion,
+			RegistryURL:   pkg.RegistryURL,
+			Source:        pkg.Source,
+			FetchedAt:     pkg.EnrichedAt,
 		}
 	}
 	uncached := make([]string, 0, len(purls)-len(cached))
@@ -510,26 +652,57 @@ func cachedLicenseData(
 	return result, uncached, nil
 }
 
-func fetchLicenseData(db *database.DB, purls []string) (map[string]*licenseData, error) {
+func fetchLicenseData(
+	db *database.DB,
+	purls []string,
+	sources *sourceTracker,
+	directMode bool,
+) (map[string]*licenseData, error) {
 	client, err := newEnrichmentClient()
 	if err != nil {
-		return nil, err
+		for _, purlStr := range purls {
+			sources.markError(ecosystemFromPURL(purlStr), licenseUpstreamForPURL(purlStr, directMode), err)
+		}
+		return map[string]*licenseData{}, nil
 	}
 
-	const licensesTimeout = 5 * time.Minute
-	ctx, cancel := context.WithTimeout(context.Background(), licensesTimeout)
-	defer cancel()
-
-	packages, err := client.BulkLookup(ctx, purls)
-	if err != nil {
-		return nil, wrapEcosystemsError(err)
+	result := make(map[string]*licenseData)
+	purlsBySource := make(map[sourceKey][]string)
+	for _, purlStr := range purls {
+		key := newSourceKey(ecosystemFromPURL(purlStr), licenseUpstreamForPURL(purlStr, directMode))
+		purlsBySource[key] = append(purlsBySource[key], purlStr)
 	}
-
-	result := make(map[string]*licenseData, len(packages))
-	for purl, pkg := range packages {
-		result[purl] = licenseDataFromPackage(pkg)
-		if db != nil && pkg != nil {
-			_ = db.SavePackageEnrichment(purl, pkg.Ecosystem, pkg.Name, pkg.LatestVersion, pkg.License, pkg.RegistryURL, pkg.Source)
+	for key, sourcePURLs := range purlsBySource {
+		const licensesTimeout = 5 * time.Minute
+		ctx, cancel := context.WithTimeout(context.Background(), licensesTimeout)
+		packages, lookupErr := client.BulkLookup(ctx, sourcePURLs)
+		cancel()
+		if lookupErr != nil {
+			sources.markError(key.ecosystem, key.upstream, wrapEcosystemsError(lookupErr))
+			continue
+		}
+		fetchedAt := time.Now().UTC()
+		for _, purlStr := range sourcePURLs {
+			pkg := packages[purlStr]
+			if pkg == nil {
+				sources.markError(key.ecosystem, key.upstream, fmt.Errorf("no package metadata returned for %s", purlStr))
+				continue
+			}
+			data := licenseDataFromPackage(pkg)
+			data.FetchedAt = fetchedAt
+			result[purlStr] = data
+			sources.markOK(key.ecosystem, licenseUpstreamForData(purlStr, data, directMode), fetchedAt)
+			if db != nil {
+				_ = db.SavePackageEnrichment(
+					purlStr,
+					pkg.Ecosystem,
+					pkg.Name,
+					pkg.LatestVersion,
+					pkg.License,
+					pkg.RegistryURL,
+					pkg.Source,
+				)
+			}
 		}
 	}
 	return result, nil
@@ -544,6 +717,8 @@ func licenseDataFromPackage(pkg *enrichment.PackageInfo) *licenseData {
 	data.Ecosystem = pkg.Ecosystem
 	data.LatestVersion = pkg.LatestVersion
 	data.License = normalizeLicenseString(pkg.License)
+	data.RegistryURL = pkg.RegistryURL
+	data.Source = pkg.Source
 	return data
 }
 
@@ -638,7 +813,14 @@ func licenseDependencyLocation(dep database.Dependency) string {
 	return strings.ToLower(dep.Ecosystem) + "\x00" + strings.ToLower(dep.Name) + "\x00" + path.Dir(dep.ManifestPath)
 }
 
-func runLicenseDrift(cmd *cobra.Command, db *database.DB, deps []database.Dependency, format string, offline bool) error {
+func runLicenseDrift(
+	cmd *cobra.Command,
+	db *database.DB,
+	deps []database.Dependency,
+	format string,
+	offline bool,
+	directMode bool,
+) error {
 	resolved := make([]database.Dependency, 0, len(deps))
 	for _, dep := range deps {
 		if isResolvedDependency(dep) {
@@ -655,7 +837,7 @@ func runLicenseDrift(cmd *cobra.Command, db *database.DB, deps []database.Depend
 		return nil
 	}
 
-	result, err := computeLicenseDrift(db, resolved, offline)
+	result, err := computeLicenseDrift(db, resolved, offline, directMode)
 	if err != nil {
 		return err
 	}
@@ -671,7 +853,12 @@ func runLicenseDrift(cmd *cobra.Command, db *database.DB, deps []database.Depend
 	}
 }
 
-func computeLicenseDrift(db *database.DB, deps []database.Dependency, offline bool) (*LicenseDriftResult, error) {
+func computeLicenseDrift(
+	db *database.DB,
+	deps []database.Dependency,
+	offline bool,
+	directMode bool,
+) (*LicenseDriftResult, error) {
 	result := emptyLicenseDriftResult()
 	result.Summary.TotalDependencies = len(deps)
 
@@ -688,8 +875,12 @@ func computeLicenseDrift(db *database.DB, deps []database.Dependency, offline bo
 		}
 	}
 
-	packageLicenses, err := getLicenseData(db, packagePURLs, offline)
+	sources := newSourceTracker()
+	packageLicenses, err := getLicenseData(db, packagePURLs, offline, sources, directMode)
 	if err != nil {
+		return nil, fmt.Errorf("looking up package licenses: %w", err)
+	}
+	if err := sources.observedError(); err != nil {
 		return nil, fmt.Errorf("looking up package licenses: %w", err)
 	}
 
@@ -762,6 +953,15 @@ func licensePackagePURLForDependency(dep database.Dependency) string {
 }
 
 func loadLicenseVersionLicenses(db *database.DB, deps []database.Dependency, offline bool) (map[string]string, error) {
+	result, _, _, err := loadLicenseVersionLicensesWithReport(db, deps, offline)
+	return result, err
+}
+
+func loadLicenseVersionLicensesWithReport(
+	db *database.DB,
+	deps []database.Dependency,
+	offline bool,
+) (map[string]string, []licenseVersionLookupError, []string, error) {
 	needed := make(map[string]map[string]bool)
 	for _, dep := range deps {
 		versionedPURL := versionedPURLForDependency(dep)
@@ -790,10 +990,10 @@ func loadLicenseVersionLicenses(db *database.DB, deps []database.Dependency, off
 		}
 	}
 	if len(missing) == 0 {
-		return result, nil
+		return result, nil, nil, nil
 	}
 	if offline {
-		return result, fmt.Errorf(
+		return result, nil, nil, fmt.Errorf(
 			"offline mode: license metadata is not cached for %d package version(s); rerun without --offline to populate the cache",
 			len(missing),
 		)
@@ -801,7 +1001,7 @@ func loadLicenseVersionLicenses(db *database.DB, deps []database.Dependency, off
 
 	client, err := newEnrichmentClient()
 	if err != nil {
-		return result, err
+		return result, nil, nil, err
 	}
 
 	const licenseDriftLookupTimeout = 5 * time.Minute
@@ -809,19 +1009,28 @@ func loadLicenseVersionLicenses(db *database.DB, deps []database.Dependency, off
 	defer cancel()
 
 	fetched, fetchErrors := fetchLicenseDriftVersions(ctx, client, missing)
+	successfulPURLs := make([]string, 0, len(fetched))
 	for _, fetchedVersion := range fetched {
 		saveLicenseDriftVersion(db, fetchedVersion.PackagePURL, fetchedVersion.VersionedPURL, fetchedVersion.Version)
-		if fetchedVersion.Version == nil || fetchedVersion.Version.License == "" {
+		if fetchedVersion.Version == nil {
+			continue
+		}
+		successfulPURLs = append(successfulPURLs, fetchedVersion.VersionedPURL)
+		if fetchedVersion.Version.License == "" {
 			continue
 		}
 		result[fetchedVersion.VersionedPURL] = normalizeLicenseString(fetchedVersion.Version.License)
 	}
 	if len(fetchErrors) == len(missing) {
-		return result, fmt.Errorf("fetching license version metadata failed for all %d uncached versions: %w",
-			len(missing), wrapEcosystemsError(errors.Join(fetchErrors...)))
+		joined := make([]error, 0, len(fetchErrors))
+		for _, fetchErr := range fetchErrors {
+			joined = append(joined, fetchErr.Err)
+		}
+		return result, fetchErrors, successfulPURLs, fmt.Errorf("fetching license version metadata failed for all %d uncached versions: %w",
+			len(missing), wrapEcosystemsError(errors.Join(joined...)))
 	}
 
-	return result, nil
+	return result, fetchErrors, successfulPURLs, nil
 }
 
 type licenseDriftVersionLookup struct {
@@ -834,11 +1043,16 @@ type fetchedLicenseDriftVersion struct {
 	Version *enrichment.VersionInfo
 }
 
+type licenseVersionLookupError struct {
+	licenseDriftVersionLookup
+	Err error
+}
+
 func fetchLicenseDriftVersions(
 	ctx context.Context,
 	client enrichment.Client,
 	missing []licenseDriftVersionLookup,
-) ([]fetchedLicenseDriftVersion, []error) {
+) ([]fetchedLicenseDriftVersion, []licenseVersionLookupError) {
 	const licenseDriftLookupConcurrency = 8
 
 	workers := licenseDriftLookupConcurrency
@@ -847,7 +1061,7 @@ func fetchLicenseDriftVersions(
 	}
 	jobs := make(chan licenseDriftVersionLookup)
 	results := make(chan fetchedLicenseDriftVersion, len(missing))
-	errorsCh := make(chan error, len(missing))
+	errorsCh := make(chan licenseVersionLookupError, len(missing))
 
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -857,7 +1071,10 @@ func fetchLicenseDriftVersions(
 			for lookup := range jobs {
 				versionInfo, err := client.GetVersion(ctx, lookup.VersionedPURL)
 				if err != nil {
-					errorsCh <- fmt.Errorf("%s: %w", lookup.VersionedPURL, err)
+					errorsCh <- licenseVersionLookupError{
+						licenseDriftVersionLookup: lookup,
+						Err:                       fmt.Errorf("%s: %w", lookup.VersionedPURL, err),
+					}
 					continue
 				}
 				results <- fetchedLicenseDriftVersion{
@@ -880,7 +1097,7 @@ func fetchLicenseDriftVersions(
 	for result := range results {
 		fetched = append(fetched, result)
 	}
-	var fetchErrors []error
+	var fetchErrors []licenseVersionLookupError
 	for err := range errorsCh {
 		fetchErrors = append(fetchErrors, err)
 	}
@@ -1015,10 +1232,9 @@ func outputLicenseDriftText(cmd *cobra.Command, result *LicenseDriftResult) {
 	}
 }
 
-func outputLicensesJSON(cmd *cobra.Command, infos []LicenseInfo) error {
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(nonNilSlice(infos))
+func outputLicensesJSON(cmd *cobra.Command, infos []LicenseInfo, trackers ...*sourceTracker) error {
+	sources := sourceTrackerOrNew(trackers)
+	return outputResultEnvelope(cmd, resultEnvelope(sources, infos, time.Now().UTC()))
 }
 
 func outputLicensesCSV(cmd *cobra.Command, infos []LicenseInfo) error {

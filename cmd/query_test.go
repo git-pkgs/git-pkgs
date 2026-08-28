@@ -340,7 +340,8 @@ func TestEmptyResultsRespectJSONFormat(t *testing.T) {
 		{name: "notes namespaces", args: []string{"notes", "namespaces", "--format", "json"}},
 		{name: "blame", args: []string{"blame", "--ecosystem", "definitely-not-present", "--format", "json"}},
 		{name: "tree", args: []string{"tree", "--ecosystem", "definitely-not-present", "--format", "json"}},
-		{name: "outdated", args: []string{"outdated", "--format", "json"}},
+		{name: "outdated", args: []string{"outdated", "--ecosystem", "definitely-not-present", "--format", "json"}},
+		{name: "deprecated", args: []string{"deprecated", "--ecosystem", "definitely-not-present", "--format", "json"}},
 		{name: "stale", args: []string{"stale", "--format", "json"}},
 		{name: "show", args: []string{"show", "HEAD", "--ecosystem", "definitely-not-present", "--format", "json"}},
 		{name: "where", args: []string{"where", "definitely-not-present", "--format", "json"}},
@@ -349,7 +350,7 @@ func TestEmptyResultsRespectJSONFormat(t *testing.T) {
 		{name: "integrity", args: []string{"integrity", "--ecosystem", "definitely-not-present", "--format", "json"}},
 		{name: "integrity drift", args: []string{"integrity", "--drift", "--ecosystem", "definitely-not-present", "--format", "json"}},
 		{name: "vulns no lockfile deps", args: []string{"vulns", "scan", "--ecosystem", "definitely-not-present", "--format", "json"}},
-		{name: "vulns no results", args: []string{"vulns", "scan", "--no-sync", "--format", "json"}},
+		{name: "vulns no results", args: []string{"vulns", "scan", "--no-sync", "--ecosystem", "definitely-not-present", "--format", "json"}},
 		{name: "vulns blame", args: []string{"vulns", "blame", "--format", "json"}},
 		{name: "vulns history", args: []string{"vulns", "history", "definitely-not-present", "--format", "json"}},
 		{name: "vulns exposure", args: []string{"vulns", "exposure", "--format", "json"}},
@@ -363,14 +364,95 @@ func TestEmptyResultsRespectJSONFormat(t *testing.T) {
 				t.Fatalf("command failed: %v", err)
 			}
 
-			var result []any
-			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
-				t.Fatalf("expected JSON array, got %q: %v", stdout, err)
-			}
-			if len(result) != 0 {
-				t.Fatalf("expected empty JSON array, got %v", result)
+			switch tt.name {
+			case "outdated", "deprecated", "licenses", "vulns no lockfile deps", "vulns no results":
+				var envelope struct {
+					Results []any              `json:"results"`
+					Sources []cmd.SourceStatus `json:"sources"`
+				}
+				if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+					t.Fatalf("expected JSON envelope, got %q: %v", stdout, err)
+				}
+				if len(envelope.Results) != 0 {
+					t.Fatalf("expected empty JSON results, got %v", envelope.Results)
+				}
+			default:
+				var result []any
+				if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+					t.Fatalf("expected JSON array, got %q: %v", stdout, err)
+				}
+				if len(result) != 0 {
+					t.Fatalf("expected empty JSON array, got %v", result)
+				}
 			}
 		})
+	}
+}
+
+func TestMetadataJSONPreservesSourcesWithoutResolvedDependencies(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFileAndCommit(t, repoDir, "package.json", packageJSON, "Add package.json")
+
+	cleanup := chdir(t, repoDir)
+	defer cleanup()
+
+	if _, _, err := runCmd(t, "init"); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	for _, args := range [][]string{
+		{"outdated", "--format", "json"},
+		{"deprecated", "--format", "json"},
+		{"vulns", "scan", "--format", "json"},
+	} {
+		stdout, _, err := runCmd(t, args...)
+		if err == nil {
+			t.Fatalf("%s succeeded without resolved dependencies", strings.Join(args, " "))
+		}
+
+		var envelope struct {
+			Results []any              `json:"results"`
+			Sources []cmd.SourceStatus `json:"sources"`
+		}
+		if decodeErr := json.Unmarshal([]byte(stdout), &envelope); decodeErr != nil {
+			t.Fatalf("decode %s output: %v\n%s", strings.Join(args, " "), decodeErr, stdout)
+		}
+		if len(envelope.Results) != 0 || len(envelope.Sources) != 1 {
+			t.Fatalf("%s envelope = %+v", strings.Join(args, " "), envelope)
+		}
+		if envelope.Sources[0].Ecosystem != "npm" || envelope.Sources[0].Status != "error" {
+			t.Fatalf("%s source = %+v, want npm error", strings.Join(args, " "), envelope.Sources[0])
+		}
+	}
+}
+
+func TestLicensesJSONPreservesSourcesWithoutDirectDependencies(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFileAndCommit(t, repoDir, "package-lock.json", packageLockJSON, "Add package-lock.json")
+
+	cleanup := chdir(t, repoDir)
+	defer cleanup()
+
+	if _, _, err := runCmd(t, "init"); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	stdout, _, err := runCmd(t, "licenses", "--format", "json")
+	if err == nil {
+		t.Fatal("licenses succeeded without direct dependencies")
+	}
+	var envelope struct {
+		Results []any              `json:"results"`
+		Sources []cmd.SourceStatus `json:"sources"`
+	}
+	if decodeErr := json.Unmarshal([]byte(stdout), &envelope); decodeErr != nil {
+		t.Fatalf("decode licenses output: %v\n%s", decodeErr, stdout)
+	}
+	if len(envelope.Results) != 0 || len(envelope.Sources) != 1 {
+		t.Fatalf("licenses envelope = %+v", envelope)
+	}
+	if envelope.Sources[0].Ecosystem != "npm" || envelope.Sources[0].Status != "error" {
+		t.Fatalf("licenses source = %+v, want npm error", envelope.Sources[0])
 	}
 }
 

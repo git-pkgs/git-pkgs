@@ -23,7 +23,8 @@ import (
 // mockSource implements vulns.Source for testing.
 type mockSource struct {
 	vulns      map[string]*vulns.Vulnerability // ID -> full vuln
-	batchRes   [][]vulns.Vulnerability         // QueryBatch results
+	getErrs    map[string]error
+	batchRes   [][]vulns.Vulnerability // QueryBatch results
 	batchErr   error
 	batchErrs  []error
 	batchPURLs []*purl.PURL
@@ -49,10 +50,46 @@ func (m *mockSource) QueryBatch(_ context.Context, purls []*purl.PURL) ([][]vuln
 
 func (m *mockSource) Get(_ context.Context, id string) (*vulns.Vulnerability, error) {
 	m.getCalls.Add(1)
+	if err := m.getErrs[id]; err != nil {
+		return nil, err
+	}
 	if v, ok := m.vulns[id]; ok {
 		return v, nil
 	}
 	return nil, fmt.Errorf("not found: %s", id)
+}
+
+func TestSyncVulnerabilitiesForDepsPropagatesDetailErrors(t *testing.T) {
+	source := &mockSource{
+		batchRes: [][]vulns.Vulnerability{{{ID: "GHSA-DETAIL"}}},
+		getErrs:  map[string]error{"GHSA-DETAIL": errors.New("detail endpoint unavailable")},
+	}
+	deps := []database.Dependency{{
+		Ecosystem:    "npm",
+		Name:         "foo",
+		Requirement:  "1.0.0",
+		ManifestPath: "package-lock.json",
+		ManifestKind: "lockfile",
+	}}
+
+	db := newTestDB(t)
+	err := syncVulnerabilitiesForDeps(db, source, deps, true, true, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected vulnerability detail error")
+	}
+	for _, want := range []string{"GHSA-DETAIL", "detail endpoint unavailable"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not contain %q", err, want)
+		}
+	}
+
+	syncedAt, err := db.GetVulnsSyncedAt("pkg:npm/foo")
+	if err != nil {
+		t.Fatalf("GetVulnsSyncedAt: %v", err)
+	}
+	if !syncedAt.IsZero() {
+		t.Fatalf("failed package marked synced at %v", syncedAt)
+	}
 }
 
 func newTestDB(t *testing.T) *database.DB {

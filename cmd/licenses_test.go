@@ -26,6 +26,7 @@ type mockEnrichmentClient struct {
 	getVersionsCalls int
 	getVersionCalls  int
 	bulkLookupCalls  int
+	bulkLookupErr    error
 	getVersionErr    error
 }
 
@@ -33,6 +34,9 @@ func (m *mockEnrichmentClient) BulkLookup(_ context.Context, purls []string) (ma
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.bulkLookupCalls++
+	if m.bulkLookupErr != nil {
+		return nil, m.bulkLookupErr
+	}
 
 	result := make(map[string]*enrichment.PackageInfo)
 	for _, p := range purls {
@@ -301,10 +305,11 @@ func TestLicensesCommand(t *testing.T) {
 				t.Fatalf("version lookup warning = %v, want %v; stderr: %s", gotWarning, tt.wantWarning, stderr)
 			}
 
-			var result []cmd.LicenseInfo
-			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+			var envelope cmd.ResultEnvelope[cmd.LicenseInfo]
+			if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
 				t.Fatalf("parse licenses output: %v\nOutput: %s", err, stdout)
 			}
+			result := envelope.Results
 			if len(result) != 1 {
 				t.Fatalf("license entries = %d, want 1", len(result))
 			}
@@ -357,10 +362,11 @@ func TestLicensesCommand(t *testing.T) {
 			t.Fatalf("missing ambiguity warning: %s", stderr)
 		}
 
-		var result []cmd.LicenseInfo
-		if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		var envelope cmd.ResultEnvelope[cmd.LicenseInfo]
+		if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
 			t.Fatalf("parse licenses output: %v\nOutput: %s", err, stdout)
 		}
+		result := envelope.Results
 		if len(result) != 1 {
 			t.Fatalf("license entries = %d, want 1", len(result))
 		}
@@ -446,10 +452,11 @@ func TestLicensesCommand(t *testing.T) {
 			t.Fatal("expected JSON output, got empty string")
 		}
 
-		var result []map[string]interface{}
-		if err := json.Unmarshal([]byte(output), &result); err != nil {
+		var envelope cmd.ResultEnvelope[map[string]interface{}]
+		if err := json.Unmarshal([]byte(output), &envelope); err != nil {
 			t.Fatalf("failed to parse JSON output: %v\nOutput: %s", err, output)
 		}
+		result := envelope.Results
 
 		if len(result) == 0 {
 			t.Fatal("expected at least one license entry")
@@ -749,6 +756,40 @@ func TestLicensesCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("drift propagates package metadata lookup failures", func(t *testing.T) {
+		mock, restore := setMockEnrichmentClient(&mockEnrichmentClient{
+			packages:      map[string]*enrichment.PackageInfo{},
+			bulkLookupErr: errors.New("package source unavailable"),
+		})
+		defer restore()
+
+		repoDir := createTestRepo(t)
+		addFileAndCommit(t, repoDir, "package-lock.json", packageLockJSON, "Add lockfile")
+
+		cleanup := chdir(t, repoDir)
+		defer cleanup()
+
+		rootCmd := cmd.NewRootCmd()
+		rootCmd.SetArgs([]string{"init"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("init failed: %v", err)
+		}
+
+		rootCmd = cmd.NewRootCmd()
+		rootCmd.SetArgs([]string{"licenses", "--drift", "--format", "json"})
+		err := rootCmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), "package source unavailable") {
+			t.Fatalf("licenses --drift error = %v, want package lookup failure", err)
+		}
+
+		mock.mu.Lock()
+		calls := mock.bulkLookupCalls
+		mock.mu.Unlock()
+		if calls == 0 {
+			t.Fatal("expected package metadata lookup")
+		}
+	})
+
 	t.Run("drift text output omits repeated package names", func(t *testing.T) {
 		_, restore := setMockEnrichmentWithVersionInfos(
 			map[string]*enrichment.PackageInfo{
@@ -937,10 +978,11 @@ services:
 		t.Fatal("expected JSON output, got empty string")
 	}
 
-	var results []cmd.LicenseInfo
-	if err := json.Unmarshal([]byte(output), &results); err != nil {
+	var envelope cmd.ResultEnvelope[cmd.LicenseInfo]
+	if err := json.Unmarshal([]byte(output), &envelope); err != nil {
 		t.Fatalf("failed to parse JSON: %v\nOutput: %s", err, output)
 	}
+	results := envelope.Results
 
 	for _, r := range results {
 		if strings.Contains(r.PURL, "docker") {

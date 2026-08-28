@@ -870,3 +870,43 @@ func TestSchemaIndexes(t *testing.T) {
 		}
 	}
 }
+
+func TestEcosystemSourceTimestamps(t *testing.T) {
+	db, err := database.Create(filepath.Join(t.TempDir(), "pkgs.sqlite3"))
+	if err != nil {
+		t.Fatalf("create database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	enrichedAt := time.Date(2026, time.August, 20, 10, 0, 0, 0, time.UTC)
+	updatedAt := enrichedAt.Add(time.Hour)
+	vulnsSyncedAt := enrichedAt.Add(2 * time.Hour)
+	_, err = db.Exec(`
+		INSERT INTO packages (
+			purl, ecosystem, name, enriched_at, vulns_synced_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`,
+		"pkg:npm/example",
+		"npm",
+		"example",
+		enrichedAt.Format(time.RFC3339),
+		vulnsSyncedAt.Format(time.RFC3339),
+		enrichedAt.Format(time.RFC3339),
+		updatedAt.Format(time.RFC3339),
+	)
+	if err != nil {
+		t.Fatalf("insert package: %v", err)
+	}
+
+	gotEnrichedAt, ok := db.EcosystemSyncedAt("npm")
+	if !ok || !gotEnrichedAt.Equal(updatedAt) {
+		t.Fatalf("EcosystemSyncedAt = %v, %v; want %v, true", gotEnrichedAt, ok, updatedAt)
+	}
+	gotVulnsSyncedAt, ok := db.EcosystemVulnsSyncedAt("npm")
+	if !ok || !gotVulnsSyncedAt.Equal(vulnsSyncedAt) {
+		t.Fatalf("EcosystemVulnsSyncedAt = %v, %v; want %v, true", gotVulnsSyncedAt, ok, vulnsSyncedAt)
+	}
+	if _, ok := db.EcosystemSyncedAt("cargo"); ok {
+		t.Fatal("EcosystemSyncedAt(cargo) reported cached data")
+	}
+}

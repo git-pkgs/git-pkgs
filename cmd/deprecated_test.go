@@ -187,7 +187,7 @@ func TestCachedDeprecatedVersionDataIgnoresUncheckedStatus(t *testing.T) {
 	}
 }
 
-func TestOutputDeprecatedJSONEmptySlice(t *testing.T) {
+func TestOutputDeprecatedJSONEmptyEnvelope(t *testing.T) {
 	var out bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
@@ -195,7 +195,7 @@ func TestOutputDeprecatedJSONEmptySlice(t *testing.T) {
 	if err := outputDeprecatedJSON(cmd, []DeprecatedPackage{}); err != nil {
 		t.Fatalf("output json: %v", err)
 	}
-	if got := strings.TrimSpace(out.String()); got != "[]" {
-		t.Fatalf("json output = %q, want []", got)
+	if got := strings.TrimSpace(out.String()); got != "{\n  \"results\": [],\n  \"sources\": []\n}" {
+		t.Fatalf("json output = %q, want empty result envelope", got)
 	}
 }

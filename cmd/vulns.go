@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -393,6 +394,7 @@ func syncVulnerabilitiesForDeps(db *database.DB, source vulns.Source, lockfileDe
 
 	// Fetch all unique vulnerability details concurrently
 	fetchedVulns := make(map[string]*vulns.Vulnerability)
+	detailErrors := make(map[string]error)
 	var mu sync.Mutex
 
 	isTTY := false
@@ -416,7 +418,12 @@ func syncVulnerabilitiesForDeps(db *database.DB, source vulns.Source, lockfileDe
 			mu.Lock()
 			defer mu.Unlock()
 			fetchCount++
-			if err == nil && fullVuln != nil {
+			switch {
+			case err != nil:
+				detailErrors[id] = fmt.Errorf("fetching %s: %w", id, err)
+			case fullVuln == nil:
+				detailErrors[id] = fmt.Errorf("fetching %s: no vulnerability details returned", id)
+			default:
 				fetchedVulns[id] = fullVuln
 			}
 			if isTTY && !quiet {
@@ -435,9 +442,19 @@ func syncVulnerabilitiesForDeps(db *database.DB, source vulns.Source, lockfileDe
 	now := time.Now().Format(time.RFC3339)
 	seenVulns := make(map[string]bool)
 	totalVulns := 0
+	failedPackages := make(map[string]bool)
 
 	for i, batchVulns := range results {
 		dep := queries[i].dependency
+		for _, vulnerability := range batchVulns {
+			if _, failed := detailErrors[vulnerability.ID]; failed {
+				failedPackages[queries[i].purl.String()] = true
+				break
+			}
+		}
+		if failedPackages[queries[i].purl.String()] {
+			continue
+		}
 
 		// Clear existing vulns for this package
 		if err := db.DeleteVulnerabilitiesForPackage(dep.Ecosystem, dep.Name); err != nil {
@@ -520,15 +537,32 @@ func syncVulnerabilitiesForDeps(db *database.DB, source vulns.Source, lockfileDe
 	}
 
 	// Mark packages as synced
+	syncedPackages := 0
 	for _, query := range queries {
+		if failedPackages[query.purl.String()] {
+			continue
+		}
 		dep := query.dependency
 		if err := db.SetVulnsSyncedAt(query.purl.String(), dep.Ecosystem, dep.Name); err != nil {
 			return fmt.Errorf("recording sync time for %s/%s: %w", dep.Ecosystem, dep.Name, err)
 		}
+		syncedPackages++
 	}
 
 	if !quiet {
-		_, _ = fmt.Fprintf(w, "Synced %d vulnerabilities for %d packages.\n", totalVulns, len(queries))
+		_, _ = fmt.Fprintf(w, "Synced %d vulnerabilities for %d packages.\n", totalVulns, syncedPackages)
+	}
+	if len(detailErrors) > 0 {
+		ids := make([]string, 0, len(detailErrors))
+		for id := range detailErrors {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		errs := make([]error, 0, len(ids))
+		for _, id := range ids {
+			errs = append(errs, detailErrors[id])
+		}
+		return fmt.Errorf("fetching vulnerability details: %w", errors.Join(errs...))
 	}
 
 	return nil
@@ -613,6 +647,13 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 
 	// Filter by ecosystem
 	deps = filterByEcosystem(deps, ecosystem)
+	source := osv.New(osv.WithUserAgent(userAgent))
+	sources := newSourceTracker()
+	for _, dep := range deps {
+		packagePURL := purl.MakePURL(dep.Ecosystem, dep.Name, dep.Requirement)
+		_, supported, _ := osvEcosystemForPURLType(packagePURL.Type)
+		sources.consider(dep.Ecosystem, vulnerabilitySourceUpstream(source), supported)
+	}
 
 	// Filter to lockfile deps (or Go deps which have pinned versions)
 	var lockfileDeps []database.Dependency
@@ -624,18 +665,13 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 
 	if len(lockfileDeps) == 0 {
 		if format == formatJSON {
-			return outputVulnsJSON(cmd, nil)
+			if err := outputVulnsJSON(cmd, nil, sources); err != nil {
+				return err
+			}
+			return sources.unavailableError()
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No lockfile dependencies found to scan.")
 		return nil
-	}
-
-	// Auto-sync before cached scan (skip for --live and --no-sync)
-	if !live && !noSync && db != nil {
-		source := osv.New(osv.WithUserAgent(userAgent))
-		if err := syncVulnerabilitiesForDeps(db, source, lockfileDeps, false, false, cmd.OutOrStdout()); err != nil {
-			return fmt.Errorf("syncing vulnerabilities: %w", err)
-		}
 	}
 
 	var vulnResults []VulnResult
@@ -647,20 +683,57 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if live || db == nil {
-		// Live query mode - use OSV API directly
-		var skipped []database.Dependency
-		vulnResults, skipped, err = scanLive(lockfileDeps, minSeverity)
-		if err != nil {
-			return err
+	resolvedByEcosystem := make(map[string][]database.Dependency)
+	for _, dep := range lockfileDeps {
+		resolvedByEcosystem[dep.Ecosystem] = append(resolvedByEcosystem[dep.Ecosystem], dep)
+	}
+	for ecosystem, ecosystemDeps := range resolvedByEcosystem {
+		packagePURL := purl.MakePURL(ecosystem, ecosystemDeps[0].Name, ecosystemDeps[0].Requirement)
+		if _, supported, _ := osvEcosystemForPURLType(packagePURL.Type); !supported {
+			reportSkippedOSVDependencies(cmd.ErrOrStderr(), ecosystemDeps)
+			continue
 		}
-		reportSkippedOSVDependencies(cmd.ErrOrStderr(), skipped)
-	} else {
-		// Cached mode - use stored vulnerability data
-		vulnResults, err = scanCached(db, lockfileDeps, minSeverity)
-		if err != nil {
-			return err
+		upstream := vulnerabilitySourceUpstream(source)
+
+		if live || db == nil {
+			ecosystemResults, skipped, scanErr := scanLiveWithSource(source, ecosystemDeps, minSeverity)
+			reportSkippedOSVDependencies(cmd.ErrOrStderr(), skipped)
+			if scanErr != nil {
+				sources.markError(ecosystem, upstream, scanErr)
+				continue
+			}
+			sources.markOK(ecosystem, upstream, time.Now().UTC())
+			vulnResults = append(vulnResults, ecosystemResults...)
+			continue
 		}
+
+		if !noSync {
+			quietSync := format == formatJSON || format == formatSARIF
+			syncErr := syncVulnerabilitiesForDeps(
+				db,
+				source,
+				ecosystemDeps,
+				false,
+				quietSync,
+				cmd.OutOrStdout(),
+			)
+			if syncErr != nil {
+				sources.markError(ecosystem, upstream, fmt.Errorf("syncing vulnerabilities: %w", syncErr))
+			}
+			if cacheErr := markCachedVulnerabilitySource(db, ecosystemDeps, sources, upstream); cacheErr != nil {
+				return cacheErr
+			}
+		} else {
+			if cacheErr := markCachedVulnerabilitySource(db, ecosystemDeps, sources, upstream); cacheErr != nil {
+				return cacheErr
+			}
+		}
+
+		ecosystemResults, scanErr := scanCached(db, ecosystemDeps, minSeverity)
+		if scanErr != nil {
+			return fmt.Errorf("scanning cached vulnerabilities for %s: %w", ecosystem, scanErr)
+		}
+		vulnResults = append(vulnResults, ecosystemResults...)
 	}
 
 	// Sort by severity, then package name
@@ -673,7 +746,13 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 
 	if len(vulnResults) == 0 {
 		if format == formatJSON {
-			return outputVulnsJSON(cmd, vulnResults)
+			if err := outputVulnsJSON(cmd, vulnResults, sources); err != nil {
+				return err
+			}
+			return sources.unavailableError()
+		}
+		if err := sources.unavailableError(); err != nil {
+			return err
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerabilities found.")
 		return nil
@@ -681,18 +760,52 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 
 	switch format {
 	case formatJSON:
-		return outputVulnsJSON(cmd, vulnResults)
+		if err := outputVulnsJSON(cmd, vulnResults, sources); err != nil {
+			return err
+		}
+		return sources.unavailableError()
 	case "sarif":
-		return outputVulnsSARIF(cmd, vulnResults)
+		if err := outputVulnsSARIF(cmd, vulnResults); err != nil {
+			return err
+		}
+		return sources.unavailableError()
 	default:
 		outputVulnsText(cmd, vulnResults)
-		return nil
+		return sources.unavailableError()
 	}
 }
 
-func scanLive(deps []database.Dependency, minSeverity int) ([]VulnResult, []database.Dependency, error) {
-	source := osv.New(osv.WithUserAgent(userAgent))
-	return scanLiveWithSource(source, deps, minSeverity)
+func markCachedVulnerabilitySource(
+	db *database.DB,
+	deps []database.Dependency,
+	sources *sourceTracker,
+	upstream string,
+) error {
+	seen := make(map[string]bool)
+	for _, dep := range deps {
+		packagePURL := purl.MakePURLString(dep.Ecosystem, dep.Name, "")
+		if packagePURL == "" || seen[packagePURL] {
+			continue
+		}
+		seen[packagePURL] = true
+		syncedAt, err := db.GetVulnsSyncedAt(packagePURL)
+		if err != nil {
+			return fmt.Errorf("reading vulnerability cache status for %s: %w", packagePURL, err)
+		}
+		if syncedAt.IsZero() {
+			sources.markError(dep.Ecosystem, upstream, fmt.Errorf("vulnerability data is not cached for %s", packagePURL))
+			continue
+		}
+		sources.markOK(dep.Ecosystem, upstream, syncedAt)
+	}
+	return nil
+}
+
+func vulnerabilitySourceUpstream(source vulns.Source) string {
+	if source.Name() == "osv" {
+		return "osv.dev"
+	}
+	return source.Name()
 }
 
 func scanLiveWithSource(source vulns.Source, deps []database.Dependency, minSeverity int) ([]VulnResult, []database.Dependency, error) {
@@ -815,10 +928,9 @@ func scanCached(db *database.DB, deps []database.Dependency, minSeverity int) ([
 	return vulnResults, nil
 }
 
-func outputVulnsJSON(cmd *cobra.Command, results []VulnResult) error {
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(nonNilSlice(results))
+func outputVulnsJSON(cmd *cobra.Command, results []VulnResult, trackers ...*sourceTracker) error {
+	sources := sourceTrackerOrNew(trackers)
+	return outputResultEnvelope(cmd, resultEnvelope(sources, results, time.Now().UTC()))
 }
 
 func outputVulnsText(cmd *cobra.Command, results []VulnResult) {

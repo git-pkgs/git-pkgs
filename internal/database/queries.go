@@ -1842,7 +1842,40 @@ type CachedPackage struct {
 	Name          string    `json:"name"`
 	LatestVersion string    `json:"latest_version"`
 	License       string    `json:"license"`
+	RegistryURL   string    `json:"registry_url,omitempty"`
+	Source        string    `json:"source,omitempty"`
 	EnrichedAt    time.Time `json:"enriched_at"`
+}
+
+// EcosystemSyncedAt returns the most recent package update time for an ecosystem
+// with package enrichment metadata.
+func (db *DB) EcosystemSyncedAt(ecosystem string) (time.Time, bool) {
+	var syncedAt sql.NullString
+	err := db.QueryRow(`
+		SELECT MAX(updated_at)
+		FROM packages
+		WHERE ecosystem = ? AND enriched_at IS NOT NULL
+	`, ecosystem).Scan(&syncedAt)
+	if err != nil || !syncedAt.Valid {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.RFC3339, syncedAt.String)
+	return parsed, err == nil
+}
+
+// EcosystemVulnsSyncedAt returns the most recent vulnerability sync time for an ecosystem.
+func (db *DB) EcosystemVulnsSyncedAt(ecosystem string) (time.Time, bool) {
+	var syncedAt sql.NullString
+	err := db.QueryRow(`
+		SELECT MAX(vulns_synced_at)
+		FROM packages
+		WHERE ecosystem = ? AND vulns_synced_at IS NOT NULL
+	`, ecosystem).Scan(&syncedAt)
+	if err != nil || !syncedAt.Valid {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.RFC3339, syncedAt.String)
+	return parsed, err == nil
 }
 
 // CachedPackageFunding represents cached funding data for a package.
@@ -1922,7 +1955,7 @@ func (db *DB) getCachedPackages(purls []string, staleThreshold *time.Time) (map[
 			args = append(args, staleThreshold.Format(time.RFC3339))
 		}
 
-		query := `SELECT purl, ecosystem, name, latest_version, license, enriched_at
+		query := `SELECT purl, ecosystem, name, latest_version, license, registry_url, source, enriched_at
 			FROM packages
 			WHERE enriched_at IS NOT NULL AND purl IN (` + strings.Join(placeholders, ",") + `)` + freshnessFilter
 
@@ -1933,9 +1966,18 @@ func (db *DB) getCachedPackages(purls []string, staleThreshold *time.Time) (map[
 
 		for rows.Next() {
 			var cp CachedPackage
-			var latestVersion, license sql.NullString
+			var latestVersion, license, registryURL, source sql.NullString
 			var enrichedAt string
-			if err := rows.Scan(&cp.PURL, &cp.Ecosystem, &cp.Name, &latestVersion, &license, &enrichedAt); err != nil {
+			if err := rows.Scan(
+				&cp.PURL,
+				&cp.Ecosystem,
+				&cp.Name,
+				&latestVersion,
+				&license,
+				&registryURL,
+				&source,
+				&enrichedAt,
+			); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}
@@ -1944,6 +1986,12 @@ func (db *DB) getCachedPackages(purls []string, staleThreshold *time.Time) (map[
 			}
 			if license.Valid {
 				cp.License = license.String
+			}
+			if registryURL.Valid {
+				cp.RegistryURL = registryURL.String
+			}
+			if source.Valid {
+				cp.Source = source.String
 			}
 			cp.EnrichedAt, _ = time.Parse(time.RFC3339, enrichedAt)
 			result[cp.PURL] = &cp

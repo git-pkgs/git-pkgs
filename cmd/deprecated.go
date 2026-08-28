@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/git-pkgs/git-pkgs/internal/database"
@@ -65,6 +65,11 @@ func runDeprecated(cmd *cobra.Command, args []string) error {
 	}
 
 	deps = filterByEcosystem(deps, ecosystem)
+	sources := newSourceTracker()
+	for _, ecosystem := range ecosystemsFromDependencies(deps) {
+		upstream, supported := registrySource(ecosystem)
+		sources.consider(ecosystem, upstream, supported)
+	}
 
 	var resolved []database.Dependency
 	for _, d := range deps {
@@ -75,7 +80,10 @@ func runDeprecated(cmd *cobra.Command, args []string) error {
 
 	if len(resolved) == 0 {
 		if format == formatJSON {
-			return outputDeprecatedJSON(cmd, []DeprecatedPackage{})
+			if err := outputDeprecatedJSON(cmd, nil, sources); err != nil {
+				return err
+			}
+			return sources.unavailableError()
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No resolved dependencies found.")
 		return nil
@@ -84,8 +92,13 @@ func runDeprecated(cmd *cobra.Command, args []string) error {
 	versionedPURLs := make([]string, 0, len(resolved))
 	purlToDeps := make(map[string][]database.Dependency)
 	for _, dep := range resolved {
+		if _, supported := registrySource(dep.Ecosystem); !supported {
+			continue
+		}
 		purlStr := versionedPURLForDependency(dep)
 		if purlStr == "" {
+			upstream, _ := registrySource(dep.Ecosystem)
+			sources.markError(dep.Ecosystem, upstream, fmt.Errorf("could not build versioned package URL for %s", dep.Name))
 			continue
 		}
 		if len(purlToDeps[purlStr]) == 0 {
@@ -94,11 +107,17 @@ func runDeprecated(cmd *cobra.Command, args []string) error {
 		purlToDeps[purlStr] = append(purlToDeps[purlStr], dep)
 	}
 
-	versionData := fetchDeprecatedVersionData(db, versionedPURLs)
+	versionData := fetchDeprecatedVersionData(db, versionedPURLs, sources)
 	deprecated := deprecatedPackages(purlToDeps, versionData)
 	if len(deprecated) == 0 {
 		if format == formatJSON {
-			return outputDeprecatedJSON(cmd, []DeprecatedPackage{})
+			if err := outputDeprecatedJSON(cmd, nil, sources); err != nil {
+				return err
+			}
+			return sources.unavailableError()
+		}
+		if err := sources.unavailableError(); err != nil {
+			return err
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No deprecated or withdrawn dependencies found.")
 		return nil
@@ -106,8 +125,14 @@ func runDeprecated(cmd *cobra.Command, args []string) error {
 
 	switch format {
 	case formatJSON:
-		return outputDeprecatedJSON(cmd, deprecated)
+		if err := outputDeprecatedJSON(cmd, deprecated, sources); err != nil {
+			return err
+		}
+		return sources.unavailableError()
 	default:
+		if err := sources.unavailableError(); err != nil {
+			return err
+		}
 		outputDeprecatedText(cmd, deprecated)
 		return nil
 	}
@@ -137,12 +162,21 @@ func isDefaultCargoIndex(purlType, registryURL string) bool {
 	return registryURL == "https://github.com/rust-lang/crates.io-index" || registryURL == "https://index.crates.io"
 }
 
-func fetchDeprecatedVersionData(db *database.DB, versionedPURLs []string) map[string]*registries.Version {
+func fetchDeprecatedVersionData(
+	db *database.DB,
+	versionedPURLs []string,
+	trackers ...*sourceTracker,
+) map[string]*registries.Version {
+	sources := sourceTrackerOrNew(trackers)
 	if len(versionedPURLs) == 0 {
 		return map[string]*registries.Version{}
 	}
 
-	versionData := cachedDeprecatedVersionData(db, versionedPURLs)
+	versionData, cachedAt := cachedDeprecatedVersionDataWithTimes(db, versionedPURLs)
+	for ecosystem, checkedAt := range cachedAt {
+		upstream, _ := registrySource(ecosystem)
+		sources.markOK(ecosystem, upstream, checkedAt)
+	}
 	misses := missingVersionedPURLs(versionedPURLs, versionData)
 	if len(misses) == 0 {
 		return versionData
@@ -152,7 +186,7 @@ func fetchDeprecatedVersionData(db *database.DB, versionedPURLs []string) map[st
 	ctx, cancel := context.WithTimeout(context.Background(), deprecatedLookupTimeout)
 	defer cancel()
 
-	fetched := registries.BulkFetchVersions(ctx, misses, registries.NewClient().WithUserAgent(userAgent))
+	fetched := fetchDeprecatedVersions(ctx, misses, registries.NewClient().WithUserAgent(userAgent), sources)
 	for purlStr, version := range fetched {
 		versionData[purlStr] = version
 	}
@@ -161,10 +195,94 @@ func fetchDeprecatedVersionData(db *database.DB, versionedPURLs []string) map[st
 	return versionData
 }
 
+type deprecatedVersionResult struct {
+	purl    string
+	version *registries.Version
+	err     error
+}
+
+func fetchDeprecatedVersions(
+	ctx context.Context,
+	versionedPURLs []string,
+	client *registries.Client,
+	sources *sourceTracker,
+) map[string]*registries.Version {
+	const concurrency = 15
+	workers := min(concurrency, len(versionedPURLs))
+	jobs := make(chan string)
+	results := make(chan deprecatedVersionResult, len(versionedPURLs))
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for purlStr := range jobs {
+				version, err := registries.FetchVersionFromPURL(ctx, purlStr, client)
+				results <- deprecatedVersionResult{purl: purlStr, version: version, err: err}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, purlStr := range versionedPURLs {
+			select {
+			case jobs <- purlStr:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	close(results)
+
+	fetched := make(map[string]*registries.Version)
+	seen := make(map[string]bool)
+	for result := range results {
+		seen[result.purl] = true
+		parsed, parseErr := purl.Parse(result.purl)
+		if parseErr != nil {
+			continue
+		}
+		ecosystem := canonicalSourceEcosystem(parsed.Type)
+		upstream, _ := registrySource(ecosystem)
+		if result.err != nil {
+			sources.markError(ecosystem, upstream, result.err)
+			continue
+		}
+		if result.version == nil {
+			sources.markError(ecosystem, upstream, fmt.Errorf("no version metadata returned for %s", result.purl))
+			continue
+		}
+		fetched[result.purl] = result.version
+		sources.markOK(ecosystem, upstream, time.Now().UTC())
+	}
+	for _, purlStr := range versionedPURLs {
+		if seen[purlStr] {
+			continue
+		}
+		if parsed, err := purl.Parse(purlStr); err == nil {
+			ecosystem := canonicalSourceEcosystem(parsed.Type)
+			upstream, _ := registrySource(ecosystem)
+			sources.markError(ecosystem, upstream, ctx.Err())
+		}
+	}
+	return fetched
+}
+
 func cachedDeprecatedVersionData(db *database.DB, versionedPURLs []string) map[string]*registries.Version {
+	result, _ := cachedDeprecatedVersionDataWithTimes(db, versionedPURLs)
+	return result
+}
+
+func cachedDeprecatedVersionDataWithTimes(
+	db *database.DB,
+	versionedPURLs []string,
+) (map[string]*registries.Version, map[string]time.Time) {
 	result := make(map[string]*registries.Version)
+	checkedAt := make(map[string]time.Time)
 	if db == nil {
-		return result
+		return result, checkedAt
 	}
 
 	staleThreshold := time.Now().Add(-enrichmentCacheTTL)
@@ -184,10 +302,16 @@ func cachedDeprecatedVersionData(db *database.DB, versionedPURLs []string) map[s
 				Status:      registries.VersionStatus(cached.Status),
 				Metadata:    cached.Metadata,
 			}
+			if parsed, err := purl.Parse(cached.PURL); err == nil {
+				ecosystem := canonicalSourceEcosystem(parsed.Type)
+				if cached.StatusCheckedAt.After(checkedAt[ecosystem]) {
+					checkedAt[ecosystem] = cached.StatusCheckedAt
+				}
+			}
 		}
 	}
 
-	return result
+	return result, checkedAt
 }
 
 func missingVersionedPURLs(versionedPURLs []string, versionData map[string]*registries.Version) []string {
@@ -315,10 +439,9 @@ func stringMetadata(value any) (string, bool) {
 	}
 }
 
-func outputDeprecatedJSON(cmd *cobra.Command, deprecated []DeprecatedPackage) error {
-	enc := json.NewEncoder(cmd.OutOrStdout())
-	enc.SetIndent("", "  ")
-	return enc.Encode(deprecated)
+func outputDeprecatedJSON(cmd *cobra.Command, deprecated []DeprecatedPackage, trackers ...*sourceTracker) error {
+	sources := sourceTrackerOrNew(trackers)
+	return outputResultEnvelope(cmd, resultEnvelope(sources, deprecated, time.Now().UTC()))
 }
 
 func outputDeprecatedText(cmd *cobra.Command, deprecated []DeprecatedPackage) {

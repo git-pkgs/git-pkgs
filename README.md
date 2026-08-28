@@ -455,6 +455,8 @@ git pkgs vulns show CVE-2024-1234  # details about a specific CVE
 
 Output formats: `text` (default), `json`, and `sarif`. SARIF integrates with GitHub Advanced Security:
 
+The standard JSON output from `licenses` (without `--drift`), `outdated`, `deprecated`, and `vulns scan` is an object with `results` and `sources` arrays. Each source reports its ecosystem, upstream, and `ok`, `error`, or `unsupported` status; partial source failures are retained in `warnings`. Commands return success when at least one source succeeds, allowing consumers to retain partial results.
+
 ```yaml
 - run: git pkgs vulns -f sarif > results.sarif
 - uses: github/codeql-action/upload-sarif@v3

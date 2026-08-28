@@ -178,6 +178,7 @@ Commands support multiple output formats (text, JSON, SARIF) and respect termina
 - Pager follows git precedence: `GIT_PAGER` env, `core.pager` config, `PAGER` env, then `less`
 - Color respects `NO_COLOR` environment variable and `color.pkgs` git config
 - TTY detection disables colors and paging when not connected to a terminal
+- JSON output from `licenses`, `outdated`, `deprecated`, and `vulns scan` wraps result rows with per-ecosystem source status and partial-failure warnings
 
 ## Performance
 
