@@ -35,7 +35,7 @@ func openDatabase() (*git.Repository, *database.DB, error) {
 		return nil, nil, fmt.Errorf("database not found. Run 'git pkgs init' first")
 	}
 
-	db, err := database.Open(dbPath)
+	db, err := openDatabaseForRepository(repo)
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening database: %w", err)
 	}

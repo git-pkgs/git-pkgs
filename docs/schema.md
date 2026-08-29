@@ -251,4 +251,4 @@ notes (standalone, keyed on purl + namespace)
 
 ## Schema Versioning
 
-The `schema_info` table stores the current schema version. When git-pkgs updates with schema changes, commands detect the mismatch and prompt you to run `git pkgs upgrade`, which rebuilds the database.
+The `schema_info` table stores the current schema version. SQLite's `user_version` records which indexer produced the derived history. Commands apply schema changes automatically. A change to parser-produced data rebuilds the index from Git while preserving notes and enrichment caches.

@@ -1,8 +1,14 @@
 package database_test
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -173,6 +179,547 @@ func TestOpen(t *testing.T) {
 			t.Errorf("expected to find branch: %v", err)
 		}
 	})
+}
+
+func TestOpenUpgradesSchema(t *testing.T) {
+	t.Run("upgrades version 5 in place and preserves rows", testUpgradeVersion5Schema)
+	t.Run("rebuilds version 5 and preserves cached rows", testRebuildVersion5Schema)
+	t.Run("handles the origin column added without a version bump", testUpgradeVersion8Origin)
+	t.Run("adopts a current database created before index versioning", testAdoptLegacyCurrentIndex)
+	t.Run("rejects a schema created by a newer binary", testRejectNewerSchema)
+	t.Run("rejects an index created by a newer binary", testRejectNewerIndex)
+	t.Run("rolls back a failed migration", testMigrationRollback)
+	t.Run("keeps the previous database when a rebuild fails", testFailedRebuild)
+	t.Run("serializes concurrent upgrades", testConcurrentRebuild)
+	t.Run("preserves database file permissions", testRebuildPreservesPermissions)
+}
+
+func testAdoptLegacyCurrentIndex(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA user_version = 0"); err != nil {
+		t.Fatalf("failed to clear index version: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close database: %v", err)
+	}
+
+	db, err = database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to adopt current database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var indexVersion int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&indexVersion); err != nil {
+		t.Fatalf("failed to read index version: %v", err)
+	}
+	if indexVersion != database.IndexVersion {
+		t.Errorf("expected index version %d, got %d", database.IndexVersion, indexVersion)
+	}
+}
+
+func testRebuildVersion5Schema(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	createVersion5Database(t, dbPath)
+
+	db, result, err := database.OpenWithRebuild(dbPath, func(previous, replacement *database.DB) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to rebuild database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if !result.Rebuilt {
+		t.Fatal("expected indexed data to be rebuilt")
+	}
+
+	var latestVersion, repositoryURL, packageSource string
+	if err := db.QueryRow(`
+		SELECT latest_version, repository_url, source
+		FROM packages WHERE purl = 'pkg:gem/rails'
+	`).Scan(&latestVersion, &repositoryURL, &packageSource); err != nil {
+		t.Fatalf("failed to read preserved package cache: %v", err)
+	}
+	if latestVersion != "8.0.0" || repositoryURL != "https://example.com/rails" || packageSource != "registry-cache" {
+		t.Errorf("unexpected preserved package cache: %q, %q, %q", latestVersion, repositoryURL, packageSource)
+	}
+
+	var versionLicense, versionIntegrity, versionSource string
+	if err := db.QueryRow(`
+		SELECT license, integrity, source
+		FROM versions WHERE purl = 'pkg:gem/rails@8.0.0'
+	`).Scan(&versionLicense, &versionIntegrity, &versionSource); err != nil {
+		t.Fatalf("failed to read preserved version cache: %v", err)
+	}
+	if versionLicense != "MIT" || versionIntegrity != "sha256-test" || versionSource != "registry-cache" {
+		t.Errorf("unexpected preserved version cache: %q, %q, %q", versionLicense, versionIntegrity, versionSource)
+	}
+
+	var summary, packageName string
+	if err := db.QueryRow("SELECT summary FROM vulnerabilities WHERE id = 'TEST-1'").Scan(&summary); err != nil {
+		t.Fatalf("failed to read preserved vulnerability: %v", err)
+	}
+	if err := db.QueryRow("SELECT package_name FROM vulnerability_packages WHERE vulnerability_id = 'TEST-1'").Scan(&packageName); err != nil {
+		t.Fatalf("failed to read preserved vulnerability package: %v", err)
+	}
+	if summary != "test vulnerability" || packageName != "rails" {
+		t.Errorf("unexpected preserved vulnerability cache: %q, %q", summary, packageName)
+	}
+}
+
+func testUpgradeVersion5Schema(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	createVersion5Database(t, dbPath)
+
+	rebuildErr := errors.New("stop after schema migration")
+	_, result, err := database.OpenWithRebuild(dbPath, func(previous, replacement *database.DB) error {
+		return rebuildErr
+	})
+	if !errors.Is(err, rebuildErr) {
+		t.Fatalf("expected rebuild to stop after migration, got: %v", err)
+	}
+
+	if result.FromSchemaVersion != 5 || result.ToSchemaVersion != database.SchemaVersion {
+		t.Fatalf("unexpected upgrade result: %+v", result)
+	}
+	if !result.RequiresRebuild() {
+		t.Fatal("expected old indexed data to require a rebuild")
+	}
+
+	db := openRawDatabase(t, dbPath)
+	defer func() { _ = db.Close() }()
+
+	var version int
+	if err := db.QueryRow("SELECT version FROM schema_info LIMIT 1").Scan(&version); err != nil {
+		t.Fatalf("failed to read schema version: %v", err)
+	}
+	if version != database.SchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", database.SchemaVersion, version)
+	}
+
+	var packageName string
+	if err := db.QueryRow("SELECT name FROM packages WHERE id = 1").Scan(&packageName); err != nil {
+		t.Fatalf("failed to read preserved package: %v", err)
+	}
+	if packageName != "rails" {
+		t.Errorf("expected preserved package, got %q", packageName)
+	}
+
+	var direct int
+	if err := db.QueryRow("SELECT direct FROM dependency_snapshots WHERE id = 1").Scan(&direct); err != nil {
+		t.Fatalf("failed to read migrated snapshot: %v", err)
+	}
+	if direct != 0 {
+		t.Errorf("expected migrated direct value 0, got %d", direct)
+	}
+
+	var indexSQL string
+	if err := db.QueryRow("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_snapshots_unique'").Scan(&indexSQL); err != nil {
+		t.Fatalf("failed to read snapshot index: %v", err)
+	}
+	if !strings.Contains(indexSQL, "requirement") {
+		t.Errorf("expected snapshot index to include requirement, got %q", indexSQL)
+	}
+
+	if _, err := db.Exec("INSERT INTO notes (purl, namespace) VALUES (?, ?)", "pkg:gem/rails", "test"); err != nil {
+		t.Fatalf("failed to insert migrated note: %v", err)
+	}
+	var origin string
+	if err := db.QueryRow("SELECT origin FROM notes WHERE purl = ?", "pkg:gem/rails").Scan(&origin); err != nil {
+		t.Fatalf("failed to read migrated note: %v", err)
+	}
+	if origin != "git-pkgs" {
+		t.Errorf("expected default note origin, got %q", origin)
+	}
+}
+
+func testUpgradeVersion8Origin(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	createVersion8DatabaseWithOrigin(t, dbPath)
+
+	db, result, err := database.OpenWithRebuild(dbPath, func(previous, replacement *database.DB) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if !result.Rebuilt {
+		t.Fatal("expected indexed data to be rebuilt")
+	}
+
+	var origin string
+	if err := db.QueryRow("SELECT origin FROM notes WHERE id = 1").Scan(&origin); err != nil {
+		t.Fatalf("failed to read preserved note: %v", err)
+	}
+	if origin != "extension" {
+		t.Errorf("expected preserved origin, got %q", origin)
+	}
+}
+
+func testRejectNewerSchema(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	if _, err := db.Exec("UPDATE schema_info SET version = ?", database.SchemaVersion+1); err != nil {
+		t.Fatalf("failed to set newer schema version: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close database: %v", err)
+	}
+
+	_, err = database.Open(dbPath)
+	if err == nil {
+		t.Fatal("expected newer schema to be rejected")
+	}
+	if !strings.Contains(err.Error(), "newer than supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func testRejectNewerIndex(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", database.IndexVersion+1)); err != nil {
+		t.Fatalf("failed to set newer index version: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close database: %v", err)
+	}
+
+	_, err = database.Open(dbPath)
+	if err == nil {
+		t.Fatal("expected newer index to be rejected")
+	}
+	if !strings.Contains(err.Error(), "index version") || !strings.Contains(err.Error(), "newer than supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func testMigrationRollback(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	rawDB := openRawDatabase(t, dbPath)
+	if _, err := rawDB.Exec(`
+			CREATE TABLE schema_info (version INTEGER NOT NULL);
+			INSERT INTO schema_info (version) VALUES (14);
+			CREATE TABLE sentinel (value TEXT);
+			INSERT INTO sentinel (value) VALUES ('preserved');
+		`); err != nil {
+		t.Fatalf("failed to create incomplete database: %v", err)
+	}
+	if err := rawDB.Close(); err != nil {
+		t.Fatalf("failed to close incomplete database: %v", err)
+	}
+
+	_, err := database.Open(dbPath)
+	if err == nil {
+		t.Fatal("expected migration to fail")
+	}
+
+	rawDB = openRawDatabase(t, dbPath)
+	defer func() { _ = rawDB.Close() }()
+	var version int
+	if err := rawDB.QueryRow("SELECT version FROM schema_info").Scan(&version); err != nil {
+		t.Fatalf("failed to read rolled back schema version: %v", err)
+	}
+	if version != 14 {
+		t.Errorf("expected schema version 14 after rollback, got %d", version)
+	}
+	var value string
+	if err := rawDB.QueryRow("SELECT value FROM sentinel").Scan(&value); err != nil {
+		t.Fatalf("failed to read preserved row: %v", err)
+	}
+	if value != "preserved" {
+		t.Errorf("expected preserved row, got %q", value)
+	}
+}
+
+func testFailedRebuild(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	if _, err := db.Exec(`
+			INSERT INTO notes (purl, namespace, message) VALUES ('pkg:gem/rails', 'test', 'keep me');
+			PRAGMA user_version = 2147483647;
+		`); err != nil {
+		t.Fatalf("failed to prepare database: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close database: %v", err)
+	}
+
+	rebuildErr := errors.New("rebuild failed")
+	_, _, err = database.OpenWithRebuild(dbPath, func(previous, replacement *database.DB) error {
+		return rebuildErr
+	})
+	if !errors.Is(err, rebuildErr) {
+		t.Fatalf("expected rebuild error, got %v", err)
+	}
+
+	rawDB := openRawDatabase(t, dbPath)
+	defer func() { _ = rawDB.Close() }()
+	var indexVersion int
+	if err := rawDB.QueryRow("PRAGMA user_version").Scan(&indexVersion); err != nil {
+		t.Fatalf("failed to read pending index version: %v", err)
+	}
+	if indexVersion == database.IndexVersion {
+		t.Fatal("expected failed rebuild to remain pending")
+	}
+
+	var message string
+	if err := rawDB.QueryRow("SELECT message FROM notes WHERE purl = 'pkg:gem/rails'").Scan(&message); err != nil {
+		t.Fatalf("failed to read preserved note: %v", err)
+	}
+	if message != "keep me" {
+		t.Errorf("expected preserved note, got %q", message)
+	}
+}
+
+func testConcurrentRebuild(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close database: %v", err)
+	}
+	rawDB := openRawDatabase(t, dbPath)
+	const rebuildRequiredVersion = 2_147_483_647
+	if _, err := rawDB.Exec("PRAGMA user_version = " + fmt.Sprint(rebuildRequiredVersion)); err != nil {
+		t.Fatalf("failed to mark database for rebuild: %v", err)
+	}
+	if err := rawDB.Close(); err != nil {
+		t.Fatalf("failed to close raw database: %v", err)
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var rebuilds int
+	var wg sync.WaitGroup
+	var rebuildMu sync.Mutex
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			db, _, err := database.OpenWithRebuild(dbPath, func(previous, replacement *database.DB) error {
+				rebuildMu.Lock()
+				rebuilds++
+				rebuildMu.Unlock()
+				return nil
+			})
+			if db != nil {
+				_ = db.Close()
+			}
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent open failed: %v", err)
+		}
+	}
+	if rebuilds != 1 {
+		t.Errorf("expected one rebuild, got %d", rebuilds)
+	}
+}
+
+func testRebuildPreservesPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows only supports changing a file's writable bit")
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "pkgs.sqlite3")
+	db, err := database.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA user_version = 2147483647"); err != nil {
+		t.Fatalf("failed to mark database for rebuild: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close database: %v", err)
+	}
+	if err := os.Chmod(dbPath, 0o640); err != nil {
+		t.Fatalf("failed to set database permissions: %v", err)
+	}
+
+	db, _, err = database.OpenWithRebuild(dbPath, func(previous, replacement *database.DB) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to rebuild database: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close rebuilt database: %v", err)
+	}
+
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("failed to read rebuilt database permissions: %v", err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Errorf("expected permissions 0640, got %04o", info.Mode().Perm())
+	}
+}
+
+func openRawDatabase(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("failed to open raw database: %v", err)
+	}
+	return db
+}
+
+func createVersion5Database(t *testing.T, path string) {
+	t.Helper()
+	db := openRawDatabase(t, path)
+	defer func() { _ = db.Close() }()
+
+	if _, err := db.Exec(`
+		CREATE TABLE schema_info (version INTEGER NOT NULL);
+		INSERT INTO schema_info (version) VALUES (5);
+		CREATE TABLE branch_commits (
+			id INTEGER PRIMARY KEY,
+			branch_id INTEGER,
+			commit_id INTEGER,
+			position INTEGER
+		);
+		CREATE TABLE dependency_snapshots (
+			id INTEGER PRIMARY KEY,
+			commit_id INTEGER,
+			manifest_id INTEGER,
+			name TEXT NOT NULL,
+			ecosystem TEXT,
+			purl TEXT,
+			requirement TEXT,
+			dependency_type TEXT,
+			integrity TEXT,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+		CREATE UNIQUE INDEX idx_snapshots_unique ON dependency_snapshots(commit_id, manifest_id, name);
+		CREATE TABLE dependency_changes (
+			id INTEGER PRIMARY KEY,
+			commit_id INTEGER,
+			manifest_id INTEGER,
+			name TEXT NOT NULL,
+			ecosystem TEXT,
+			purl TEXT,
+			change_type TEXT NOT NULL,
+			requirement TEXT,
+			previous_requirement TEXT,
+			dependency_type TEXT,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+		CREATE TABLE packages (
+			id INTEGER PRIMARY KEY,
+			purl TEXT NOT NULL,
+			ecosystem TEXT NOT NULL,
+			name TEXT NOT NULL,
+			latest_version TEXT,
+			license TEXT,
+			description TEXT,
+			homepage TEXT,
+			repository_url TEXT,
+			supplier_name TEXT,
+			supplier_type TEXT,
+			source TEXT,
+			enriched_at DATETIME,
+			vulns_synced_at DATETIME,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+		CREATE TABLE versions (
+			id INTEGER PRIMARY KEY,
+			purl TEXT NOT NULL,
+			package_purl TEXT NOT NULL,
+			license TEXT,
+			published_at DATETIME,
+			integrity TEXT,
+			source TEXT,
+			enriched_at DATETIME,
+			created_at DATETIME,
+			updated_at DATETIME
+		);
+		CREATE TABLE vulnerabilities (
+			id TEXT PRIMARY KEY,
+			aliases TEXT,
+			severity TEXT,
+			cvss_score REAL,
+			cvss_vector TEXT,
+			refs TEXT,
+			summary TEXT,
+			details TEXT,
+			published_at DATETIME,
+			withdrawn_at DATETIME,
+			modified_at DATETIME,
+			fetched_at DATETIME NOT NULL
+		);
+		CREATE TABLE vulnerability_packages (
+			id INTEGER PRIMARY KEY,
+			vulnerability_id TEXT NOT NULL REFERENCES vulnerabilities(id),
+			ecosystem TEXT NOT NULL,
+			package_name TEXT NOT NULL,
+			affected_versions TEXT,
+			fixed_versions TEXT
+		);
+		INSERT INTO branch_commits (id, branch_id, commit_id, position) VALUES (1, 1, 1, 0);
+		INSERT INTO dependency_snapshots (id, commit_id, manifest_id, name, requirement) VALUES (1, 1, 1, 'rails', '8.0.0');
+		INSERT INTO dependency_changes (id, name, change_type) VALUES (1, 'rails', 'added');
+		INSERT INTO packages (
+			id, purl, ecosystem, name, latest_version, license, description, homepage,
+			repository_url, supplier_name, supplier_type, source
+		) VALUES (
+			1, 'pkg:gem/rails', 'rubygems', 'rails', '8.0.0', 'MIT', 'web framework',
+			'https://rubyonrails.org', 'https://example.com/rails', 'Rails team', 'organization',
+			'registry-cache'
+		);
+		INSERT INTO versions (id, purl, package_purl, license, integrity, source)
+		VALUES (1, 'pkg:gem/rails@8.0.0', 'pkg:gem/rails', 'MIT', 'sha256-test', 'registry-cache');
+		INSERT INTO vulnerabilities (id, summary, fetched_at)
+		VALUES ('TEST-1', 'test vulnerability', '2026-01-01');
+		INSERT INTO vulnerability_packages (id, vulnerability_id, ecosystem, package_name)
+		VALUES (1, 'TEST-1', 'rubygems', 'rails');
+	`); err != nil {
+		t.Fatalf("failed to create version 5 database: %v", err)
+	}
+}
+
+func createVersion8DatabaseWithOrigin(t *testing.T, path string) {
+	t.Helper()
+	db, err := database.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO notes (id, purl, origin) VALUES (1, 'pkg:gem/rails', 'extension');
+		UPDATE schema_info SET version = 8;
+		PRAGMA user_version = 0;
+	`); err != nil {
+		t.Fatalf("failed to prepare version 8 database: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close version 8 database: %v", err)
+	}
 }
 
 func TestMultipleVersionsSamePackage(t *testing.T) {
