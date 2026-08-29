@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
+	licensespkg "github.com/git-pkgs/licenses"
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/spdx"
 	"github.com/spf13/cobra"
@@ -41,25 +43,34 @@ Licenses are normalized to SPDX identifiers when possible.`,
 	licensesCmd.Flags().Bool("group", false, "Group output by license")
 	licensesCmd.Flags().Bool("drift", false, "Detect dependencies whose license changed between installed and latest versions")
 	licensesCmd.Flags().Bool("offline", false, "Use cached metadata without making network requests")
+	licensesCmd.Flags().Bool("license-text", false, "Include license and notice text from package artifacts in JSON output")
+	licensesCmd.Flags().String("dependencies", licenseDependenciesDirect, "Dependencies to include: direct, indirect, all")
 	parent.AddCommand(licensesCmd)
 }
 
 type LicenseInfo struct {
-	Name          string   `json:"name"`
-	Ecosystem     string   `json:"ecosystem"`
-	Version       string   `json:"version,omitempty"`
-	Licenses      []string `json:"licenses"`
-	LicenseText   string   `json:"license_text,omitempty"`
-	ManifestPath  string   `json:"manifest_path"`
-	PURL          string   `json:"purl,omitempty"`
-	LicenseSource string   `json:"license_source,omitempty"`
-	Flagged       bool     `json:"flagged,omitempty"`
-	FlagReason    string   `json:"flag_reason,omitempty"`
+	Name          string                       `json:"name"`
+	Ecosystem     string                       `json:"ecosystem"`
+	Version       string                       `json:"version,omitempty"`
+	Licenses      []string                     `json:"licenses"`
+	LicenseText   string                       `json:"license_text,omitempty"`
+	NoticeText    string                       `json:"notice_text,omitempty"`
+	Declared      []licensespkg.DeclaredRecord `json:"declared,omitempty"`
+	ManifestPath  string                       `json:"manifest_path"`
+	PURL          string                       `json:"purl,omitempty"`
+	LicenseSource string                       `json:"license_source,omitempty"`
+	Flagged       bool                         `json:"flagged,omitempty"`
+	FlagReason    string                       `json:"flag_reason,omitempty"`
 }
 
 const (
 	licenseSourcePackage = "package"
+	licenseSourceScan    = "scan"
 	licenseSourceVersion = "version"
+
+	licenseDependenciesDirect   = "direct"
+	licenseDependenciesIndirect = "indirect"
+	licenseDependenciesAll      = "all"
 )
 
 type LicenseDriftSummary struct {
@@ -98,6 +109,8 @@ type licenseOptions struct {
 	groupBy        bool
 	driftOnly      bool
 	offline        bool
+	includeText    bool
+	dependencies   string
 }
 
 func runLicenses(cmd *cobra.Command, args []string) error {
@@ -125,21 +138,30 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		return runLicenseDrift(cmd, db, deps, opts.format, opts.offline)
 	}
 
-	directDeps := directLicenseDependencies(deps)
-	if len(directDeps) == 0 {
+	targets := selectLicenseTargets(deps, opts.dependencies)
+	if len(targets) == 0 {
 		if opts.format == formatJSON {
 			return outputLicensesJSON(cmd, nil)
 		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No direct dependencies found.")
+		scope := opts.dependencies + " "
+		if opts.dependencies == licenseDependenciesAll {
+			scope = ""
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No %sdependencies found.\n", scope)
 		return nil
 	}
+	if opts.includeText {
+		if err := validateLicenseTextTargets(targets); err != nil {
+			return err
+		}
+	}
 
-	purls, purlToDep := licensePackageLookups(directDeps)
+	purls := licenseTargetPackagePURLs(targets)
 	packageData, err := getLicenseData(db, purls, opts.offline)
 	if err != nil {
 		return fmt.Errorf("looking up packages: %w", err)
 	}
-	resolvedVersionPURLs, resolvedDeps, ambiguousVersions := resolvedLicenseVersions(purlToDep, deps)
+	resolvedDeps := resolvedLicenseTargetDependencies(targets)
 	versionLicenses, versionLicenseErr := loadLicenseVersionLicenses(db, resolvedDeps, opts.offline)
 	if versionLicenseErr != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
@@ -148,12 +170,29 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		)
 	}
 
+	var licenseScans map[string]licenseScanResult
+	if opts.includeText {
+		artifactLoader, err := newLicenseArtifactLoader()
+		if err != nil {
+			return fmt.Errorf("preparing package artifact cache: %w", err)
+		}
+		defer func() { _ = artifactLoader.Close() }()
+		licenseScans, err = scanDependencyArtifacts(
+			cmd.Context(),
+			resolvedDeps,
+			artifactLoader,
+			opts.offline,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
 	result := buildLicenseInfos(
 		packageData,
-		purlToDep,
-		resolvedVersionPURLs,
+		targets,
 		versionLicenses,
-		ambiguousVersions,
+		licenseScans,
 		newLicensePolicy(opts),
 	)
 	warnAmbiguousLicenseFallbacks(cmd, result.ambiguousFallbacks)
@@ -180,13 +219,32 @@ func licenseOptionsFromCommand(cmd *cobra.Command) (licenseOptions, error) {
 	opts.groupBy, _ = cmd.Flags().GetBool("group")
 	opts.driftOnly, _ = cmd.Flags().GetBool("drift")
 	opts.offline, _ = cmd.Flags().GetBool("offline")
+	opts.includeText, _ = cmd.Flags().GetBool("license-text")
+	opts.dependencies, _ = cmd.Flags().GetString("dependencies")
+	opts.dependencies = strings.ToLower(strings.TrimSpace(opts.dependencies))
 
 	format, err := getFormatFlag(cmd, formatText, formatJSON, formatCSV)
 	if err != nil {
 		return licenseOptions{}, err
 	}
 	opts.format = format
+	if opts.includeText && opts.format != formatJSON {
+		return licenseOptions{}, fmt.Errorf("--license-text requires --format json")
+	}
+	if !slices.Contains([]string{
+		licenseDependenciesDirect,
+		licenseDependenciesIndirect,
+		licenseDependenciesAll,
+	}, opts.dependencies) {
+		return licenseOptions{}, fmt.Errorf(
+			"unsupported dependency selection %q; supported values: direct, indirect, all",
+			opts.dependencies,
+		)
+	}
 	if opts.driftOnly {
+		if cmd.Flags().Changed("dependencies") {
+			return licenseOptions{}, fmt.Errorf("--drift cannot be combined with --dependencies")
+		}
 		err = validateLicenseDriftFlags(
 			opts.allowList,
 			opts.denyList,
@@ -194,6 +252,7 @@ func licenseOptionsFromCommand(cmd *cobra.Command) (licenseOptions, error) {
 			opts.flagCopyleft,
 			opts.flagUnknown,
 			opts.groupBy,
+			opts.includeText,
 		)
 	}
 	return opts, err
@@ -202,28 +261,206 @@ func licenseOptionsFromCommand(cmd *cobra.Command) (licenseOptions, error) {
 func directLicenseDependencies(deps []database.Dependency) []database.Dependency {
 	direct := make([]database.Dependency, 0, len(deps))
 	for _, dep := range deps {
-		if dep.ManifestKind == manifestKindManifest {
+		if dep.ManifestKind == manifestKindManifest && (!isResolvedDependency(dep) || dep.Direct) {
 			direct = append(direct, dep)
 		}
 	}
 	return direct
 }
 
-func licensePackageLookups(deps []database.Dependency) ([]string, map[string]database.Dependency) {
-	purls := make([]string, 0, len(deps))
-	purlToDep := make(map[string]database.Dependency)
-	for _, dep := range deps {
-		lookupPURL := dep.PURL
-		if lookupPURL == "" {
-			lookupPURL = purl.MakePURLString(dep.Ecosystem, dep.Name, "")
+type licenseTarget struct {
+	lookupPURL    string
+	dependency    database.Dependency
+	resolved      database.Dependency
+	versionedPURL string
+	ambiguous     bool
+}
+
+func selectLicenseTargets(deps []database.Dependency, selection string) []licenseTarget {
+	direct, directInstances := directLicenseTargets(deps)
+	indirect := indirectLicenseTargets(deps, directInstances)
+
+	var targets []licenseTarget
+	switch selection {
+	case licenseDependenciesIndirect:
+		targets = indirect
+	case licenseDependenciesAll:
+		targets = append(targets, direct...)
+		targets = append(targets, indirect...)
+	default:
+		targets = direct
+	}
+
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].dependency.Name != targets[j].dependency.Name {
+			return targets[i].dependency.Name < targets[j].dependency.Name
 		}
-		if lookupPURL == "" {
+		if targets[i].versionedPURL != targets[j].versionedPURL {
+			return targets[i].versionedPURL < targets[j].versionedPURL
+		}
+		return targets[i].dependency.ManifestPath < targets[j].dependency.ManifestPath
+	})
+	return targets
+}
+
+func directLicenseTargets(deps []database.Dependency) ([]licenseTarget, map[string]bool) {
+	candidatesByLocation := resolvedLicenseCandidatesByLocation(deps)
+	targets := make([]licenseTarget, 0)
+	directInstances := make(map[string]bool)
+	seenTargets := make(map[string]bool)
+
+	for _, dependency := range directLicenseDependencies(deps) {
+		target := licenseTargetForDirectDependency(dependency, candidatesByLocation)
+		key := target.lookupPURL + "\x00" + dependency.ManifestPath
+		if target.lookupPURL == "" || seenTargets[key] {
 			continue
 		}
-		purls = append(purls, lookupPURL)
-		purlToDep[lookupPURL] = dep
+		seenTargets[key] = true
+		targets = append(targets, target)
+		if target.versionedPURL != "" {
+			directInstances[licenseResolvedInstanceKey(target.resolved)] = true
+		}
 	}
-	return purls, purlToDep
+
+	for _, dependency := range deps {
+		if !dependency.Direct || !isResolvedDependency(dependency) {
+			continue
+		}
+		versionedPURL := versionedPURLForDependency(dependency)
+		instanceKey := licenseResolvedInstanceKey(dependency)
+		if versionedPURL == "" || directInstances[instanceKey] {
+			continue
+		}
+		lookupPURL := licensePackagePURLForDependency(dependency)
+		key := lookupPURL + "\x00" + dependency.ManifestPath
+		if lookupPURL == "" || seenTargets[key] {
+			continue
+		}
+		seenTargets[key] = true
+		directInstances[instanceKey] = true
+		targets = append(targets, licenseTarget{
+			lookupPURL:    lookupPURL,
+			dependency:    dependency,
+			resolved:      dependency,
+			versionedPURL: versionedPURL,
+		})
+	}
+
+	return targets, directInstances
+}
+
+func licenseTargetForDirectDependency(
+	dependency database.Dependency,
+	candidatesByLocation map[string]map[string]database.Dependency,
+) licenseTarget {
+	target := licenseTarget{
+		lookupPURL: licensePackagePURLForDependency(dependency),
+		dependency: dependency,
+	}
+	if isResolvedDependency(dependency) {
+		target.resolved = dependency
+		target.versionedPURL = versionedPURLForDependency(dependency)
+		return target
+	}
+
+	versionedPURL, resolved, ambiguous := resolvedLicenseCandidate(
+		candidatesByLocation[licenseDependencyLocation(dependency)],
+	)
+	target.resolved = resolved
+	target.versionedPURL = versionedPURL
+	target.ambiguous = ambiguous
+	return target
+}
+
+func indirectLicenseTargets(deps []database.Dependency, directInstances map[string]bool) []licenseTarget {
+	targets := make([]licenseTarget, 0)
+	seen := make(map[string]bool)
+	for _, dependency := range deps {
+		if !isResolvedDependency(dependency) || dependency.Direct ||
+			directInstances[licenseResolvedInstanceKey(dependency)] {
+			continue
+		}
+		versionedPURL := versionedPURLForDependency(dependency)
+		lookupPURL := licensePackagePURLForDependency(dependency)
+		key := versionedPURL + "\x00" + dependency.ManifestPath
+		if versionedPURL == "" || lookupPURL == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		targets = append(targets, licenseTarget{
+			lookupPURL:    lookupPURL,
+			dependency:    dependency,
+			resolved:      dependency,
+			versionedPURL: versionedPURL,
+		})
+	}
+	return targets
+}
+
+func resolvedLicenseCandidatesByLocation(
+	deps []database.Dependency,
+) map[string]map[string]database.Dependency {
+	candidatesByLocation := make(map[string]map[string]database.Dependency)
+	for _, dependency := range deps {
+		if !isResolvedDependency(dependency) {
+			continue
+		}
+		versionedPURL := versionedPURLForDependency(dependency)
+		if versionedPURL == "" {
+			continue
+		}
+		location := licenseDependencyLocation(dependency)
+		if candidatesByLocation[location] == nil {
+			candidatesByLocation[location] = make(map[string]database.Dependency)
+		}
+		existing, ok := candidatesByLocation[location][versionedPURL]
+		if !ok || (dependency.Direct && !existing.Direct) {
+			candidatesByLocation[location][versionedPURL] = dependency
+		}
+	}
+	return candidatesByLocation
+}
+
+func licenseResolvedInstanceKey(dependency database.Dependency) string {
+	return versionedPURLForDependency(dependency) + "\x00" + path.Dir(dependency.ManifestPath)
+}
+
+func licenseTargetPackagePURLs(targets []licenseTarget) []string {
+	seen := make(map[string]bool)
+	purls := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target.lookupPURL == "" || seen[target.lookupPURL] {
+			continue
+		}
+		seen[target.lookupPURL] = true
+		purls = append(purls, target.lookupPURL)
+	}
+	sort.Strings(purls)
+	return purls
+}
+
+func resolvedLicenseTargetDependencies(targets []licenseTarget) []database.Dependency {
+	dependencies := make([]database.Dependency, 0, len(targets))
+	for _, target := range targets {
+		if target.versionedPURL != "" {
+			dependencies = append(dependencies, target.resolved)
+		}
+	}
+	return dependencies
+}
+
+func validateLicenseTextTargets(targets []licenseTarget) error {
+	for _, target := range targets {
+		if target.versionedPURL != "" {
+			continue
+		}
+		return fmt.Errorf(
+			"--license-text requires a resolved version for %s from %s",
+			target.dependency.Name,
+			target.dependency.ManifestPath,
+		)
+	}
+	return nil
 }
 
 type licensePolicy struct {
@@ -306,24 +543,33 @@ type licenseBuildResult struct {
 
 func buildLicenseInfos(
 	packageData map[string]*licenseData,
-	purlToDep map[string]database.Dependency,
-	resolvedVersionPURLs map[string]string,
+	targets []licenseTarget,
 	versionLicenses map[string]string,
-	ambiguousVersions map[string]bool,
+	licenseScans map[string]licenseScanResult,
 	policy licensePolicy,
 ) licenseBuildResult {
-	result := licenseBuildResult{infos: make([]LicenseInfo, 0, len(packageData))}
-	for lookupPURL, data := range packageData {
+	result := licenseBuildResult{infos: make([]LicenseInfo, 0, len(targets))}
+	for _, target := range targets {
+		data := packageData[target.lookupPURL]
+		if data == nil {
+			data = &licenseData{}
+		}
 		info, ambiguousFallback := buildLicenseInfo(
-			lookupPURL,
+			target.lookupPURL,
 			data,
-			purlToDep[lookupPURL],
-			resolvedVersionPURLs[lookupPURL],
+			target.dependency,
+			target.versionedPURL,
 			versionLicenses,
-			ambiguousVersions[lookupPURL],
+			target.ambiguous,
 		)
 		if ambiguousFallback {
-			result.ambiguousFallbacks = append(result.ambiguousFallbacks, lookupPURL)
+			result.ambiguousFallbacks = append(result.ambiguousFallbacks, target.lookupPURL)
+		}
+		if licenseScans != nil {
+			if scan, ok := licenseScans[target.versionedPURL]; ok {
+				applyVersionedLicenseIdentity(&info, target.versionedPURL)
+				applyLicenseScan(&info, scan)
+			}
 		}
 		info.Flagged, info.FlagReason = policy.evaluate(info.Licenses)
 		if info.Flagged {
@@ -334,14 +580,93 @@ func buildLicenseInfos(
 		}
 		result.infos = append(result.infos, info)
 	}
-
-	sort.Slice(result.infos, func(i, j int) bool {
-		if result.infos[i].Name != result.infos[j].Name {
-			return result.infos[i].Name < result.infos[j].Name
-		}
-		return result.infos[i].Version < result.infos[j].Version
-	})
 	return result
+}
+
+type licenseScanResult struct {
+	licenses    []string
+	licenseText string
+	noticeText  string
+	declared    []licensespkg.DeclaredRecord
+}
+
+func scanDependencyLicense(
+	ctx context.Context,
+	matcher *licensespkg.Matcher,
+	packageRoot string,
+) (licenseScanResult, error) {
+	options := licensespkg.DefaultScanOptions()
+	options.IncludeLegalFiles = true
+	report, err := licensespkg.ScanRepository(ctx, matcher, packageRoot, options)
+	if err != nil {
+		return licenseScanResult{}, err
+	}
+	if report.Summary.Truncated {
+		return licenseScanResult{}, fmt.Errorf("scan reached its file limit")
+	}
+	if len(report.Errors) != 0 {
+		return licenseScanResult{}, fmt.Errorf("%s: %s", report.Errors[0].Path, report.Errors[0].Error)
+	}
+	for _, skipped := range report.Skipped {
+		if len(licensespkg.LegalFileRoles(skipped.Path)) != 0 {
+			return licenseScanResult{}, fmt.Errorf("legal file %s was skipped: %s", skipped.Path, skipped.Reason)
+		}
+	}
+
+	result := licenseScanResult{
+		declared: append([]licensespkg.DeclaredRecord(nil), report.Declared...),
+	}
+	for _, expression := range report.Expressions {
+		if expression.Root {
+			result.licenses = append(result.licenses, expression.Expression)
+		}
+	}
+	for _, file := range report.Files {
+		if file.Text == "" {
+			continue
+		}
+		for _, role := range file.Roles {
+			switch role {
+			case "license":
+				result.licenseText = appendLegalText(result.licenseText, file.Text)
+			case "notice":
+				result.noticeText = appendLegalText(result.noticeText, file.Text)
+			}
+		}
+	}
+	return result, nil
+}
+
+func appendLegalText(existing, text string) string {
+	if existing == "" {
+		return text
+	}
+	return existing + "\n" + text
+}
+
+func mergeLicenseScanResult(result *licenseScanResult, addition licenseScanResult) {
+	for _, license := range addition.licenses {
+		if !slices.Contains(result.licenses, license) {
+			result.licenses = append(result.licenses, license)
+		}
+	}
+	if addition.licenseText != "" {
+		result.licenseText = appendLegalText(result.licenseText, addition.licenseText)
+	}
+	if addition.noticeText != "" {
+		result.noticeText = appendLegalText(result.noticeText, addition.noticeText)
+	}
+	result.declared = append(result.declared, addition.declared...)
+}
+
+func applyLicenseScan(info *LicenseInfo, scan licenseScanResult) {
+	info.LicenseText = scan.licenseText
+	info.NoticeText = scan.noticeText
+	info.Declared = scan.declared
+	if len(scan.licenses) != 0 {
+		info.Licenses = append([]string(nil), scan.licenses...)
+		info.LicenseSource = licenseSourceScan
+	}
 }
 
 func buildLicenseInfo(
@@ -370,10 +695,7 @@ func buildLicenseInfo(
 	if versionLicense := versionLicenses[versionedPURL]; versionLicense != "" {
 		license = versionLicense
 		info.LicenseSource = licenseSourceVersion
-		info.PURL = versionedPURL
-		if parsed, err := purl.Parse(versionedPURL); err == nil {
-			info.Version = parsed.Version
-		}
+		applyVersionedLicenseIdentity(&info, versionedPURL)
 	} else if license != "" {
 		info.LicenseSource = licenseSourcePackage
 	}
@@ -381,6 +703,16 @@ func buildLicenseInfo(
 		info.Licenses = []string{license}
 	}
 	return info, license != "" && info.LicenseSource == licenseSourcePackage && ambiguousVersion
+}
+
+func applyVersionedLicenseIdentity(info *LicenseInfo, versionedPURL string) {
+	if versionedPURL == "" {
+		return
+	}
+	info.PURL = versionedPURL
+	if parsed, err := purl.Parse(versionedPURL); err == nil {
+		info.Version = parsed.Version
+	}
 }
 
 func warnAmbiguousLicenseFallbacks(cmd *cobra.Command, fallbacks []string) {
@@ -410,7 +742,10 @@ func outputLicenses(cmd *cobra.Command, infos []LicenseInfo, format string, grou
 	}
 }
 
-func validateLicenseDriftFlags(allowList, denyList []string, flagPermissive, flagCopyleft, flagUnknown, groupBy bool) error {
+func validateLicenseDriftFlags(
+	allowList, denyList []string,
+	flagPermissive, flagCopyleft, flagUnknown, groupBy, includeText bool,
+) error {
 	var incompatible []string
 	if len(allowList) > 0 {
 		incompatible = append(incompatible, "--allow")
@@ -429,6 +764,9 @@ func validateLicenseDriftFlags(allowList, denyList []string, flagPermissive, fla
 	}
 	if groupBy {
 		incompatible = append(incompatible, "--group")
+	}
+	if includeText {
+		incompatible = append(incompatible, "--license-text")
 	}
 	if len(incompatible) == 0 {
 		return nil
@@ -545,69 +883,6 @@ func licenseDataFromPackage(pkg *enrichment.PackageInfo) *licenseData {
 	data.LatestVersion = pkg.LatestVersion
 	data.License = normalizeLicenseString(pkg.License)
 	return data
-}
-
-func resolvedLicenseVersions(
-	purlToDep map[string]database.Dependency,
-	deps []database.Dependency,
-) (map[string]string, []database.Dependency, map[string]bool) {
-	// Manifest requirements are usually ranges. Prefer the lockfile's direct
-	// installation when it distinguishes that from other resolved versions.
-	candidatesByLocation := make(map[string]map[string]database.Dependency)
-	for _, dep := range deps {
-		if !isResolvedDependency(dep) {
-			continue
-		}
-		versionedPURL := versionedPURLForDependency(dep)
-		if versionedPURL == "" {
-			continue
-		}
-		location := licenseDependencyLocation(dep)
-		if candidatesByLocation[location] == nil {
-			candidatesByLocation[location] = make(map[string]database.Dependency)
-		}
-		existing, ok := candidatesByLocation[location][versionedPURL]
-		if !ok || (dep.Direct && !existing.Direct) {
-			candidatesByLocation[location][versionedPURL] = dep
-		}
-	}
-
-	resolvedVersionPURLs := make(map[string]string)
-	resolvedByPURL := make(map[string]database.Dependency)
-	ambiguousVersions := make(map[string]bool)
-	for lookupPURL, directDep := range purlToDep {
-		if isResolvedDependency(directDep) {
-			versionedPURL := versionedPURLForDependency(directDep)
-			if versionedPURL != "" {
-				resolvedVersionPURLs[lookupPURL] = versionedPURL
-				resolvedByPURL[versionedPURL] = directDep
-			}
-			continue
-		}
-
-		candidates := candidatesByLocation[licenseDependencyLocation(directDep)]
-		versionedPURL, dep, ambiguous := resolvedLicenseCandidate(candidates)
-		if ambiguous {
-			ambiguousVersions[lookupPURL] = true
-		}
-		if versionedPURL == "" {
-			continue
-		}
-		resolvedVersionPURLs[lookupPURL] = versionedPURL
-		resolvedByPURL[versionedPURL] = dep
-	}
-
-	versionedPURLs := make([]string, 0, len(resolvedByPURL))
-	for versionedPURL := range resolvedByPURL {
-		versionedPURLs = append(versionedPURLs, versionedPURL)
-	}
-	sort.Strings(versionedPURLs)
-
-	resolvedDeps := make([]database.Dependency, 0, len(versionedPURLs))
-	for _, versionedPURL := range versionedPURLs {
-		resolvedDeps = append(resolvedDeps, resolvedByPURL[versionedPURL])
-	}
-	return resolvedVersionPURLs, resolvedDeps, ambiguousVersions
 }
 
 func resolvedLicenseCandidate(candidates map[string]database.Dependency) (string, database.Dependency, bool) {
