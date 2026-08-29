@@ -4,6 +4,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/git-pkgs/git-pkgs/internal/database"
 )
 
 func TestReindex(t *testing.T) {
@@ -199,5 +201,23 @@ func TestReindex(t *testing.T) {
 		if !strings.Contains(err.Error(), "init") {
 			t.Errorf("expected error to mention init, got: %v", err)
 		}
+	})
+
+	t.Run("requires upgrade for an older schema", func(t *testing.T) {
+		repoDir := createTestRepo(t)
+		addFileAndCommit(t, repoDir, "package.json", `{"name":"example","license":"MIT"}`, "Initial commit")
+
+		cleanup := chdir(t, repoDir)
+		defer cleanup()
+
+		if _, _, err := runCmd(t, "init", "--no-hooks"); err != nil {
+			t.Fatalf("init failed: %v", err)
+		}
+		setTestDatabaseSchemaVersion(t, repoDir, database.SchemaVersion-1, true)
+
+		addFileAndCommit(t, repoDir, "package.json", `{"name":"example","license":"Apache-2.0"}`, "Change license")
+
+		_, _, err := runCmd(t, "reindex")
+		assertOlderSchemaError(t, err)
 	})
 }

@@ -72,6 +72,26 @@ Stores manifest file metadata.
 
 Indexes: `path`
 
+### manifest_licenses
+
+Stores the declared license state of package manifests as commit-scoped events.
+Keeping these values separate from `manifests` preserves historical license
+changes for a path that appears across many commits. A removal event prevents a
+deleted manifest from appearing in later point-in-time queries.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | integer | Primary key |
+| commit_id | integer | Foreign key to commits |
+| manifest_id | integer | Foreign key to manifests |
+| licenses | text | JSON-encoded declared license values |
+| license_file | text | Manifest-relative declared license file path |
+| removed | integer | 1 when the manifest was removed by this commit |
+| created_at | datetime | |
+| updated_at | datetime | |
+
+Indexes: `(commit_id, manifest_id)` (unique), `manifest_id`
+
 ### dependency_changes
 
 Records each dependency addition, modification, or removal.

@@ -52,6 +52,10 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		}
 		return nil
 	}
+	if currentVersion > database.SchemaVersion {
+		_ = db.Close()
+		return database.CheckSchemaVersion(currentVersion)
+	}
 
 	if !quiet {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Upgrading database from schema v%d to v%d...\n", currentVersion, database.SchemaVersion)

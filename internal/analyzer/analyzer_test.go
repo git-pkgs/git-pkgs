@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -317,6 +318,105 @@ func TestAnalyzeCommitWithPackageJSON(t *testing.T) {
 			t.Errorf("expected ecosystem 'npm', got %s", ch.Ecosystem)
 		}
 	}
+}
+
+func TestAnalyzeCommitTracksManifestLicenses(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "package.json", `{
+  "name": "example",
+  "version": "1.0.0",
+  "licenses": [{"type": "MIT"}, {"type": "ISC"}]
+}`)
+	addFile(t, repoDir, "Cargo.toml", `[package]
+name = "example"
+version = "1.0.0"
+license-file = "LICENSE"
+`)
+	firstSHA := commit(t, repoDir, "Add licensed manifests")
+
+	repo := openRepo(t, repoDir)
+	a := analyzer.New()
+	firstCommit, err := repo.CommitObject(*getCommit(t, firstSHA))
+	if err != nil {
+		t.Fatalf("CommitObject(first): %v", err)
+	}
+	first, err := a.AnalyzeCommit(firstCommit, nil)
+	if err != nil {
+		t.Fatalf("AnalyzeCommit(first): %v", err)
+	}
+	if len(first.Changes) != 0 {
+		t.Fatalf("dependency changes = %d, want 0", len(first.Changes))
+	}
+	packageLicense := findManifestLicense(t, first.ManifestLicenses, "package.json")
+	if !slices.Equal(packageLicense.Licenses, []string{"MIT", "ISC"}) || packageLicense.Removed {
+		t.Fatalf("package.json license = %+v", packageLicense)
+	}
+	cargoLicense := findManifestLicense(t, first.ManifestLicenses, "Cargo.toml")
+	if cargoLicense.LicenseFile != "LICENSE" || cargoLicense.Removed {
+		t.Fatalf("Cargo.toml license = %+v", cargoLicense)
+	}
+
+	addFile(t, repoDir, "package.json", `{
+  "name": "example",
+  "version": "1.0.0",
+  "license": "Apache-2.0"
+}`)
+	secondSHA := commit(t, repoDir, "Change declared license")
+	secondCommit, err := repo.CommitObject(*getCommit(t, secondSHA))
+	if err != nil {
+		t.Fatalf("CommitObject(second): %v", err)
+	}
+	second, err := a.AnalyzeCommit(secondCommit, first.Snapshot)
+	if err != nil {
+		t.Fatalf("AnalyzeCommit(second): %v", err)
+	}
+	if len(second.Changes) != 0 {
+		t.Fatalf("dependency changes = %d, want 0", len(second.Changes))
+	}
+	if len(second.ManifestLicenses) != 1 {
+		t.Fatalf("manifest licenses = %+v, want one", second.ManifestLicenses)
+	}
+	packageLicense = second.ManifestLicenses[0]
+	if !slices.Equal(packageLicense.Licenses, []string{"Apache-2.0"}) || packageLicense.Removed {
+		t.Fatalf("modified package.json license = %+v", packageLicense)
+	}
+
+	if err := os.Remove(filepath.Join(repoDir, "package.json")); err != nil {
+		t.Fatalf("removing package.json: %v", err)
+	}
+	rmCmd := exec.Command("git", "add", "-u", "package.json")
+	rmCmd.Dir = repoDir
+	if output, err := rmCmd.CombinedOutput(); err != nil {
+		t.Fatalf("staging package.json removal: %v\n%s", err, output)
+	}
+	thirdSHA := commit(t, repoDir, "Remove package manifest")
+	thirdCommit, err := repo.CommitObject(*getCommit(t, thirdSHA))
+	if err != nil {
+		t.Fatalf("CommitObject(third): %v", err)
+	}
+	third, err := a.AnalyzeCommit(thirdCommit, second.Snapshot)
+	if err != nil {
+		t.Fatalf("AnalyzeCommit(third): %v", err)
+	}
+	packageLicense = findManifestLicense(t, third.ManifestLicenses, "package.json")
+	if !packageLicense.Removed || !slices.Equal(packageLicense.Licenses, []string{"Apache-2.0"}) {
+		t.Fatalf("removed package.json license = %+v", packageLicense)
+	}
+}
+
+func findManifestLicense(
+	t *testing.T,
+	licenses []analyzer.ManifestLicense,
+	path string,
+) analyzer.ManifestLicense {
+	t.Helper()
+	for _, license := range licenses {
+		if license.ManifestPath == path {
+			return license
+		}
+	}
+	t.Fatalf("manifest license for %s not found in %+v", path, licenses)
+	return analyzer.ManifestLicense{}
 }
 
 func TestDependenciesAtCommit(t *testing.T) {

@@ -51,6 +51,10 @@ func New(repo *git.Repository, db *database.DB, opts Options) *Indexer {
 }
 
 func (idx *Indexer) Run() (*Result, error) {
+	if err := idx.db.CheckSchemaVersion(); err != nil {
+		return nil, err
+	}
+
 	branch := idx.opts.Branch
 	if branch == "" {
 		var err error
@@ -200,6 +204,21 @@ func (idx *Indexer) Run() (*Result, error) {
 
 			writer.AddCommit(commitInfo, hasChanges)
 			result.CommitsAnalyzed++
+
+			if analysisResult != nil {
+				for _, license := range analysisResult.ManifestLicenses {
+					manifest := database.ManifestInfo{
+						Path:      license.ManifestPath,
+						Ecosystem: license.Ecosystem,
+						Kind:      license.Kind,
+					}
+					writer.AddManifestLicense(sha, manifest, database.ManifestLicenseInfo{
+						Licenses:    license.Licenses,
+						LicenseFile: license.LicenseFile,
+						Removed:     license.Removed,
+					})
+				}
+			}
 
 			if hasChanges {
 				result.CommitsWithChanges++

@@ -57,9 +57,21 @@ type SnapshotKey struct {
 
 type Snapshot map[SnapshotKey]SnapshotEntry
 
+// ManifestLicense records the package license values declared by a manifest.
+// Removed marks the manifest as absent from this commit onward.
+type ManifestLicense struct {
+	ManifestPath string
+	Ecosystem    string
+	Kind         string
+	Licenses     []string
+	LicenseFile  string
+	Removed      bool
+}
+
 type Result struct {
-	Changes  []Change
-	Snapshot Snapshot
+	Changes          []Change
+	Snapshot         Snapshot
+	ManifestLicenses []ManifestLicense
 }
 
 type cachedDiff struct {
@@ -312,6 +324,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		if !a.allowsEcosystem(deps.Ecosystem) {
 			continue
 		}
+		result.addManifestLicense(path, deps, false)
 
 		// Merge integrity hashes from supplement files in same directory
 		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(path))
@@ -370,6 +383,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			}
 			continue
 		}
+		result.addManifestLicense(path, afterDeps, false)
 
 		// Merge integrity hashes from supplement files in same directory
 		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(path))
@@ -553,6 +567,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		if !a.allowsEcosystem(deps.Ecosystem) {
 			continue
 		}
+		result.addManifestLicense(path, deps, true)
 
 		for _, dep := range deps.Dependencies {
 			result.Changes = append(result.Changes, Change{
@@ -574,6 +589,24 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 	}
 
 	return result, nil
+}
+
+func (r *Result) addManifestLicense(path string, parsed *manifests.ParseResult, removed bool) {
+	if parsed == nil || parsed.Kind != manifests.Manifest {
+		return
+	}
+	licenses := append([]string(nil), parsed.Licenses...)
+	if licenses == nil {
+		licenses = []string{}
+	}
+	r.ManifestLicenses = append(r.ManifestLicenses, ManifestLicense{
+		ManifestPath: path,
+		Ecosystem:    parsed.Ecosystem,
+		Kind:         string(parsed.Kind),
+		Licenses:     licenses,
+		LicenseFile:  parsed.LicenseFile,
+		Removed:      removed,
+	})
 }
 
 func (a *Analyzer) parseManifestInTree(tree *object.Tree, path string) (*manifests.ParseResult, error) {

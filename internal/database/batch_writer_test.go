@@ -3,6 +3,7 @@ package database_test
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -153,5 +154,67 @@ func TestWaitForFlushNoOp(t *testing.T) {
 	// WaitForFlush with no prior FlushAsync should return nil
 	if err := writer.WaitForFlush(); err != nil {
 		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+func TestManifestLicensesAtRef(t *testing.T) {
+	writer, db := newTestBatchWriter(t)
+	manifest := database.ManifestInfo{Path: "package.json", Ecosystem: "npm", Kind: "manifest"}
+	committedAt := time.Now()
+
+	writer.AddCommit(database.CommitInfo{SHA: "license-1", CommittedAt: committedAt}, false)
+	writer.AddManifestLicense("license-1", manifest, database.ManifestLicenseInfo{
+		Licenses: []string{"MIT", "ISC"},
+	})
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush(first): %v", err)
+	}
+	branch, err := db.GetBranch("main")
+	if err != nil {
+		t.Fatalf("GetBranch: %v", err)
+	}
+
+	// Use a fresh writer to reproduce incremental indexing, where the same
+	// logical path may be associated with a different manifests row.
+	writer = database.NewBatchWriter(db)
+	if err := writer.UseBranch(branch.ID); err != nil {
+		t.Fatalf("UseBranch: %v", err)
+	}
+	writer.AddCommit(database.CommitInfo{SHA: "license-2", CommittedAt: committedAt.Add(time.Second)}, false)
+	writer.AddManifestLicense("license-2", manifest, database.ManifestLicenseInfo{
+		Licenses:    []string{"Apache-2.0"},
+		LicenseFile: "LICENSE",
+	})
+	writer.AddCommit(database.CommitInfo{SHA: "license-3", CommittedAt: committedAt.Add(2 * time.Second)}, false)
+	writer.AddManifestLicense("license-3", manifest, database.ManifestLicenseInfo{
+		Licenses: []string{"Apache-2.0"},
+		Removed:  true,
+	})
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush(incremental): %v", err)
+	}
+	first, err := db.GetManifestLicensesAtRef("license-1", branch.ID)
+	if err != nil {
+		t.Fatalf("GetManifestLicensesAtRef(first): %v", err)
+	}
+	if len(first) != 1 || !slices.Equal(first[0].Licenses, []string{"MIT", "ISC"}) {
+		t.Fatalf("first licenses = %+v", first)
+	}
+
+	second, err := db.GetManifestLicensesAtRef("license-2", branch.ID)
+	if err != nil {
+		t.Fatalf("GetManifestLicensesAtRef(second): %v", err)
+	}
+	if len(second) != 1 || !slices.Equal(second[0].Licenses, []string{"Apache-2.0"}) ||
+		second[0].LicenseFile != "LICENSE" {
+		t.Fatalf("second licenses = %+v", second)
+	}
+
+	third, err := db.GetManifestLicensesAtRef("license-3", branch.ID)
+	if err != nil {
+		t.Fatalf("GetManifestLicensesAtRef(third): %v", err)
+	}
+	if len(third) != 0 {
+		t.Fatalf("third licenses = %+v, want none after removal", third)
 	}
 }

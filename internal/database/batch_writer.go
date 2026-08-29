@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,12 @@ type ManifestInfo struct {
 	Path      string
 	Ecosystem string
 	Kind      string
+}
+
+type ManifestLicenseInfo struct {
+	Licenses    []string
+	LicenseFile string
+	Removed     bool
 }
 
 type ChangeInfo struct {
@@ -69,6 +76,12 @@ type pendingSnapshot struct {
 	snapshot SnapshotInfo
 }
 
+type pendingManifestLicense struct {
+	sha      string
+	manifest ManifestInfo
+	license  ManifestLicenseInfo
+}
+
 type BatchWriter struct {
 	db            *DB
 	branchID      int64
@@ -78,6 +91,7 @@ type BatchWriter struct {
 	pendingCommits   []pendingCommit
 	pendingChanges   []pendingChange
 	pendingSnapshots []pendingSnapshot
+	pendingLicenses  []pendingManifestLicense
 
 	batchSize        int
 	snapshotInterval int
@@ -163,6 +177,14 @@ func (w *BatchWriter) AddSnapshot(sha string, manifest ManifestInfo, snapshot Sn
 	})
 }
 
+func (w *BatchWriter) AddManifestLicense(sha string, manifest ManifestInfo, license ManifestLicenseInfo) {
+	w.pendingLicenses = append(w.pendingLicenses, pendingManifestLicense{
+		sha:      sha,
+		manifest: manifest,
+		license:  license,
+	})
+}
+
 // AddEmptySnapshot stores a marker to indicate this commit has no dependencies.
 // This allows GetDependenciesAtRef to distinguish "no snapshot taken" from "empty snapshot".
 func (w *BatchWriter) AddEmptySnapshot(sha string) {
@@ -194,7 +216,7 @@ func (w *BatchWriter) Flush() error {
 // performs the DB transaction. The caller gets fresh empty slices immediately.
 // Call WaitForFlush before the next FlushAsync or Flush to collect the result.
 func (w *BatchWriter) FlushAsync() {
-	commits, changes, snapshots := w.takePending()
+	commits, changes, snapshots, licenses := w.takePending()
 	w.flushDone = make(chan error, 1)
 	ch := w.flushDone
 	go func() {
@@ -203,7 +225,7 @@ func (w *BatchWriter) FlushAsync() {
 				ch <- fmt.Errorf("panic during async flush: %v", r)
 			}
 		}()
-		ch <- w.flushPending(commits, changes, snapshots)
+		ch <- w.flushPending(commits, changes, snapshots, licenses)
 	}()
 }
 
@@ -219,17 +241,29 @@ func (w *BatchWriter) WaitForFlush() error {
 }
 
 // takePending returns the current pending slices and replaces them with fresh empties.
-func (w *BatchWriter) takePending() ([]pendingCommit, []pendingChange, []pendingSnapshot) {
+func (w *BatchWriter) takePending() (
+	[]pendingCommit,
+	[]pendingChange,
+	[]pendingSnapshot,
+	[]pendingManifestLicense,
+) {
 	commits := w.pendingCommits
 	changes := w.pendingChanges
 	snapshots := w.pendingSnapshots
+	licenses := w.pendingLicenses
 	w.pendingCommits = nil
 	w.pendingChanges = nil
 	w.pendingSnapshots = nil
-	return commits, changes, snapshots
+	w.pendingLicenses = nil
+	return commits, changes, snapshots, licenses
 }
 
-func (w *BatchWriter) flushPending(commits []pendingCommit, changes []pendingChange, snapshots []pendingSnapshot) error {
+func (w *BatchWriter) flushPending(
+	commits []pendingCommit,
+	changes []pendingChange,
+	snapshots []pendingSnapshot,
+	licenses []pendingManifestLicense,
+) error {
 	if len(commits) == 0 {
 		return nil
 	}
@@ -264,7 +298,7 @@ func (w *BatchWriter) flushPending(commits []pendingCommit, changes []pendingCha
 		return fmt.Errorf("inserting branch commits: %w", err)
 	}
 
-	// 5. Filter out changes and snapshots for commits that already existed,
+	// 5. Filter out commit-scoped records for commits that already existed,
 	// since their data is already stored from another branch.
 	if len(existingCommits) > 0 {
 		newChanges := changes[:0]
@@ -282,10 +316,18 @@ func (w *BatchWriter) flushPending(commits []pendingCommit, changes []pendingCha
 			}
 		}
 		snapshots = newSnapshots
+
+		newLicenses := licenses[:0]
+		for _, license := range licenses {
+			if _, exists := existingCommits[license.sha]; !exists {
+				newLicenses = append(newLicenses, license)
+			}
+		}
+		licenses = newLicenses
 	}
 
 	// 6. Ensure manifests exist and get their IDs
-	if err := w.ensureManifests(tx, now, changes, snapshots); err != nil {
+	if err := w.ensureManifests(tx, now, changes, snapshots, licenses); err != nil {
 		return fmt.Errorf("ensuring manifests: %w", err)
 	}
 
@@ -294,7 +336,12 @@ func (w *BatchWriter) flushPending(commits []pendingCommit, changes []pendingCha
 		return fmt.Errorf("inserting changes: %w", err)
 	}
 
-	// 8. Batch insert snapshots
+	// 8. Batch insert manifest license states
+	if err := w.insertManifestLicenses(tx, commitIDs, now, licenses); err != nil {
+		return fmt.Errorf("inserting manifest licenses: %w", err)
+	}
+
+	// 9. Batch insert snapshots
 	if err := w.insertSnapshots(tx, commitIDs, now, snapshots); err != nil {
 		return fmt.Errorf("inserting snapshots: %w", err)
 	}
@@ -427,7 +474,13 @@ func (w *BatchWriter) insertBranchCommits(tx *sql.Tx, commitIDs map[string]int64
 	return nil
 }
 
-func (w *BatchWriter) ensureManifests(tx *sql.Tx, now time.Time, changes []pendingChange, snapshots []pendingSnapshot) error {
+func (w *BatchWriter) ensureManifests(
+	tx *sql.Tx,
+	now time.Time,
+	changes []pendingChange,
+	snapshots []pendingSnapshot,
+	licenses []pendingManifestLicense,
+) error {
 	// Collect unique manifests from changes and snapshots
 	manifests := make(map[string]ManifestInfo)
 	for _, pc := range changes {
@@ -435,6 +488,9 @@ func (w *BatchWriter) ensureManifests(tx *sql.Tx, now time.Time, changes []pendi
 	}
 	for _, ps := range snapshots {
 		manifests[ps.manifest.Path] = ps.manifest
+	}
+	for _, license := range licenses {
+		manifests[license.manifest.Path] = license.manifest
 	}
 
 	// Filter out already cached
@@ -493,6 +549,59 @@ func (w *BatchWriter) ensureManifests(tx *sql.Tx, now time.Time, changes []pendi
 		w.manifestCache[path] = id
 	}
 	return rows.Err()
+}
+
+func (w *BatchWriter) insertManifestLicenses(
+	tx *sql.Tx,
+	commitIDs map[string]int64,
+	now time.Time,
+	pending []pendingManifestLicense,
+) error {
+	if len(pending) == 0 {
+		return nil
+	}
+
+	const columnsPerRow = 7
+	maxRowsPerBatch := MaxSQLVariables / columnsPerRow
+	for start := 0; start < len(pending); start += maxRowsPerBatch {
+		end := start + maxRowsPerBatch
+		if end > len(pending) {
+			end = len(pending)
+		}
+		batch := pending[start:end]
+
+		var sb strings.Builder
+		sb.WriteString("INSERT INTO manifest_licenses (commit_id, manifest_id, licenses, license_file, removed, created_at, updated_at) VALUES ")
+		args := make([]any, 0, len(batch)*columnsPerRow)
+		for i, pendingLicense := range batch {
+			if i > 0 {
+				sb.WriteString(",")
+			}
+			sb.WriteString("(?,?,?,?,?,?,?)")
+
+			licenses := pendingLicense.license.Licenses
+			if licenses == nil {
+				licenses = []string{}
+			}
+			licensesJSON, err := json.Marshal(licenses)
+			if err != nil {
+				return fmt.Errorf("encoding licenses for %s: %w", pendingLicense.manifest.Path, err)
+			}
+			args = append(args,
+				commitIDs[pendingLicense.sha],
+				w.manifestCache[pendingLicense.manifest.Path],
+				string(licensesJSON),
+				pendingLicense.license.LicenseFile,
+				pendingLicense.license.Removed,
+				now,
+				now,
+			)
+		}
+		if _, err := tx.Exec(sb.String(), args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (w *BatchWriter) insertChanges(tx *sql.Tx, commitIDs map[string]int64, now time.Time, pending []pendingChange) error {

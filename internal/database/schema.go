@@ -53,6 +53,19 @@ func (db *DB) CreateSchema() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_manifests_path ON manifests(path);
 
+	CREATE TABLE IF NOT EXISTS manifest_licenses (
+		id INTEGER PRIMARY KEY,
+		commit_id INTEGER NOT NULL REFERENCES commits(id),
+		manifest_id INTEGER NOT NULL REFERENCES manifests(id),
+		licenses TEXT NOT NULL DEFAULT '[]',
+		license_file TEXT NOT NULL DEFAULT '',
+		removed INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME,
+		updated_at DATETIME
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_manifest_licenses_unique ON manifest_licenses(commit_id, manifest_id);
+	CREATE INDEX IF NOT EXISTS idx_manifest_licenses_manifest ON manifest_licenses(manifest_id);
+
 	CREATE TABLE IF NOT EXISTS dependency_changes (
 		id INTEGER PRIMARY KEY,
 		commit_id INTEGER REFERENCES commits(id),
@@ -206,4 +219,31 @@ func (db *DB) SchemaVersion() (int, error) {
 		return 0, err
 	}
 	return version, nil
+}
+
+func CheckSchemaVersion(version int) error {
+	switch {
+	case version < SchemaVersion:
+		return fmt.Errorf(
+			"database schema version %d is outdated (current version is %d); run 'git pkgs upgrade'",
+			version,
+			SchemaVersion,
+		)
+	case version > SchemaVersion:
+		return fmt.Errorf(
+			"database schema version %d is newer than this git-pkgs binary supports (maximum supported version is %d); use a compatible git-pkgs binary",
+			version,
+			SchemaVersion,
+		)
+	default:
+		return nil
+	}
+}
+
+func (db *DB) CheckSchemaVersion() error {
+	version, err := db.SchemaVersion()
+	if err != nil {
+		return fmt.Errorf("reading database schema version: %w", err)
+	}
+	return CheckSchemaVersion(version)
 }

@@ -25,19 +25,21 @@ The CLI uses [cobra](https://github.com/spf13/cobra). Each command is registered
 
 `internal/database` manages the SQLite connection using [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) (pure Go, no CGO). The database path defaults to `.git/pkgs.sqlite3` but can be overridden with `GIT_PKGS_DB`.
 
-The schema has eleven tables. Six handle dependency tracking:
+The dependency history tables are:
 
 - `commits` holds commit metadata plus a flag indicating whether it changed dependencies
 - `branches` tracks which branches have been analyzed and their last processed SHA
 - `branch_commits` is a join table preserving commit order within each branch
 - `manifests` stores file paths with their ecosystem (npm, rubygems, etc.) and kind (manifest vs lockfile)
+- `manifest_licenses` stores commit-scoped declared license values and license-file paths for package manifests
 - `dependency_changes` records every add, modify, or remove event
 - `dependency_snapshots` stores full dependency state at intervals, including lockfile integrity hashes
 
-Four support vulnerability scanning and package enrichment:
+The following tables support vulnerability scanning and package enrichment:
 
 - `packages` caches package metadata and vulnerability sync status
 - `versions` stores per-version metadata (license, published date, deprecation status) for time-travel queries and external metadata commands
+- `version_lists` records when a complete package version history was fetched
 - `vulnerabilities` caches CVE/GHSA data fetched from OSV
 - `vulnerability_packages` maps which packages are affected by each vulnerability
 
@@ -82,6 +84,11 @@ removed = beforeDeps - afterDeps
 modified = intersection where requirement changed
 ```
 
+For package manifests, the analyzer also records `ParseResult.Licenses` and
+`ParseResult.LicenseFile` whenever the manifest is added, modified, or removed.
+These events are independent of dependency changes, so a license-only edit is
+preserved without marking the commit as a dependency change.
+
 Merge commits are skipped since they don't introduce new changes.
 
 ## The Init Process
@@ -116,6 +123,8 @@ Several commands need the full dependency set at a specific commit. The algorith
 4. Apply each change: added/modified updates the set, removed deletes
 
 This is handled by `GetDependenciesAtRef` and related methods in `internal/database/queries.go`.
+Manifest licenses use the same branch positions to select the latest license
+event for each manifest path at or before the requested commit.
 
 ## Git Hooks
 

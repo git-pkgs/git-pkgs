@@ -71,6 +71,17 @@ func gitRun(t *testing.T, repoDir string, args ...string) {
 	}
 }
 
+func gitOutput(t *testing.T, repoDir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func TestIndexerWithGemfile(t *testing.T) {
 	repoDir := createTestRepo(t)
 
@@ -145,6 +156,68 @@ gem "sidekiq"
 	}
 	if changeCount != 4 {
 		t.Errorf("expected 4 changes, got %d", changeCount)
+	}
+}
+
+func TestIndexerStoresLicenseOnlyManifestHistory(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFileAndCommit(t, repoDir, "package.json", `{
+  "name": "example",
+  "version": "1.0.0",
+  "license": "MIT"
+}`, "Add package license")
+	firstSHA := gitOutput(t, repoDir, "rev-parse", "HEAD")
+	addFileAndCommit(t, repoDir, "package.json", `{
+  "name": "example",
+  "version": "1.0.0",
+  "license": "Apache-2.0"
+}`, "Change package license")
+	secondSHA := gitOutput(t, repoDir, "rev-parse", "HEAD")
+
+	repo, err := gitpkg.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("OpenRepository: %v", err)
+	}
+	db, err := database.Create(filepath.Join(repoDir, ".git", "pkgs.sqlite3"))
+	if err != nil {
+		t.Fatalf("Create database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	idx := indexer.New(repo, db, indexer.Options{Quiet: true})
+	result, err := idx.Run()
+	if err != nil {
+		t.Fatalf("indexer Run: %v", err)
+	}
+	if result.CommitsAnalyzed != 2 || result.CommitsWithChanges != 0 || result.TotalChanges != 0 {
+		t.Fatalf("index result = %+v", result)
+	}
+
+	branch, err := db.GetBranch("main")
+	if err != nil {
+		t.Fatalf("GetBranch: %v", err)
+	}
+	first, err := db.GetManifestLicensesAtRef(firstSHA, branch.ID)
+	if err != nil {
+		t.Fatalf("GetManifestLicensesAtRef(first): %v", err)
+	}
+	if len(first) != 1 || len(first[0].Licenses) != 1 || first[0].Licenses[0] != "MIT" {
+		t.Fatalf("first licenses = %+v", first)
+	}
+	second, err := db.GetManifestLicensesAtRef(secondSHA, branch.ID)
+	if err != nil {
+		t.Fatalf("GetManifestLicensesAtRef(second): %v", err)
+	}
+	if len(second) != 1 || len(second[0].Licenses) != 1 || second[0].Licenses[0] != "Apache-2.0" {
+		t.Fatalf("second licenses = %+v", second)
+	}
+
+	var dependencyChangeCommits int
+	if err := db.QueryRow("SELECT COUNT(*) FROM commits WHERE has_dependency_changes = 1").Scan(&dependencyChangeCommits); err != nil {
+		t.Fatalf("counting dependency-change commits: %v", err)
+	}
+	if dependencyChangeCommits != 0 {
+		t.Fatalf("dependency-change commits = %d, want 0", dependencyChangeCommits)
 	}
 }
 

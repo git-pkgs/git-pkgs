@@ -310,6 +310,80 @@ type Dependency struct {
 	Direct         bool   `json:"-"`
 }
 
+// ManifestLicense is the declared license state of a package manifest at a
+// point in repository history.
+type ManifestLicense struct {
+	ManifestPath string   `json:"manifest_path"`
+	Ecosystem    string   `json:"ecosystem"`
+	Kind         string   `json:"kind"`
+	Licenses     []string `json:"licenses"`
+	LicenseFile  string   `json:"license_file,omitempty"`
+}
+
+// GetManifestLicensesAtRef returns the latest license state for every active
+// package manifest at ref on the given branch. License events are stored only
+// when a manifest changes, so the query selects each manifest's most recent
+// event at or before the target commit.
+func (db *DB) GetManifestLicensesAtRef(ref string, branchID int64) ([]ManifestLicense, error) {
+	rows, err := db.Query(`
+		WITH target_position AS (
+			SELECT bc.position
+			FROM branch_commits bc
+			JOIN commits c ON c.id = bc.commit_id
+			WHERE c.sha = ? AND bc.branch_id = ?
+		), ranked AS (
+			SELECT m.path, m.ecosystem, m.kind, ml.licenses, ml.license_file, ml.removed,
+				ROW_NUMBER() OVER (
+					PARTITION BY m.path
+					ORDER BY bc.position DESC
+				) AS row_num
+			FROM manifest_licenses ml
+			JOIN manifests m ON m.id = ml.manifest_id
+			JOIN branch_commits bc ON bc.commit_id = ml.commit_id
+			CROSS JOIN target_position tp
+			WHERE bc.branch_id = ? AND bc.position <= tp.position
+		)
+		SELECT path, ecosystem, kind, licenses, license_file
+		FROM ranked
+		WHERE row_num = 1 AND removed = 0
+		ORDER BY path
+	`, ref, branchID, branchID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []ManifestLicense
+	for rows.Next() {
+		var license ManifestLicense
+		var ecosystem, kind sql.NullString
+		var licensesJSON string
+		if err := rows.Scan(
+			&license.ManifestPath,
+			&ecosystem,
+			&kind,
+			&licensesJSON,
+			&license.LicenseFile,
+		); err != nil {
+			return nil, err
+		}
+		if ecosystem.Valid {
+			license.Ecosystem = ecosystem.String
+		}
+		if kind.Valid {
+			license.Kind = kind.String
+		}
+		if err := json.Unmarshal([]byte(licensesJSON), &license.Licenses); err != nil {
+			return nil, fmt.Errorf("decoding licenses for %s: %w", license.ManifestPath, err)
+		}
+		if license.Licenses == nil {
+			license.Licenses = []string{}
+		}
+		result = append(result, license)
+	}
+	return result, rows.Err()
+}
+
 func (db *DB) GetDependenciesAtRef(ref string, branchID int64) ([]Dependency, error) {
 	// Find the commit ID for this ref on this branch
 	var commitID int64
@@ -722,6 +796,7 @@ func (db *DB) GetDatabaseInfo() (*DatabaseInfo, error) {
 		"commits",
 		"branch_commits",
 		"manifests",
+		"manifest_licenses",
 		"dependency_changes",
 		"dependency_snapshots",
 		"packages",
