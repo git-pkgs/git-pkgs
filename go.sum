@@ -229,8 +229,8 @@ github.com/git-pkgs/enrichment v0.7.0 h1:LfIzlVArc2p0MONO08ybC5jiHlysfzS3YyZ5ry2
 github.com/git-pkgs/enrichment v0.7.0/go.mod h1:ZgZJq7cz1H/nlkgHjCdIRLF/TA5VcbUmpE970VQmG14=
 github.com/git-pkgs/gitignore v1.2.0 h1:7vdR8/SvF31dvXqIdC1bKgCvyySefXuN8aY3xJLuFaM=
 github.com/git-pkgs/gitignore v1.2.0/go.mod h1:Lr0XwhbvP071rZF/zIIhkY1gEhFDoWHH91lngwLpeUg=
-github.com/git-pkgs/managers v0.10.1 h1:T877XtuXoJNweDTMGj1H6AOeVolDO44IvsgDN5jq3Ko=
-github.com/git-pkgs/managers v0.10.1/go.mod h1:8DR7tIQEEyPyJ7QGzStVbovnGl7tAJcrhQLzjQPzFzc=
+github.com/git-pkgs/managers v0.11.0 h1:XMEa2VsnN4XsBA3+EnSj3ZE69LrF5SEsjEyW/NncFXc=
+github.com/git-pkgs/managers v0.11.0/go.mod h1:8DR7tIQEEyPyJ7QGzStVbovnGl7tAJcrhQLzjQPzFzc=
 github.com/git-pkgs/manifests v0.10.1 h1:hq+oRxz+QanbXlnQKbVCgXd23Z2r+na51et2ycaYF6g=
 github.com/git-pkgs/manifests v0.10.1/go.mod h1:y1p9ICibE2tqveiHJEJZz4mayo+mt6MhaBY3LHHr1mY=
 github.com/git-pkgs/packageurl-go v0.3.1 h1:WM3RBABQZLaRBxgKyYughc3cVBE8KyQxbSC6Jt5ak7M=
