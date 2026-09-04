@@ -12,11 +12,11 @@ No package manager command or dependency installation is required. The option wo
 
 The `--dependencies` option controls both the metadata report and archive scans. It cannot be combined with `--drift`.
 
-- `direct` includes dependencies declared in manifests and resolved lockfile entries marked as direct. This is the default.
-- `indirect` includes resolved lockfile entries that were not selected as direct dependencies.
+- `direct` includes dependencies declared in manifests and resolved entries marked as direct. This is the default.
+- `indirect` includes resolved entries that were not selected as direct dependencies.
 - `all` includes both sets.
 
-Direct declarations are matched to resolved instances from lockfiles in the same manifest directory. Package URL and version distinguish separate instances, so two indirect versions of one package remain separate results. Archive text requires a resolved version. A dependency without one (a manifest entry with no matching lockfile) is reported without archive-derived fields and named in a warning on stderr; the run continues. Add a lockfile for that ecosystem to include it.
+A resolved entry is one that carries an exact version: any lockfile row, plus manifest rows from ecosystems whose manifests pin exact versions (Go modules, Maven). Direct declarations are matched to resolved instances in the same manifest directory. Package URL and version distinguish separate instances, so two indirect versions of one package remain separate results. Archive text requires a resolved version. A dependency without one (a manifest entry with no matching lockfile) is reported without archive-derived fields and named in a warning on stderr; the run continues. Add a lockfile for that ecosystem to include it.
 
 ```bash
 git pkgs licenses --license-text --format json --dependencies indirect

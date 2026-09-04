@@ -164,10 +164,10 @@ func (store *Store) openCandidate(
 	)
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, fmt.Errorf("cached artifact bytes are missing")
+		return nil, false, fmt.Errorf("cached artifact bytes for %s are missing at %s", request.PURL, path)
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("open cached artifact: %w", err)
+		return nil, false, fmt.Errorf("open cached artifact for %s: %w", request.PURL, err)
 	}
 	matches, err := store.verifyFile(file, candidate.Artifact, request.Integrity)
 	if err != nil {
