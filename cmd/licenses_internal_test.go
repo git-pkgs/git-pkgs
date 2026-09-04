@@ -1,17 +1,30 @@
 package cmd
 
 import (
+	"archive/zip"
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"io"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/git-pkgs/archives"
+	"github.com/git-pkgs/artifacts"
+	"github.com/git-pkgs/artifacts/acquire"
 	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
+	licensespkg "github.com/git-pkgs/licenses"
+	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
 )
 
-func TestResolvedLicenseVersions(t *testing.T) {
+func TestDirectLicenseTargetsResolveManifestDeclarations(t *testing.T) {
 	direct := database.Dependency{
 		Name:         "ua-parser-js",
 		Ecosystem:    "npm",
@@ -85,22 +98,15 @@ func TestResolvedLicenseVersions(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			versions, resolvedDeps, ambiguous := resolvedLicenseVersions(
-				map[string]database.Dependency{direct.PURL: direct},
-				tt.deps,
-			)
-			if versions[direct.PURL] != tt.wantPURL {
-				t.Fatalf("resolved version = %q, want %q", versions[direct.PURL], tt.wantPURL)
+			targets, _ := directLicenseTargets(tt.deps)
+			if len(targets) != 1 {
+				t.Fatalf("targets = %#v, want one", targets)
 			}
-			wantDeps := 0
-			if tt.wantPURL != "" {
-				wantDeps = 1
+			if targets[0].versionedPURL != tt.wantPURL {
+				t.Fatalf("resolved version = %q, want %q", targets[0].versionedPURL, tt.wantPURL)
 			}
-			if len(resolvedDeps) != wantDeps {
-				t.Fatalf("resolved dependencies = %d, want %d", len(resolvedDeps), wantDeps)
-			}
-			if ambiguous[direct.PURL] != tt.wantAmbiguous {
-				t.Fatalf("ambiguous = %v, want %v", ambiguous[direct.PURL], tt.wantAmbiguous)
+			if targets[0].ambiguous != tt.wantAmbiguous {
+				t.Fatalf("ambiguous = %v, want %v", targets[0].ambiguous, tt.wantAmbiguous)
 			}
 		})
 	}
@@ -227,6 +233,50 @@ func TestLicensePolicyEvaluate(t *testing.T) {
 	}
 }
 
+func TestBuildLicenseInfosWithoutScansPreservesPackageMetadata(t *testing.T) {
+	const packagePURL = "pkg:npm/example"
+	result := buildLicenseInfos(
+		map[string]*licenseData{
+			packagePURL: {
+				License:   "MIT",
+				Name:      "example",
+				Ecosystem: "npm",
+			},
+		},
+		[]licenseTarget{
+			{
+				lookupPURL: packagePURL,
+				dependency: database.Dependency{
+					Name:         "example",
+					Ecosystem:    "npm",
+					Requirement:  "1.0.0",
+					ManifestPath: "package.json",
+				},
+			},
+		},
+		nil,
+		nil,
+		newLicensePolicy(licenseOptions{denyList: []string{"MIT"}}),
+	)
+	if len(result.infos) != 1 {
+		t.Fatalf("license infos = %#v, want one", result.infos)
+	}
+	info := result.infos[0]
+	if info.Name != "example" || info.Ecosystem != "npm" || info.Version != "1.0.0" ||
+		info.ManifestPath != "package.json" || info.PURL != packagePURL {
+		t.Errorf("package metadata = %#v", info)
+	}
+	if !slices.Equal(info.Licenses, []string{"MIT"}) || info.LicenseSource != licenseSourcePackage {
+		t.Errorf("license metadata = %#v", info)
+	}
+	if info.LicenseText != "" || info.NoticeText != "" || info.Declared != nil {
+		t.Errorf("attribution metadata = %#v, want empty", info)
+	}
+	if !info.Flagged || info.FlagReason != `license "MIT" is denied` || !result.hasViolations {
+		t.Errorf("policy result = %#v", result)
+	}
+}
+
 func TestOutputLicenses(t *testing.T) {
 	infos := []LicenseInfo{{
 		Name:         "example",
@@ -339,4 +389,483 @@ func TestOutputLicenseDriftText(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLicenseTextOptions(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		args      []string
+		wantError string
+		wantScope string
+	}{
+		{
+			name:      "requires JSON",
+			args:      []string{"--license-text"},
+			wantError: "--license-text requires --format json",
+		},
+		{
+			name:      "rejects drift",
+			args:      []string{"--license-text", "--format", "json", "--drift"},
+			wantError: "--drift cannot be combined with --license-text",
+		},
+		{
+			name:      "rejects dependency selection with drift",
+			args:      []string{"--drift", "--dependencies", "all"},
+			wantError: "--drift cannot be combined with --dependencies",
+		},
+		{
+			name:      "rejects unknown dependency selection",
+			args:      []string{"--dependencies", "runtime"},
+			wantError: `unsupported dependency selection "runtime"`,
+		},
+		{
+			name:      "accepts historical dependencies",
+			args:      []string{"--license-text", "--format", "json", "--commit", "HEAD~1", "--branch", "main"},
+			wantScope: licenseDependenciesDirect,
+		},
+		{
+			name:      "accepts indirect dependencies",
+			args:      []string{"--license-text", "--format", "json", "--dependencies", "indirect"},
+			wantScope: licenseDependenciesIndirect,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			parent := &cobra.Command{Use: "root"}
+			addLicensesCmd(parent)
+			command, _, err := parent.Find([]string{"licenses"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := command.ParseFlags(test.args); err != nil {
+				t.Fatal(err)
+			}
+			options, err := licenseOptionsFromCommand(command)
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatalf("licenseOptionsFromCommand: %v", err)
+				}
+				if !options.includeText {
+					t.Fatal("includeText = false, want true")
+				}
+				if options.dependencies != test.wantScope {
+					t.Fatalf("dependencies = %q, want %q", options.dependencies, test.wantScope)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("error = %v, want %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestSelectLicenseTargets(t *testing.T) {
+	dependencies := []database.Dependency{
+		{
+			Name: "example", Ecosystem: "npm", PURL: "pkg:npm/example", Requirement: "^1.0.0",
+			ManifestPath: "package.json", ManifestKind: manifestKindManifest,
+		},
+		{
+			Name: "example", Ecosystem: "npm", PURL: "pkg:npm/example@1.0.0", Requirement: "1.0.0",
+			ManifestPath: "package-lock.json", ManifestKind: manifestKindLockfile, Direct: true,
+		},
+		{
+			Name: "example", Ecosystem: "npm", PURL: "pkg:npm/example@0.9.0", Requirement: "0.9.0",
+			ManifestPath: "package-lock.json", ManifestKind: manifestKindLockfile,
+		},
+		{
+			Name: "transitive", Ecosystem: "npm", PURL: "pkg:npm/transitive@2.0.0", Requirement: "2.0.0",
+			ManifestPath: "package-lock.json", ManifestKind: manifestKindLockfile,
+		},
+		{
+			Name: "go-direct", Ecosystem: "golang", PURL: "pkg:golang/example.com/direct@1.0.0", Requirement: "1.0.0",
+			ManifestPath: "go.mod", ManifestKind: manifestKindManifest, Direct: true,
+		},
+		{
+			Name: "go-indirect", Ecosystem: "golang", PURL: "pkg:golang/example.com/indirect@2.0.0", Requirement: "2.0.0",
+			ManifestPath: "go.mod", ManifestKind: manifestKindManifest,
+		},
+	}
+
+	for _, test := range []struct {
+		selection string
+		want      []string
+	}{
+		{licenseDependenciesDirect, []string{
+			"pkg:npm/example@1.0.0",
+			"pkg:golang/example.com/direct@1.0.0",
+		}},
+		{licenseDependenciesIndirect, []string{
+			"pkg:npm/example@0.9.0",
+			"pkg:golang/example.com/indirect@2.0.0",
+			"pkg:npm/transitive@2.0.0",
+		}},
+		{licenseDependenciesAll, []string{
+			"pkg:npm/example@0.9.0",
+			"pkg:npm/example@1.0.0",
+			"pkg:golang/example.com/direct@1.0.0",
+			"pkg:golang/example.com/indirect@2.0.0",
+			"pkg:npm/transitive@2.0.0",
+		}},
+	} {
+		t.Run(test.selection, func(t *testing.T) {
+			targets := selectLicenseTargets(dependencies, test.selection)
+			got := make([]string, 0, len(targets))
+			for _, target := range targets {
+				got = append(got, target.versionedPURL)
+			}
+			if !slices.Equal(got, test.want) {
+				t.Fatalf("targets = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestWarnUnresolvedLicenseTextTargets(t *testing.T) {
+	var output bytes.Buffer
+	command := &cobra.Command{}
+	command.SetErr(&output)
+	warnUnresolvedLicenseTextTargets(command, []licenseTarget{
+		{dependency: database.Dependency{Name: "six", Ecosystem: "pypi", ManifestPath: "requirements.txt"}},
+		{dependency: database.Dependency{Name: "certifi", Ecosystem: "pypi", ManifestPath: "requirements.txt"}},
+		{dependency: database.Dependency{Name: "actions/checkout", Ecosystem: "github-actions", ManifestPath: ".github/workflows/ci.yml"}},
+		{versionedPURL: "pkg:npm/example@1.0.0", dependency: database.Dependency{Name: "example", Ecosystem: "npm"}},
+	})
+	got := output.String()
+	if !strings.Contains(got, "skipped six, certifi from requirements.txt") {
+		t.Errorf("missing pypi warning: %q", got)
+	}
+	if strings.Contains(got, "actions/checkout") || strings.Contains(got, "ci.yml") {
+		t.Errorf("github-actions should be skipped silently: %q", got)
+	}
+	if strings.Contains(got, "example") {
+		t.Errorf("resolved target should not warn: %q", got)
+	}
+	if n := strings.Count(got, "\n"); n != 1 {
+		t.Errorf("want one warning line, got %d: %q", n, got)
+	}
+}
+
+func TestHasArtifactRegistry(t *testing.T) {
+	tests := []struct {
+		ecosystem string
+		want      bool
+	}{
+		{"npm", true},
+		{"gem", true},
+		{"pypi", true},
+		{"golang", true},
+		{"github-actions", false},
+	}
+	for _, tt := range tests {
+		if got := hasArtifactRegistry(tt.ecosystem); got != tt.want {
+			t.Errorf("hasArtifactRegistry(%q) = %v, want %v", tt.ecosystem, got, tt.want)
+		}
+	}
+}
+
+func TestScanDependencyArtifacts(t *testing.T) {
+	const versionedPURL = "pkg:npm/example@1.0.0"
+	licenseText := "SPDX-License-Identifier: MIT\n"
+	content := licenseTestZIP(t, map[string]string{
+		"package/LICENSE":       licenseText,
+		"package/NOTICE.custom": "Package attribution notice\n",
+		"package/package.json":  `{"name":"example","license":"Apache-2.0"}`,
+	})
+	loader := &fakeLicenseArtifactLoader{filename: "artifact", content: content}
+	dependencies := []database.Dependency{
+		{Name: "example", Ecosystem: "npm", PURL: versionedPURL, Requirement: "1.0.0", ManifestKind: manifestKindLockfile},
+		{Name: "example", Ecosystem: "npm", PURL: versionedPURL, Requirement: "1.0.0", ManifestKind: manifestKindLockfile},
+	}
+
+	results, err := scanDependencyArtifacts(context.Background(), dependencies, loader, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loader.calls) != 1 || loader.calls[0].PURL != versionedPURL {
+		t.Fatalf("artifact loads = %#v, want one load for %s", loader.calls, versionedPURL)
+	}
+	scan := results[versionedPURL]
+	if !slices.Equal(scan.licenses, []string{"MIT"}) {
+		t.Errorf("licenses = %v, want [MIT]", scan.licenses)
+	}
+	if scan.licenseText != licenseText || scan.noticeText != "Package attribution notice\n" {
+		t.Errorf("attribution text = %#v", scan)
+	}
+	if len(scan.declared) != 1 || scan.declared[0].NormalizedExpression != "Apache-2.0" {
+		t.Errorf("declared = %#v, want Apache-2.0", scan.declared)
+	}
+}
+
+func TestUniqueLicenseArtifactRequestsKeepDistinctFiles(t *testing.T) {
+	const versionedPURL = "pkg:pypi/example@1.0.0"
+	dependencies := []database.Dependency{
+		{Name: "example", Ecosystem: "pypi", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("a", 64)},
+		{Name: "example", Ecosystem: "pypi", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("b", 64)},
+		{Name: "example", Ecosystem: "pypi", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("a", 64)},
+	}
+	requests, err := uniqueLicenseArtifactRequests(dependencies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("requests = %#v, want two distinct files", requests)
+	}
+	if requests[0].PURL != versionedPURL || requests[1].PURL != versionedPURL {
+		t.Fatalf("request PURLs = %q, %q", requests[0].PURL, requests[1].PURL)
+	}
+}
+
+func TestScanDependencyArtifactsReportsLoaderFailure(t *testing.T) {
+	loader := &fakeLicenseArtifactLoader{err: errors.New("registry unavailable")}
+	_, err := scanDependencyArtifacts(context.Background(), []database.Dependency{{
+		Name: "example", Ecosystem: "npm", PURL: "pkg:npm/example@1.0.0", Requirement: "1.0.0",
+		ManifestKind: manifestKindLockfile,
+	}}, loader, false)
+	if err == nil || !strings.Contains(err.Error(), "loading package artifact: registry unavailable") {
+		t.Fatalf("loader error = %v", err)
+	}
+}
+
+func TestScanDependencyArtifactsReportsRootCauseNotCancelledVictims(t *testing.T) {
+	rootCause := errors.New("resolve pkg:npm/z@1.0.0: bad registry")
+	loader := &blockingLicenseArtifactLoader{
+		failPURL: "pkg:npm/z@1.0.0",
+		failErr:  rootCause,
+	}
+	deps := make([]database.Dependency, 0)
+	for _, name := range []string{"a", "b", "c", "z"} {
+		deps = append(deps, database.Dependency{
+			Name: name, Ecosystem: "npm",
+			PURL:         "pkg:npm/" + name + "@1.0.0",
+			Requirement:  "1.0.0",
+			ManifestKind: manifestKindLockfile,
+		})
+	}
+	_, err := scanDependencyArtifacts(context.Background(), deps, loader, false)
+	if !errors.Is(err, rootCause) {
+		t.Fatalf("error = %v, want root cause %v", err, rootCause)
+	}
+}
+
+func TestUniqueLicenseArtifactRequestsSkipsUnfetchable(t *testing.T) {
+	deps := []database.Dependency{
+		{Name: "purl", Ecosystem: "gem", PURL: "pkg:gem/purl@1.8.1?repository_url=.", Requirement: "1.8.1", ManifestKind: manifestKindLockfile},
+		{Name: "local", Ecosystem: "npm", PURL: "pkg:npm/local@1.0.0?repository_url=file%3A%2F%2F%2Fhome", Requirement: "1.0.0", ManifestKind: manifestKindLockfile},
+		{Name: "actions/checkout", Ecosystem: "github-actions", PURL: "pkg:githubactions/actions/checkout@v4", Requirement: "v4", ManifestKind: manifestKindLockfile},
+		{Name: "rack", Ecosystem: "gem", PURL: "pkg:gem/rack@3.0.9", Requirement: "3.0.9", ManifestKind: manifestKindLockfile},
+		{Name: "priv", Ecosystem: "gem", PURL: "pkg:gem/priv@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", Requirement: "1.0.0", ManifestKind: manifestKindLockfile},
+	}
+	requests, err := uniqueLicenseArtifactRequests(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(requests))
+	for _, r := range requests {
+		got = append(got, r.PURL)
+	}
+	want := []string{"pkg:gem/priv@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", "pkg:gem/rack@3.0.9"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("requests = %v, want %v", got, want)
+	}
+}
+
+func TestIsLocalSourcePURL(t *testing.T) {
+	tests := []struct {
+		purl string
+		want bool
+	}{
+		{"pkg:gem/rack@3.0.9", false},
+		{"pkg:gem/purl@1.8.1?repository_url=.", true},
+		{"pkg:npm/x@1.0.0?repository_url=file%3A%2F%2F%2Fpath", true},
+		{"pkg:gem/x@1.0.0?repository_url=..%2Fvendor", true},
+		{"pkg:gem/x@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", false},
+		{"pkg:gem/x@1.0.0?repository_url=http%3A%2F%2Fgems.example.com", false},
+	}
+	for _, tt := range tests {
+		if got := isLocalSourcePURL(tt.purl); got != tt.want {
+			t.Errorf("isLocalSourcePURL(%q) = %v, want %v", tt.purl, got, tt.want)
+		}
+	}
+}
+
+func TestValidateLicenseArchiveLimits(t *testing.T) {
+	tests := []struct {
+		name    string
+		files   []archives.FileInfo
+		wantErr string
+	}{
+		{
+			name: "within limits",
+			files: []archives.FileInfo{
+				{Path: "LICENSE", Size: maxLicenseArtifactBytes - 1},
+				{Path: "NOTICE", Size: 1},
+			},
+		},
+		{
+			name:    "negative size",
+			files:   []archives.FileInfo{{Path: "LICENSE", Size: -1}},
+			wantErr: `archive entry "LICENSE" has negative size -1`,
+		},
+		{
+			name: "cumulative size",
+			files: []archives.FileInfo{
+				{Path: "LICENSE", Size: maxLicenseArtifactBytes},
+				{Path: "NOTICE", Size: 1},
+			},
+			wantErr: "archive contents exceed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateLicenseArchive(&licenseArchiveReader{files: test.files})
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("validateLicenseArchive() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestOutputLicensesJSONIncludesAttribution(t *testing.T) {
+	var output bytes.Buffer
+	command := &cobra.Command{}
+	command.SetOut(&output)
+	infos := []LicenseInfo{{
+		Name:        "example",
+		Ecosystem:   "npm",
+		Licenses:    []string{"MIT"},
+		LicenseText: "license body",
+		NoticeText:  "notice body",
+		Declared: []licensespkg.DeclaredRecord{{
+			Path:                 "package.json",
+			Raw:                  []string{"MIT"},
+			NormalizedExpression: "MIT",
+		}},
+		ManifestPath: "package.json",
+	}}
+	if err := outputLicensesJSON(command, infos); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"license_text": "license body"`,
+		`"notice_text": "notice body"`,
+		`"normalized_expression": "MIT"`,
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Errorf("JSON output missing %q: %s", want, output.String())
+		}
+	}
+}
+
+type fakeLicenseArtifactLoader struct {
+	filename string
+	content  []byte
+	err      error
+	calls    []acquire.Request
+}
+
+type licenseArchiveReader struct {
+	files []archives.FileInfo
+}
+
+func (reader *licenseArchiveReader) List() ([]archives.FileInfo, error) {
+	return reader.files, nil
+}
+
+func (*licenseArchiveReader) ListDir(string) ([]archives.FileInfo, error) {
+	return nil, errors.New("unexpected ListDir call")
+}
+
+func (*licenseArchiveReader) Extract(string) (io.ReadCloser, error) {
+	return nil, errors.New("unexpected Extract call")
+}
+
+func (*licenseArchiveReader) Hash(string) (string, error) {
+	return "", errors.New("unexpected Hash call")
+}
+
+func (*licenseArchiveReader) Close() error {
+	return nil
+}
+
+func (loader *fakeLicenseArtifactLoader) Load(
+	_ context.Context,
+	request acquire.Request,
+	_ bool,
+) (*acquire.Result, error) {
+	loader.calls = append(loader.calls, request)
+	if loader.err != nil {
+		return nil, loader.err
+	}
+	sum := sha256.Sum256(loader.content)
+	artifact, err := artifacts.New(
+		request.PURL,
+		digest.Digest(fmt.Sprintf("sha256:%x", sum)),
+		int64(len(loader.content)),
+		loader.filename,
+		"application/zip",
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &acquire.Result{
+		Artifact: artifact,
+		Body:     io.NopCloser(bytes.NewReader(loader.content)),
+	}, nil
+}
+
+func (loader *fakeLicenseArtifactLoader) Close() error {
+	return nil
+}
+
+type blockingLicenseArtifactLoader struct {
+	failPURL string
+	failErr  error
+}
+
+func (loader *blockingLicenseArtifactLoader) Load(
+	ctx context.Context,
+	request acquire.Request,
+	_ bool,
+) (*acquire.Result, error) {
+	if request.PURL == loader.failPURL {
+		return nil, loader.failErr
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (loader *blockingLicenseArtifactLoader) Close() error {
+	return nil
+}
+
+func licenseTestZIP(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var content bytes.Buffer
+	writer := zip.NewWriter(&content)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		file, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(file, files[name]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return content.Bytes()
 }
