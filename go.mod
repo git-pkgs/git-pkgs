@@ -3,7 +3,7 @@ module github.com/git-pkgs/git-pkgs
 go 1.26.7
 
 require (
-	github.com/git-pkgs/archives v0.6.1-0.20260829120852-4714a5ee13fa
+	github.com/git-pkgs/archives v0.7.0
 	github.com/git-pkgs/artifacts v0.2.1
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/enrichment v0.7.1
@@ -109,7 +109,7 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/ghostiam/protogetter v0.3.20 // indirect
-	github.com/git-pkgs/magic v0.2.0 // indirect
+	github.com/git-pkgs/magic v0.3.0 // indirect
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
 	github.com/git-pkgs/pom v0.1.7 // indirect
 	github.com/github/go-spdx/v2 v2.7.0 // indirect
