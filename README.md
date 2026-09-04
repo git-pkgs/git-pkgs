@@ -372,7 +372,7 @@ The `resolve` command runs the package manager's dependency graph command, parse
 
 The `replace` command redirects a dependency to a local checkout or git ref for downstream testing. Go, Cargo, uv, Bundler, Composer, and npm-family managers are supported where the ecosystem has a safe replacement mechanism. For Go modules, `--ref` must be a Go module version or pseudo-version because `go.mod` replace directives do not accept branch names. npm-family `--drop` is intentionally rejected because the original registry constraint is not recoverable; use `git pkgs replace <package> <version>` to restore a registry dependency.
 
-Supports 35 package managers including npm, pnpm, yarn, bun, deno, bundler, gem, cargo, go, pip, uv, poetry, conda, composer, mix, rebar3, pub, cocoapods, swift, nuget, maven, gradle, sbt, cabal, stack, opam, luarocks, nimble, shards, cpanm, lein, vcpkg, conan, helm, and brew. The package manager is detected from lockfiles in the current directory.
+Supports 36 package managers including npm, pnpm, yarn, bun, deno, bundler, gem, cargo, go, pip, uv, poetry, conda, composer, mix, rebar3, pub, cocoapods, swift, nuget, maven, gradle, sbt, cabal, stack, opam, luarocks, nimble, shards, cpanm, lein, vcpkg, conan, helm, renv, and brew. The package manager is detected from lockfiles in the current directory.
 
 Use `-m` to override detection, `-x` to pass extra arguments to the underlying tool:
 
