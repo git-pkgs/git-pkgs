@@ -591,8 +591,69 @@ func TestScanDependencyArtifactsReportsLoaderFailure(t *testing.T) {
 		Name: "example", Ecosystem: "npm", PURL: "pkg:npm/example@1.0.0", Requirement: "1.0.0",
 		ManifestKind: manifestKindLockfile,
 	}}, loader, false)
-	if err == nil || !strings.Contains(err.Error(), "loading package artifact pkg:npm/example@1.0.0") {
+	if err == nil || !strings.Contains(err.Error(), "loading package artifact: registry unavailable") {
 		t.Fatalf("loader error = %v", err)
+	}
+}
+
+func TestScanDependencyArtifactsReportsRootCauseNotCancelledVictims(t *testing.T) {
+	rootCause := errors.New("resolve pkg:npm/z@1.0.0: bad registry")
+	loader := &blockingLicenseArtifactLoader{
+		failPURL: "pkg:npm/z@1.0.0",
+		failErr:  rootCause,
+	}
+	deps := make([]database.Dependency, 0)
+	for _, name := range []string{"a", "b", "c", "z"} {
+		deps = append(deps, database.Dependency{
+			Name: name, Ecosystem: "npm",
+			PURL:         "pkg:npm/" + name + "@1.0.0",
+			Requirement:  "1.0.0",
+			ManifestKind: manifestKindLockfile,
+		})
+	}
+	_, err := scanDependencyArtifacts(context.Background(), deps, loader, false)
+	if !errors.Is(err, rootCause) {
+		t.Fatalf("error = %v, want root cause %v", err, rootCause)
+	}
+}
+
+func TestUniqueLicenseArtifactRequestsSkipsLocalSources(t *testing.T) {
+	deps := []database.Dependency{
+		{Name: "purl", Ecosystem: "gem", PURL: "pkg:gem/purl@1.8.1?repository_url=.", Requirement: "1.8.1", ManifestKind: manifestKindLockfile},
+		{Name: "local", Ecosystem: "npm", PURL: "pkg:npm/local@1.0.0?repository_url=file%3A%2F%2F%2Fhome", Requirement: "1.0.0", ManifestKind: manifestKindLockfile},
+		{Name: "rack", Ecosystem: "gem", PURL: "pkg:gem/rack@3.0.9", Requirement: "3.0.9", ManifestKind: manifestKindLockfile},
+		{Name: "priv", Ecosystem: "gem", PURL: "pkg:gem/priv@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", Requirement: "1.0.0", ManifestKind: manifestKindLockfile},
+	}
+	requests, err := uniqueLicenseArtifactRequests(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(requests))
+	for _, r := range requests {
+		got = append(got, r.PURL)
+	}
+	want := []string{"pkg:gem/priv@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", "pkg:gem/rack@3.0.9"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("requests = %v, want %v", got, want)
+	}
+}
+
+func TestIsLocalSourcePURL(t *testing.T) {
+	tests := []struct {
+		purl string
+		want bool
+	}{
+		{"pkg:gem/rack@3.0.9", false},
+		{"pkg:gem/purl@1.8.1?repository_url=.", true},
+		{"pkg:npm/x@1.0.0?repository_url=file%3A%2F%2F%2Fpath", true},
+		{"pkg:gem/x@1.0.0?repository_url=..%2Fvendor", true},
+		{"pkg:gem/x@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", false},
+		{"pkg:gem/x@1.0.0?repository_url=http%3A%2F%2Fgems.example.com", false},
+	}
+	for _, tt := range tests {
+		if got := isLocalSourcePURL(tt.purl); got != tt.want {
+			t.Errorf("isLocalSourcePURL(%q) = %v, want %v", tt.purl, got, tt.want)
+		}
 	}
 }
 
@@ -729,6 +790,27 @@ func (loader *fakeLicenseArtifactLoader) Load(
 }
 
 func (loader *fakeLicenseArtifactLoader) Close() error {
+	return nil
+}
+
+type blockingLicenseArtifactLoader struct {
+	failPURL string
+	failErr  error
+}
+
+func (loader *blockingLicenseArtifactLoader) Load(
+	ctx context.Context,
+	request acquire.Request,
+	_ bool,
+) (*acquire.Result, error) {
+	if request.PURL == loader.failPURL {
+		return nil, loader.failErr
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (loader *blockingLicenseArtifactLoader) Close() error {
 	return nil
 }
 

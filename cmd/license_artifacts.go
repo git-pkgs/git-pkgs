@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/git-pkgs/archives"
@@ -16,6 +18,7 @@ import (
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/integrity"
 	licensespkg "github.com/git-pkgs/licenses"
+	"github.com/git-pkgs/purl"
 )
 
 const (
@@ -94,34 +97,50 @@ func scanDependencyArtifacts(
 	workers := min(licenseArtifactConcurrency, len(requests))
 	jobs := make(chan int)
 	scans := make([]licenseScanResult, len(requests))
-	errs := make([]error, len(requests))
 
 	scanCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	var wg sync.WaitGroup
+	var (
+		wg       sync.WaitGroup
+		firstErr error
+		errOnce  sync.Once
+	)
 	wg.Add(workers)
 	for range workers {
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
-				scans[i], errs[i] = loadAndScanLicenseArtifact(scanCtx, matcher, loader, requests[i], offline)
-				if errs[i] != nil {
+				scan, err := loadAndScanLicenseArtifact(scanCtx, matcher, loader, requests[i], offline)
+				if err != nil {
+					if !errors.Is(err, context.Canceled) || ctx.Err() != nil {
+						errOnce.Do(func() { firstErr = err })
+					}
 					cancel()
+					continue
 				}
+				scans[i] = scan
 			}
 		}()
 	}
+feed:
 	for i := range requests {
-		jobs <- i
+		select {
+		case jobs <- i:
+		case <-scanCtx.Done():
+			break feed
+		}
 	}
 	close(jobs)
 	wg.Wait()
 
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	results := make(map[string]licenseScanResult, len(requests))
 	for i, request := range requests {
-		if errs[i] != nil {
-			return nil, errs[i]
-		}
 		merged := results[request.PURL]
 		mergeLicenseScanResult(&merged, scans[i])
 		results[request.PURL] = merged
@@ -138,7 +157,7 @@ func loadAndScanLicenseArtifact(
 ) (licenseScanResult, error) {
 	artifact, err := loader.Load(ctx, request, offline)
 	if err != nil {
-		return licenseScanResult{}, fmt.Errorf("loading package artifact %s: %w", request.PURL, err)
+		return licenseScanResult{}, fmt.Errorf("loading package artifact: %w", err)
 	}
 	scan, scanErr := scanLicenseArtifact(ctx, matcher, artifact)
 	closeErr := artifact.Body.Close()
@@ -163,6 +182,9 @@ func uniqueLicenseArtifactRequests(dependencies []database.Dependency) ([]acquir
 				dependency.ManifestPath,
 			)
 		}
+		if isLocalSourcePURL(versionedPURL) {
+			continue
+		}
 		metadata, err := artifactregistry.ParseIntegrity(dependency.Integrity)
 		if err != nil {
 			return nil, fmt.Errorf("parsing integrity for %s: %w", versionedPURL, err)
@@ -180,6 +202,22 @@ func uniqueLicenseArtifactRequests(dependencies []database.Dependency) ([]acquir
 		requests = append(requests, unique[key])
 	}
 	return requests, nil
+}
+
+// isLocalSourcePURL reports whether a PURL's repository_url qualifier points
+// at a local filesystem path rather than a remote registry. Bundler PATH
+// sources and npm file: dependencies produce such PURLs; there is no artifact
+// to download for them.
+func isLocalSourcePURL(versionedPURL string) bool {
+	parsed, err := purl.Parse(versionedPURL)
+	if err != nil {
+		return false
+	}
+	repo := parsed.RepositoryURL()
+	if repo == "" {
+		return false
+	}
+	return !strings.HasPrefix(repo, "http://") && !strings.HasPrefix(repo, "https://")
 }
 
 func scanLicenseArtifact(

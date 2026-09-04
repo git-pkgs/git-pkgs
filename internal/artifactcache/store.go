@@ -412,7 +412,14 @@ func (item *stage) Discard(context.Context) error {
 		item.file = nil
 	}
 	item.discarded = true
-	return os.RemoveAll(item.dir)
+	if err := os.RemoveAll(item.dir); err != nil {
+		return err
+	}
+	parent := item.store.packageDir(item.request.PURL)
+	if remaining, err := os.ReadDir(parent); err == nil && len(remaining) == 0 {
+		_ = os.Remove(parent)
+	}
+	return nil
 }
 
 func (item *stage) openCommitted(artifact artifacts.Artifact) (io.ReadCloser, error) {

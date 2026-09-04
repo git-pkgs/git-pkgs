@@ -74,6 +74,27 @@ func TestDiscardRemovesStage(t *testing.T) {
 	if _, err := store.Open(context.Background(), request); err != acquire.ErrNotFound {
 		t.Fatalf("Open error = %v, want ErrNotFound", err)
 	}
+	if _, err := os.Stat(store.packageDir(request.PURL)); !os.IsNotExist(err) {
+		t.Errorf("package dir left behind after discard: %v", err)
+	}
+}
+
+func TestDiscardKeepsPackageDirWithCommittedEntry(t *testing.T) {
+	store := testStore(t)
+	commitTestArtifact(t, store, "kept.whl", []byte("committed"))
+	request := acquire.Request{PURL: cacheTestPURL, Filename: "abandoned.whl"}
+	staged, err := store.Stage(context.Background(), request, acquire.Source{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := staged.Discard(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := store.Open(context.Background(), acquire.Request{PURL: cacheTestPURL, Filename: "kept.whl"})
+	if err != nil {
+		t.Fatalf("committed entry lost after discard: %v", err)
+	}
+	_ = entry.Body.Close()
 }
 
 func TestOpenSelectsByFilenameAndIntegrity(t *testing.T) {
