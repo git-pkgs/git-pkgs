@@ -3,19 +3,19 @@ module github.com/git-pkgs/git-pkgs
 go 1.26.7
 
 require (
-	github.com/git-pkgs/changelog v0.2.0
-	github.com/git-pkgs/enrichment v0.7.0
+	github.com/git-pkgs/changelog v0.2.1
+	github.com/git-pkgs/enrichment v0.7.1
 	github.com/git-pkgs/gitignore v1.2.0
 	github.com/git-pkgs/managers v0.11.0
-	github.com/git-pkgs/manifests v0.10.1
-	github.com/git-pkgs/purl v0.1.19
-	github.com/git-pkgs/registries v0.8.1
+	github.com/git-pkgs/manifests v0.12.0
+	github.com/git-pkgs/purl v0.1.20
+	github.com/git-pkgs/registries v0.9.1
 	github.com/git-pkgs/resolve v0.2.2
 	github.com/git-pkgs/sarif v0.1.2
 	github.com/git-pkgs/sbom v0.1.6
 	github.com/git-pkgs/spdx v0.3.1
-	github.com/git-pkgs/vers v0.6.0
-	github.com/git-pkgs/vulns v0.2.2
+	github.com/git-pkgs/vers v0.7.0
+	github.com/git-pkgs/vulns v0.2.3
 	github.com/go-git/go-billy/v5 v5.9.1
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/mattn/go-isatty v0.0.24
@@ -189,7 +189,7 @@ require (
 	github.com/oapi-codegen/nullable v1.2.0 // indirect
 	github.com/oapi-codegen/runtime v1.6.0 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
-	github.com/pandatix/go-cvss v0.6.2 // indirect
+	github.com/pandatix/go-cvss v0.6.4 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/pjbgf/sha1cd v0.6.0 // indirect
@@ -253,7 +253,7 @@ require (
 	go.augendre.info/fatcontext v0.9.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260209203927-2842357ff358 // indirect
 	golang.org/x/mod v0.37.0 // indirect
