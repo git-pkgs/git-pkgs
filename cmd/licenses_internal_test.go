@@ -521,15 +521,46 @@ func TestSelectLicenseTargets(t *testing.T) {
 	}
 }
 
-func TestValidateLicenseTextTargetsRejectsUnresolvedDependency(t *testing.T) {
-	err := validateLicenseTextTargets([]licenseTarget{{
-		dependency: database.Dependency{Name: "example", ManifestPath: "package.json"},
-	}})
-	if err == nil || !strings.Contains(err.Error(), "resolved version for example from package.json") {
-		t.Fatalf("validateLicenseTextTargets() error = %v", err)
+func TestWarnUnresolvedLicenseTextTargets(t *testing.T) {
+	var output bytes.Buffer
+	command := &cobra.Command{}
+	command.SetErr(&output)
+	warnUnresolvedLicenseTextTargets(command, []licenseTarget{
+		{dependency: database.Dependency{Name: "six", Ecosystem: "pypi", ManifestPath: "requirements.txt"}},
+		{dependency: database.Dependency{Name: "certifi", Ecosystem: "pypi", ManifestPath: "requirements.txt"}},
+		{dependency: database.Dependency{Name: "actions/checkout", Ecosystem: "github-actions", ManifestPath: ".github/workflows/ci.yml"}},
+		{versionedPURL: "pkg:npm/example@1.0.0", dependency: database.Dependency{Name: "example", Ecosystem: "npm"}},
+	})
+	got := output.String()
+	if !strings.Contains(got, "skipped six, certifi from requirements.txt") {
+		t.Errorf("missing pypi warning: %q", got)
 	}
-	if err := validateLicenseTextTargets([]licenseTarget{{versionedPURL: "pkg:npm/example@1.0.0"}}); err != nil {
-		t.Fatalf("validateLicenseTextTargets() error = %v", err)
+	if strings.Contains(got, "actions/checkout") || strings.Contains(got, "ci.yml") {
+		t.Errorf("github-actions should be skipped silently: %q", got)
+	}
+	if strings.Contains(got, "example") {
+		t.Errorf("resolved target should not warn: %q", got)
+	}
+	if n := strings.Count(got, "\n"); n != 1 {
+		t.Errorf("want one warning line, got %d: %q", n, got)
+	}
+}
+
+func TestHasArtifactRegistry(t *testing.T) {
+	tests := []struct {
+		ecosystem string
+		want      bool
+	}{
+		{"npm", true},
+		{"gem", true},
+		{"pypi", true},
+		{"golang", true},
+		{"github-actions", false},
+	}
+	for _, tt := range tests {
+		if got := hasArtifactRegistry(tt.ecosystem); got != tt.want {
+			t.Errorf("hasArtifactRegistry(%q) = %v, want %v", tt.ecosystem, got, tt.want)
+		}
 	}
 }
 
@@ -569,9 +600,9 @@ func TestScanDependencyArtifacts(t *testing.T) {
 func TestUniqueLicenseArtifactRequestsKeepDistinctFiles(t *testing.T) {
 	const versionedPURL = "pkg:pypi/example@1.0.0"
 	dependencies := []database.Dependency{
-		{Name: "example", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("a", 64)},
-		{Name: "example", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("b", 64)},
-		{Name: "example", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("a", 64)},
+		{Name: "example", Ecosystem: "pypi", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("a", 64)},
+		{Name: "example", Ecosystem: "pypi", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("b", 64)},
+		{Name: "example", Ecosystem: "pypi", PURL: versionedPURL, Requirement: "1.0.0", Integrity: "sha256-" + strings.Repeat("a", 64)},
 	}
 	requests, err := uniqueLicenseArtifactRequests(dependencies)
 	if err != nil {
@@ -617,10 +648,11 @@ func TestScanDependencyArtifactsReportsRootCauseNotCancelledVictims(t *testing.T
 	}
 }
 
-func TestUniqueLicenseArtifactRequestsSkipsLocalSources(t *testing.T) {
+func TestUniqueLicenseArtifactRequestsSkipsUnfetchable(t *testing.T) {
 	deps := []database.Dependency{
 		{Name: "purl", Ecosystem: "gem", PURL: "pkg:gem/purl@1.8.1?repository_url=.", Requirement: "1.8.1", ManifestKind: manifestKindLockfile},
 		{Name: "local", Ecosystem: "npm", PURL: "pkg:npm/local@1.0.0?repository_url=file%3A%2F%2F%2Fhome", Requirement: "1.0.0", ManifestKind: manifestKindLockfile},
+		{Name: "actions/checkout", Ecosystem: "github-actions", PURL: "pkg:githubactions/actions/checkout@v4", Requirement: "v4", ManifestKind: manifestKindLockfile},
 		{Name: "rack", Ecosystem: "gem", PURL: "pkg:gem/rack@3.0.9", Requirement: "3.0.9", ManifestKind: manifestKindLockfile},
 		{Name: "priv", Ecosystem: "gem", PURL: "pkg:gem/priv@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", Requirement: "1.0.0", ManifestKind: manifestKindLockfile},
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/git-pkgs/integrity"
 	licensespkg "github.com/git-pkgs/licenses"
 	"github.com/git-pkgs/purl"
+	"github.com/git-pkgs/registries"
 )
 
 const (
@@ -182,7 +183,7 @@ func uniqueLicenseArtifactRequests(dependencies []database.Dependency) ([]acquir
 				dependency.ManifestPath,
 			)
 		}
-		if isLocalSourcePURL(versionedPURL) {
+		if isLocalSourcePURL(versionedPURL) || !hasArtifactRegistry(dependency.Ecosystem) {
 			continue
 		}
 		metadata, err := artifactregistry.ParseIntegrity(dependency.Integrity)
@@ -218,6 +219,12 @@ func isLocalSourcePURL(versionedPURL string) bool {
 		return false
 	}
 	return !strings.HasPrefix(repo, "http://") && !strings.HasPrefix(repo, "https://")
+}
+
+// hasArtifactRegistry reports whether git-pkgs/registries has a backend for
+// the given ecosystem and can therefore resolve a download URL.
+func hasArtifactRegistry(ecosystem string) bool {
+	return registries.DefaultURL(purl.EcosystemToPURLType(ecosystem)) != ""
 }
 
 func scanLicenseArtifact(

@@ -151,9 +151,7 @@ func runLicenses(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	if opts.includeText {
-		if err := validateLicenseTextTargets(targets); err != nil {
-			return err
-		}
+		warnUnresolvedLicenseTextTargets(cmd, targets)
 	}
 
 	purls := licenseTargetPackagePURLs(targets)
@@ -449,18 +447,30 @@ func resolvedLicenseTargetDependencies(targets []licenseTarget) []database.Depen
 	return dependencies
 }
 
-func validateLicenseTextTargets(targets []licenseTarget) error {
+func warnUnresolvedLicenseTextTargets(cmd *cobra.Command, targets []licenseTarget) {
+	skippedByManifest := make(map[string][]string)
 	for _, target := range targets {
 		if target.versionedPURL != "" {
 			continue
 		}
-		return fmt.Errorf(
-			"--license-text requires a resolved version for %s from %s",
-			target.dependency.Name,
-			target.dependency.ManifestPath,
+		if !hasArtifactRegistry(target.dependency.Ecosystem) {
+			continue
+		}
+		manifest := target.dependency.ManifestPath
+		skippedByManifest[manifest] = append(skippedByManifest[manifest], target.dependency.Name)
+	}
+	manifests := make([]string, 0, len(skippedByManifest))
+	for manifest := range skippedByManifest {
+		manifests = append(manifests, manifest)
+	}
+	sort.Strings(manifests)
+	for _, manifest := range manifests {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"Warning: --license-text skipped %s from %s: no resolved version (add a lockfile)\n",
+			strings.Join(skippedByManifest[manifest], ", "),
+			manifest,
 		)
 	}
-	return nil
 }
 
 type licensePolicy struct {
