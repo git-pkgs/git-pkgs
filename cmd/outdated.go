@@ -90,13 +90,15 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 
 	// Build PURLs for lookup (without version for cache key)
 	purls := make([]string, 0, len(lockfileDeps))
-	purlToDep := make(map[string]database.Dependency)
+	purlToDeps := make(map[string][]database.Dependency)
 	for _, d := range lockfileDeps {
 		// Build PURL without version for cache lookup
 		purlStr := purl.MakePURLString(d.Ecosystem, d.Name, "")
 		if purlStr != "" {
-			purls = append(purls, purlStr)
-			purlToDep[purlStr] = d
+			if len(purlToDeps[purlStr]) == 0 {
+				purls = append(purls, purlStr)
+			}
+			purlToDeps[purlStr] = append(purlToDeps[purlStr], d)
 		}
 	}
 
@@ -110,7 +112,7 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get package data (from cache or API)
-	packageData, err := getPackageData(db, purls, purlToDep)
+	packageData, err := getPackageData(db, purls, purlToDeps)
 	if err != nil {
 		return fmt.Errorf("looking up packages: %w", err)
 	}
@@ -122,8 +124,6 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		dep := purlToDep[purl]
-		current := dep.Requirement
 		latest := data.LatestVersion
 
 		// If --at is specified, find the latest version at that date
@@ -134,34 +134,37 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Compare versions
-		cmp := vers.Compare(current, latest)
-		if cmp >= 0 {
-			continue // Not outdated
-		}
+		for _, dep := range purlToDeps[purl] {
+			current := dep.Requirement
+			// Compare versions
+			cmp := vers.Compare(current, latest)
+			if cmp >= 0 {
+				continue // Not outdated
+			}
 
-		updateType := classifyUpdate(current, latest)
-		if updateType == "" {
-			continue // Invalid version format
-		}
+			updateType := classifyUpdate(current, latest)
+			if updateType == "" {
+				continue // Invalid version format
+			}
 
-		// Apply filters
-		if majorOnly && updateType != updateMajor {
-			continue
-		}
-		if minorUp && updateType == updatePatch {
-			continue
-		}
+			// Apply filters
+			if majorOnly && updateType != updateMajor {
+				continue
+			}
+			if minorUp && updateType == updatePatch {
+				continue
+			}
 
-		outdated = append(outdated, OutdatedPackage{
-			Name:           dep.Name,
-			Ecosystem:      dep.Ecosystem,
-			CurrentVersion: current,
-			LatestVersion:  latest,
-			UpdateType:     updateType,
-			ManifestPath:   dep.ManifestPath,
-			PURL:           purl,
-		})
+			outdated = append(outdated, OutdatedPackage{
+				Name:           dep.Name,
+				Ecosystem:      dep.Ecosystem,
+				CurrentVersion: current,
+				LatestVersion:  latest,
+				UpdateType:     updateType,
+				ManifestPath:   dep.ManifestPath,
+				PURL:           purl,
+			})
+		}
 	}
 
 	if format == formatJSON {
@@ -184,7 +187,7 @@ type packageInfo struct {
 	Source        string
 }
 
-func getPackageData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]*packageInfo, error) {
+func getPackageData(db *database.DB, purls []string, purlToDeps map[string][]database.Dependency) (map[string]*packageInfo, error) {
 	result := make(map[string]*packageInfo)
 	var uncachedPurls []string
 
@@ -246,8 +249,8 @@ func getPackageData(db *database.DB, purls []string, purlToDep map[string]databa
 			result[purl] = info
 
 			// Collect for batch save
-			if db != nil {
-				dep := purlToDep[purl]
+			if deps := purlToDeps[purl]; db != nil && len(deps) > 0 {
+				dep := deps[0]
 				toSave = append(toSave, database.PackageEnrichmentData{
 					PURL:          purl,
 					Ecosystem:     dep.Ecosystem,
@@ -388,7 +391,7 @@ func outputOutdatedText(cmd *cobra.Command, outdated []OutdatedPackage) {
 	if len(major) > 0 {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Major updates:")
 		for _, o := range major {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s -> %s\n", o.Name, o.CurrentVersion, o.LatestVersion)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s -> %s %s\n", o.Name, o.CurrentVersion, o.LatestVersion, Dim("("+o.ManifestPath+")"))
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
@@ -396,7 +399,7 @@ func outputOutdatedText(cmd *cobra.Command, outdated []OutdatedPackage) {
 	if len(minor) > 0 {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Minor updates:")
 		for _, o := range minor {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s -> %s\n", o.Name, o.CurrentVersion, o.LatestVersion)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s -> %s %s\n", o.Name, o.CurrentVersion, o.LatestVersion, Dim("("+o.ManifestPath+")"))
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout())
 	}
@@ -404,7 +407,7 @@ func outputOutdatedText(cmd *cobra.Command, outdated []OutdatedPackage) {
 	if len(patch) > 0 {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Patch updates:")
 		for _, o := range patch {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s -> %s\n", o.Name, o.CurrentVersion, o.LatestVersion)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s %s -> %s %s\n", o.Name, o.CurrentVersion, o.LatestVersion, Dim("("+o.ManifestPath+")"))
 		}
 	}
 }

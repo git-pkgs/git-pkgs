@@ -202,10 +202,10 @@ Or update a specific package found to be outdated:
 
 ```bash
 $ git pkgs outdated
-Found 3 outdated dependencies:
+Found 1 outdated dependencies:
 
 Patch updates:
-  lodash 4.17.20 -> 4.17.21
+  lodash 4.17.20 -> 4.17.21 (package-lock.json)
 
 $ git pkgs update lodash
 Detected: npm (package-lock.json)
