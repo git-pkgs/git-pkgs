@@ -53,10 +53,6 @@ func New(repo *git.Repository, db *database.DB, opts Options) *Indexer {
 }
 
 func (idx *Indexer) Run() (*Result, error) {
-	if err := idx.db.CheckSchemaVersion(); err != nil {
-		return nil, err
-	}
-
 	branch := idx.opts.Branch
 	if branch == "" {
 		var err error

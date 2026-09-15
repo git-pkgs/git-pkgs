@@ -90,7 +90,7 @@ func (db *DB) UpgradeSchema() (result UpgradeResult, err error) {
 
 	if currentVersion > SchemaVersion {
 		return result, fmt.Errorf(
-			"database schema version %d is newer than supported version %d; upgrade git-pkgs",
+			"database schema version %d is newer than supported version %d; install a newer git-pkgs binary",
 			currentVersion,
 			SchemaVersion,
 		)
@@ -103,7 +103,7 @@ func (db *DB) UpgradeSchema() (result UpgradeResult, err error) {
 	}
 	if currentIndexVersion > IndexVersion && currentIndexVersion != rebuildRequiredIndexVersion {
 		return result, fmt.Errorf(
-			"database index version %d is newer than supported version %d; upgrade git-pkgs",
+			"database index version %d is newer than supported version %d; install a newer git-pkgs binary",
 			currentIndexVersion,
 			IndexVersion,
 		)
