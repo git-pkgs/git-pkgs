@@ -3,12 +3,17 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/git-pkgs/changelog"
+	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +25,9 @@ func addChangelogCmd(parent *cobra.Command) {
 
 Uses the ecosyste.ms API to locate the package's repository and changelog file,
 then parses entries between the specified versions.
+If --from is omitted, the version in a PURL argument or the unique installed
+version at HEAD supplies the lower bound. Use --from to resolve multiple
+installed versions, or --from= to request an open lower bound.
 
 Examples:
   git-pkgs changelog lodash -e npm --from 4.17.20 --to 4.17.21
@@ -29,7 +37,7 @@ Examples:
 		RunE: runChangelog,
 	}
 
-	changelogCmd.Flags().String("from", "", "Current/old version")
+	changelogCmd.Flags().String("from", "", "Current/old version (defaults to PURL or installed version)")
 	changelogCmd.Flags().String("to", "", "Target/new version (defaults to latest)")
 	changelogCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	changelogCmd.Flags().StringP("manager", "m", "", "Override package manager (for ecosystem detection)")
@@ -62,7 +70,7 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	ecosystem, pkg, _, err := ParsePackageArg(args[0], ecosystemFlag)
+	ecosystem, pkg, packageVersion, err := ParsePackageArg(args[0], ecosystemFlag)
 	if err != nil {
 		return err
 	}
@@ -72,6 +80,16 @@ func runChangelog(cmd *cobra.Command, args []string) error {
 		ecosystem, err = detectEcosystem(managerFlag)
 		if err != nil {
 			return fmt.Errorf("could not determine ecosystem: %w\n\nUse -e to specify the ecosystem or pass a PURL", err)
+		}
+	}
+
+	if !cmd.Flags().Changed("from") {
+		fromVersion = packageVersion
+		if fromVersion == "" {
+			fromVersion, err = installedChangelogVersion(ecosystem, pkg)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -242,4 +260,56 @@ func detectEcosystem(managerFlag string) (string, error) {
 	}
 
 	return detected[0].Ecosystem, nil
+}
+
+// installedChangelogVersion only infers exact versions represented in dependency
+// PURLs; manifest requirements such as ^1.0 are not installed versions.
+func installedChangelogVersion(ecosystem, name string) (string, error) {
+	repo, err := git.OpenRepository(".")
+	if errors.Is(err, gogit.ErrRepositoryNotExists) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("finding installed version: %w", err)
+	}
+	deps, err := repo.GetDependencies("HEAD", "")
+	if errors.Is(err, plumbing.ErrReferenceNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("finding installed version: %w", err)
+	}
+	versions := make(map[string]map[string]bool)
+	for _, dep := range deps {
+		if !strings.EqualFold(dep.Ecosystem, ecosystem) || dep.Name != name {
+			continue
+		}
+		parsed, err := purl.Parse(dep.PURL)
+		if err != nil || parsed.Version == "" {
+			continue
+		}
+		if versions[parsed.Version] == nil {
+			versions[parsed.Version] = make(map[string]bool)
+		}
+		versions[parsed.Version][dep.ManifestPath] = true
+	}
+	if len(versions) == 0 {
+		return "", nil
+	}
+	if len(versions) == 1 {
+		for version := range versions {
+			return version, nil
+		}
+	}
+	var choices []string
+	for version, manifests := range versions {
+		var paths []string
+		for manifest := range manifests {
+			paths = append(paths, manifest)
+		}
+		sort.Strings(paths)
+		choices = append(choices, fmt.Sprintf("%s (%s)", version, strings.Join(paths, ", ")))
+	}
+	sort.Strings(choices)
+	return "", fmt.Errorf("multiple installed versions of %s: %s; specify --from", name, strings.Join(choices, "; "))
 }
