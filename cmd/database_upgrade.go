@@ -16,7 +16,7 @@ func openDatabaseForRepository(repo *git.Repository) (*database.DB, error) {
 	return db, err
 }
 
-func removeRepositoryDatabaseBranch(repo *git.Repository, branchName string) error {
+func removeRepositoryDatabaseBranch(repo *git.Repository, branchName string, warn io.Writer) error {
 	removedDuringRebuild := false
 	db, _, err := openRepositoryDatabaseWithPreparation(repo, io.Discard, true, func(previous *database.DB) error {
 		if err := previous.RemoveBranch(branchName); err != nil {
@@ -28,6 +28,9 @@ func removeRepositoryDatabaseBranch(repo *git.Repository, branchName string) err
 	if err != nil {
 		var unresolvableBranch *unresolvableTrackedBranchError
 		if removedDuringRebuild && errors.As(err, &unresolvableBranch) {
+			_, _ = fmt.Fprintf(warn,
+				"warning: rebuilding remaining branches failed: %s; run 'git pkgs branch remove %s' or restore that ref\n",
+				err, unresolvableBranch.name)
 			return nil
 		}
 		return err
@@ -38,6 +41,20 @@ func removeRepositoryDatabaseBranch(repo *git.Repository, branchName string) err
 		return nil
 	}
 	return db.RemoveBranch(branchName)
+}
+
+func describeUpgradeResult(result database.UpgradeResult, subject string) string {
+	switch {
+	case result.Rebuilt && result.FromSchemaVersion == result.ToSchemaVersion:
+		return fmt.Sprintf("Rebuilt %s index.", subject)
+	case result.Rebuilt:
+		return fmt.Sprintf("Upgraded %s from schema version %d to %d and rebuilt its index.",
+			subject, result.FromSchemaVersion, result.ToSchemaVersion)
+	case result.Upgraded():
+		return fmt.Sprintf("Upgraded %s from schema version %d to %d.",
+			subject, result.FromSchemaVersion, result.ToSchemaVersion)
+	}
+	return ""
 }
 
 func prepareRepositoryDatabase(repo *git.Repository) error {

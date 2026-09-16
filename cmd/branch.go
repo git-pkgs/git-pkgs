@@ -157,7 +157,7 @@ func runBranchRemove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("database not found. Run 'git pkgs init' first")
 	}
 
-	if err := removeRepositoryDatabaseBranch(repo, branchName); err != nil {
+	if err := removeRepositoryDatabaseBranch(repo, branchName, cmd.ErrOrStderr()); err != nil {
 		return fmt.Errorf("removing branch: %w", err)
 	}
 

@@ -136,15 +136,10 @@ func openExistingDatabase(cmd *cobra.Command, repo *git.Repository, quiet bool) 
 		return nil
 	}
 
-	switch {
-	case result.Rebuilt && result.FromSchemaVersion == result.ToSchemaVersion:
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Rebuilt existing database index.")
-	case result.Rebuilt:
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Upgraded existing database from schema version %d to %d and rebuilt its index.\n", result.FromSchemaVersion, result.ToSchemaVersion)
-	case result.Upgraded():
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Upgraded existing database from schema version %d to %d.\n", result.FromSchemaVersion, result.ToSchemaVersion)
-	default:
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Database already exists. Use --force to recreate.")
+	if msg := describeUpgradeResult(result, "existing database"); msg != "" {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), msg)
+		return nil
 	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Database already exists. Use --force to recreate.")
 	return nil
 }
