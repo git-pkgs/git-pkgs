@@ -339,11 +339,14 @@ Checks exact installed versions for registry attestation metadata. Verified trus
 git pkgs changelog lodash -e npm --from 4.17.20 --to 4.17.21
 git pkgs changelog lodash -e npm --from 4.17.20 --to 4.17.21 --format json
 git pkgs changelog pkg:cargo/serde --from 1.0.0 --to 1.0.200
-git pkgs changelog express -e npm   # all entries up to latest
+git pkgs changelog express -e npm   # installed version to latest
+git pkgs changelog express -e npm --from=  # all entries up to latest
 ```
 
 Fetches the upstream changelog for a package and shows entries between two versions. Uses [ecosyste.ms](https://packages.ecosyste.ms/) to find the repository and changelog file, then parses it with [git-pkgs/changelog](https://github.com/git-pkgs/changelog). Supports GitHub and GitLab repositories.
 Text output remains the default; use `--format json` for package metadata and structured per-version entries.
+
+When `--from` is omitted, a versioned PURL supplies the lower bound; otherwise the command infers the unique resolved version at HEAD. Multiple installed versions produce an error listing their versions and manifests so you can choose `--from` explicitly. If the package has no resolved installed version, or the command runs outside a Git repository, the lower bound remains open. An explicit `--from` always takes precedence; `--from=` requests an open lower bound.
 
 ### Manage dependencies
 
