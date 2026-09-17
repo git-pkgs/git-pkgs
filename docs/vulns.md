@@ -157,6 +157,13 @@ Options: `-e`, `-s`, `-b`, `-r`/`--ref`, `-f`, `--summary`, `--all-time`
 
 Compare vulnerability state between two commits:
 
+With no positional refs, compares the selected branch's latest indexed commit
+with its first parent, regardless of which branch is checked out. Use `--branch`
+to select a tracked branch; otherwise the first tracked branch is used. With one
+positional ref, compares that ref with the working tree's `HEAD`. Two positional
+refs select both endpoints explicitly. The default comparison requires an
+indexed parent commit.
+
 ```
 $ git pkgs vulns diff main feature-branch
 +CRITICAL  CVE-2024-1234  lodash 4.17.15      (introduced in feature-branch)

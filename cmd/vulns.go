@@ -1232,7 +1232,8 @@ func addVulnsDiffCmd(parent *cobra.Command) {
 		Use:   "diff [from] [to]",
 		Short: "Compare vulnerabilities between commits",
 		Long: `Show vulnerabilities that were added or fixed between two commits.
-Defaults to comparing HEAD~1 with HEAD.`,
+With no refs, compares the selected branch's latest indexed commit with its first parent.
+With one ref, compares that ref with HEAD. With two refs, compares them directly.`,
 		RunE: runVulnsDiff,
 	}
 
@@ -1282,13 +1283,33 @@ func runVulnsDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get vulnerabilities at both refs
-	fromVulns, err := getVulnsAtRef(repo, db, branch.ID, fromRef, ecosystem, ecosystemFilter)
+	var fromVulns, toVulns []VulnResult
+	if len(args) == 0 {
+		toRef = branch.LastAnalyzedSHA
+		if toRef == "" {
+			return fmt.Errorf("branch %q has no indexed tip", branch.Name)
+		}
+		// Use the Git first parent, not the previous indexed position (which may be a merged commit).
+		fromRef, err = resolveVulnsRef(repo, toRef+"~1")
+		if err != nil {
+			return fmt.Errorf("getting parent of indexed tip for branch %q: %w", branch.Name, err)
+		}
+		if _, err := db.GetCommitPosition(fromRef, branch.ID); err != nil {
+			return fmt.Errorf("getting indexed parent for branch %q: %w", branch.Name, err)
+		}
+		fromVulns, err = getVulnsAtCommit(db, branch.ID, fromRef, ecosystem, ecosystemFilter)
+	} else {
+		fromVulns, err = getVulnsAtRef(repo, db, branch.ID, fromRef, ecosystem, ecosystemFilter)
+	}
 	if err != nil {
 		return fmt.Errorf("getting vulns at %s: %w", fromRef, err)
 	}
 
-	toVulns, err := getVulnsAtRef(repo, db, branch.ID, toRef, ecosystem, ecosystemFilter)
+	if len(args) == 0 {
+		toVulns, err = getVulnsAtCommit(db, branch.ID, toRef, ecosystem, ecosystemFilter)
+	} else {
+		toVulns, err = getVulnsAtRef(repo, db, branch.ID, toRef, ecosystem, ecosystemFilter)
+	}
 	if err != nil {
 		return fmt.Errorf("getting vulns at %s: %w", toRef, err)
 	}
