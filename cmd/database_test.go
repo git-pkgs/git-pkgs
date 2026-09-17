@@ -3,11 +3,13 @@ package cmd_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/git-pkgs/git-pkgs/cmd"
+	"github.com/git-pkgs/git-pkgs/internal/database"
 )
 
 func TestBranchCommand(t *testing.T) {
@@ -214,8 +216,13 @@ func TestInfoCommand(t *testing.T) {
 		if !strings.Contains(stdout, "Database Info") {
 			t.Errorf("expected 'Database Info' header, got: %s", stdout)
 		}
-		if !strings.Contains(stdout, "Schema version") {
-			t.Errorf("expected 'Schema version' in output, got: %s", stdout)
+		for _, version := range []string{
+			fmt.Sprintf("Schema version: %d", database.SchemaVersion),
+			fmt.Sprintf("Index version: %d", database.IndexVersion),
+		} {
+			if !strings.Contains(stdout, version) {
+				t.Errorf("expected %q in output, got: %s", version, stdout)
+			}
 		}
 		if !strings.Contains(stdout, "Branch") {
 			t.Errorf("expected 'Branch' in output, got: %s", stdout)
@@ -317,6 +324,9 @@ func TestInfoCommand(t *testing.T) {
 
 		if _, ok := info["schema_version"]; !ok {
 			t.Error("expected 'schema_version' in JSON")
+		}
+		if got := info["index_version"]; got != float64(database.IndexVersion) {
+			t.Errorf("expected index_version %d, got: %#v", database.IndexVersion, got)
 		}
 		if _, ok := info["row_counts"]; !ok {
 			t.Error("expected 'row_counts' in JSON")

@@ -51,7 +51,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("database not found. Run 'git pkgs init' first")
 	}
 
-	db, err := database.Open(dbPath)
+	db, err := openDatabaseForRepository(repo)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}

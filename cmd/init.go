@@ -65,10 +65,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	dbPath := repo.DatabasePath()
 	if database.Exists(dbPath) && !force {
-		if !quiet {
-			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Database already exists. Use --force to recreate.")
-		}
-		return nil
+		return openExistingDatabase(cmd, repo, quiet)
 	}
 
 	db, err := database.Create(dbPath)
@@ -124,5 +121,25 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	return nil
+}
+
+func openExistingDatabase(cmd *cobra.Command, repo *git.Repository, quiet bool) error {
+	db, result, err := openRepositoryDatabase(repo, cmd.OutOrStdout(), quiet)
+	if err != nil {
+		return fmt.Errorf("opening existing database: %w", err)
+	}
+	if err := db.Close(); err != nil {
+		return fmt.Errorf("closing existing database: %w", err)
+	}
+	if quiet {
+		return nil
+	}
+
+	if msg := describeUpgradeResult(result, "existing database"); msg != "" {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), msg)
+		return nil
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Database already exists. Use --force to recreate.")
 	return nil
 }

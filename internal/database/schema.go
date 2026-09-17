@@ -208,6 +208,9 @@ func (db *DB) CreateSchema() error {
 	if _, err := db.Exec("INSERT INTO schema_info (version) VALUES (?)", SchemaVersion); err != nil {
 		return fmt.Errorf("setting schema version: %w", err)
 	}
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", IndexVersion)); err != nil {
+		return fmt.Errorf("setting index version: %w", err)
+	}
 
 	return db.OptimizeForReads()
 }
@@ -219,31 +222,4 @@ func (db *DB) SchemaVersion() (int, error) {
 		return 0, err
 	}
 	return version, nil
-}
-
-func CheckSchemaVersion(version int) error {
-	switch {
-	case version < SchemaVersion:
-		return fmt.Errorf(
-			"database schema version %d is outdated (current version is %d); run 'git pkgs upgrade'",
-			version,
-			SchemaVersion,
-		)
-	case version > SchemaVersion:
-		return fmt.Errorf(
-			"database schema version %d is newer than this git-pkgs binary supports (maximum supported version is %d); use a compatible git-pkgs binary",
-			version,
-			SchemaVersion,
-		)
-	default:
-		return nil
-	}
-}
-
-func (db *DB) CheckSchemaVersion() error {
-	version, err := db.SchemaVersion()
-	if err != nil {
-		return fmt.Errorf("reading database schema version: %w", err)
-	}
-	return CheckSchemaVersion(version)
 }
