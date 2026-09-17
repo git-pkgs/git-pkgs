@@ -8,7 +8,7 @@ require (
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/enrichment v0.7.1
 	github.com/git-pkgs/gitignore v1.2.0
-	github.com/git-pkgs/history v0.0.0
+	github.com/git-pkgs/history v0.1.0
 	github.com/git-pkgs/integrity v0.1.1
 	github.com/git-pkgs/licenses v0.6.0
 	github.com/git-pkgs/managers v0.11.0
@@ -21,7 +21,7 @@ require (
 	github.com/git-pkgs/spdx v0.3.1
 	github.com/git-pkgs/vers v0.7.0
 	github.com/git-pkgs/vulns v0.2.3
-	github.com/go-git/go-git/v6 v6.0.0-alpha.4
+	github.com/go-git/go-git/v6 v6.0.0-alpha.5
 	github.com/mattn/go-isatty v0.0.24
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/spf13/cobra v1.10.2
@@ -29,12 +29,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.58.0
 )
-
-replace github.com/git-pkgs/history => ../history
-
-replace github.com/go-git/go-git/v6 => github.com/git-pkgs/go-git/v6 v6.0.0-alpha.4.0.20260917090817-072a44546c43
-
-replace github.com/go-git/go-billy/v6 => github.com/git-pkgs/go-billy/v6 v6.0.0-alpha.2.0.20260906202738-23c9d86c8d17
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect
@@ -164,7 +158,7 @@ require (
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
 	github.com/kisielk/errcheck v1.10.0 // indirect
 	github.com/kkHAIKE/contextcheck v1.1.6 // indirect
-	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/kulti/thelper v0.7.1 // indirect
 	github.com/kunwardeep/paralleltest v1.0.15 // indirect
@@ -266,6 +260,7 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.56.0 // indirect
+	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260209203927-2842357ff358 // indirect
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
