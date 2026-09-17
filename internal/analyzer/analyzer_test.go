@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/git-pkgs/git-pkgs/internal/analyzer"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing"
 )
 
 func createTestRepo(t *testing.T) string {
@@ -184,6 +184,63 @@ func TestAnalyzeCommitWithAddedGemfile(t *testing.T) {
 	if railsChange.Ecosystem != "gem" {
 		t.Errorf("expected ecosystem 'gem', got %s", railsChange.Ecosystem)
 	}
+}
+
+func TestAnalyzeCommitChangesWithAddedGemfile(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "Gemfile", sampleGemfile(map[string]string{"rails": "~> 7.0"}))
+	sha := commit(t, repoDir, "Add Gemfile")
+
+	repo := openRepo(t, repoDir)
+	c, err := repo.CommitObject(plumbing.NewHash(sha))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := analyzer.New().AnalyzeCommitChanges(c, nil, analyzer.ManifestChanges{Added: []string{"Gemfile"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result == nil || len(result.Changes) != 1 || result.Changes[0].Name != "rails" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestAnalyzeCommitChangesUpdatesSnapshotInPlace(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "Gemfile", sampleGemfile(map[string]string{"rails": "~> 7.0"}))
+	firstSHA := commit(t, repoDir, "Add Gemfile")
+	addFile(t, repoDir, "Gemfile", sampleGemfile(map[string]string{"rails": "~> 7.1"}))
+	secondSHA := commit(t, repoDir, "Update Gemfile")
+
+	repo := openRepo(t, repoDir)
+	first, err := repo.CommitObject(plumbing.NewHash(firstSHA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.CommitObject(plumbing.NewHash(secondSHA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := analyzer.New()
+	initial, err := a.AnalyzeCommitChanges(first, nil, analyzer.ManifestChanges{Added: []string{"Gemfile"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := initial.Snapshot
+	result, err := a.AnalyzeCommitChanges(second, previous, analyzer.ManifestChanges{Modified: []string{"Gemfile"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(previous) != len(result.Snapshot) {
+		t.Fatalf("previous snapshot was not updated in place: previous=%v result=%v", previous, result.Snapshot)
+	}
+	for key := range previous {
+		if key.Name == "rails" && key.Requirement == "~> 7.1" {
+			return
+		}
+	}
+	t.Fatalf("updated rails entry missing from previous snapshot: %v", previous)
 }
 
 func TestAnalyzeCommitWithModifiedGemfile(t *testing.T) {
@@ -1150,73 +1207,6 @@ func TestScopeChangeTracksType(t *testing.T) {
 			t.Errorf("%s: expected DependencyType 'runtime', got %q", ch.Name, ch.DependencyType)
 		}
 	}
-}
-
-func TestDiffCacheEvictedAfterConsume(t *testing.T) {
-	repoDir := createTestRepo(t)
-	addFile(t, repoDir, "README.md", "# Test")
-	commit(t, repoDir, "Initial commit")
-
-	addFile(t, repoDir, "Gemfile", sampleGemfile(map[string]string{"rails": "~> 7.0"}))
-	sha1 := commit(t, repoDir, "Add Gemfile")
-
-	addFile(t, repoDir, "Gemfile", sampleGemfile(map[string]string{"rails": "~> 7.1"}))
-	sha2 := commit(t, repoDir, "Update rails")
-
-	addFile(t, repoDir, "package.json", samplePackageJSON(map[string]string{"lodash": "^4.17.21"}))
-	sha3 := commit(t, repoDir, "Add package.json")
-
-	repo := openRepo(t, repoDir)
-	a := analyzer.New()
-	a.SetRepoPath(repoDir)
-
-	// Collect commit hashes in order
-	var hashes []plumbing.Hash
-	for _, sha := range []string{sha1, sha2, sha3} {
-		hashes = append(hashes, plumbing.NewHash(sha))
-	}
-
-	a.PrefetchDiffs(hashes, 4)
-
-	// Analyze all 3 commits, consuming each cached diff
-	var snapshot analyzer.Snapshot
-	for _, h := range hashes {
-		c, err := repo.CommitObject(h)
-		if err != nil {
-			t.Fatalf("failed to get commit %s: %v", h.String()[:7], err)
-		}
-		result, err := a.AnalyzeCommit(c, snapshot)
-		if err != nil {
-			t.Fatalf("unexpected error analyzing %s: %v", h.String()[:7], err)
-		}
-		if result != nil {
-			snapshot = result.Snapshot
-		}
-	}
-
-}
-
-func TestClearDiffCache(t *testing.T) {
-	repoDir := createTestRepo(t)
-	addFile(t, repoDir, "README.md", "# Test")
-	commit(t, repoDir, "Initial commit")
-
-	addFile(t, repoDir, "Gemfile", sampleGemfile(map[string]string{"rails": "~> 7.0"}))
-	sha1 := commit(t, repoDir, "Add Gemfile")
-
-	addFile(t, repoDir, "Gemfile", sampleGemfile(map[string]string{"rails": "~> 7.1"}))
-	sha2 := commit(t, repoDir, "Update rails")
-
-	a := analyzer.New()
-	a.SetRepoPath(repoDir)
-
-	hashes := []plumbing.Hash{plumbing.NewHash(sha1), plumbing.NewHash(sha2)}
-	a.PrefetchDiffs(hashes, 4)
-
-	a.ClearDiffCache()
-
-	// Prefetch again to verify it still works after clearing
-	a.PrefetchDiffs(hashes, 4)
 }
 
 func TestClearBlobCache(t *testing.T) {

@@ -1,22 +1,18 @@
 package analyzer
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"sync"
 
 	"github.com/git-pkgs/git-pkgs/internal/config"
 	"github.com/git-pkgs/gitignore"
 	"github.com/git-pkgs/manifests"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/utils/merkletrie"
+	"github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing/filemode"
+	"github.com/go-git/go-git/v6/plumbing/object"
+	"github.com/go-git/go-git/v6/utils/merkletrie"
 )
 
 func isSupplementFile(path string) bool {
@@ -74,30 +70,21 @@ type Result struct {
 	ManifestLicenses []ManifestLicense
 }
 
-type cachedDiff struct {
-	added    []string
-	modified []string
-	deleted  []string
+type ManifestChanges struct {
+	Added    []string
+	Modified []string
+	Deleted  []string
 }
 
 type Analyzer struct {
 	blobCache       map[string]*manifests.ParseResult
-	diffCache       map[string]*cachedDiff
-	diffMu          sync.RWMutex
-	repoPath        string
 	ecosystemFilter config.EcosystemFilter
 }
 
 func New() *Analyzer {
 	return &Analyzer{
 		blobCache: make(map[string]*manifests.ParseResult),
-		diffCache: make(map[string]*cachedDiff),
 	}
-}
-
-// SetRepoPath sets the repository path for git shell commands.
-func (a *Analyzer) SetRepoPath(path string) {
-	a.repoPath = path
 }
 
 // SetEcosystemFilter limits which ecosystems are analyzed.
@@ -115,124 +102,6 @@ func (a *Analyzer) ClearBlobCache() {
 	a.blobCache = make(map[string]*manifests.ParseResult)
 }
 
-// ClearDiffCache replaces the diffCache with a fresh empty map,
-// allowing the GC to reclaim all cached diff entries.
-func (a *Analyzer) ClearDiffCache() {
-	a.diffMu.Lock()
-	a.diffCache = make(map[string]*cachedDiff)
-	a.diffMu.Unlock()
-}
-
-// PrefetchDiffs pre-computes diffs for all commits using a single git log command.
-// Output is streamed via StdoutPipe so the raw git output is never held in memory.
-func (a *Analyzer) PrefetchDiffs(hashes []plumbing.Hash, numWorkers int) {
-	if len(hashes) == 0 || a.repoPath == "" {
-		return
-	}
-
-	lastSHA := hashes[len(hashes)-1].String()
-	firstSHA := hashes[0].String()
-
-	cmd := exec.Command("git", "log", "--name-status", "--format=COMMIT:%H", "--reverse", firstSHA+"^.."+lastSHA)
-	cmd.Dir = a.repoPath
-
-	if err := a.prefetchFromCmd(cmd); err != nil {
-		// Fallback for root commits: include first commit
-		cmd = exec.Command("git", "log", "--name-status", "--format=COMMIT:%H", "--reverse", lastSHA)
-		cmd.Dir = a.repoPath
-		_ = a.prefetchFromCmd(cmd)
-	}
-}
-
-// prefetchFromCmd streams the output of a git log --name-status command and
-// populates the diff cache. The raw output is never buffered as a single allocation.
-func (a *Analyzer) prefetchFromCmd(cmd *exec.Cmd) error {
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("creating stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting git log: %w", err)
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	var currentSHA string
-	var currentDiff *cachedDiff
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if line == "" {
-			continue
-		}
-
-		if strings.HasPrefix(line, "COMMIT:") {
-			if currentSHA != "" && currentDiff != nil {
-				a.diffMu.Lock()
-				a.diffCache[currentSHA] = currentDiff
-				a.diffMu.Unlock()
-			}
-			currentSHA = line[7:]
-			currentDiff = &cachedDiff{}
-			continue
-		}
-
-		if currentDiff == nil || len(line) < 2 {
-			continue
-		}
-
-		status := line[0]
-		switch status {
-		case 'A', 'M', 'D':
-			if line[1] != '\t' {
-				continue
-			}
-			path := line[2:]
-			if _, _, ok := manifests.Identify(path); !ok {
-				continue
-			}
-			switch status {
-			case 'A':
-				currentDiff.added = append(currentDiff.added, path)
-			case 'M':
-				currentDiff.modified = append(currentDiff.modified, path)
-			case 'D':
-				currentDiff.deleted = append(currentDiff.deleted, path)
-			}
-
-		case 'R', 'C':
-			firstTab := strings.Index(line, "\t")
-			if firstTab == -1 {
-				continue
-			}
-			rest := line[firstTab+1:]
-			secondTab := strings.Index(rest, "\t")
-			if secondTab == -1 {
-				continue
-			}
-			oldPath := rest[:secondTab]
-			newPath := rest[secondTab+1:]
-
-			if _, _, ok := manifests.Identify(oldPath); ok {
-				currentDiff.deleted = append(currentDiff.deleted, oldPath)
-			}
-			if _, _, ok := manifests.Identify(newPath); ok {
-				currentDiff.added = append(currentDiff.added, newPath)
-			}
-		}
-	}
-
-	// Save the last commit
-	if currentSHA != "" && currentDiff != nil {
-		a.diffMu.Lock()
-		a.diffCache[currentSHA] = currentDiff
-		a.diffMu.Unlock()
-	}
-
-	return cmd.Wait()
-}
-
 func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapshot) (*Result, error) {
 	if len(commit.ParentHashes) > 1 {
 		return nil, nil
@@ -242,7 +111,6 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 	if err != nil {
 		return nil, err
 	}
-
 	var parentTree *object.Tree
 	if commit.NumParents() > 0 {
 		parent, err := commit.Parent(0)
@@ -255,63 +123,95 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		}
 	}
 
-	// Check for cached diff first (delete after read since each entry is consumed once)
-	var added, modified, deleted []string
-	commitHash := commit.Hash.String()
-	a.diffMu.Lock()
-	cached, hasCached := a.diffCache[commitHash]
-	if hasCached {
-		delete(a.diffCache, commitHash)
+	diff, err := object.DiffTree(parentTree, tree)
+	if err != nil {
+		return nil, err
 	}
-	a.diffMu.Unlock()
 
-	if hasCached {
-		added = cached.added
-		modified = cached.modified
-		deleted = cached.deleted
-	} else {
-		// Fallback to go-git diff
-		changes, err := object.DiffTree(parentTree, tree)
+	var changes ManifestChanges
+	for _, change := range diff {
+		action, err := change.Action()
 		if err != nil {
-			return nil, err
+			continue
 		}
 
-		for _, change := range changes {
-			action, err := change.Action()
-			if err != nil {
-				continue
-			}
+		path := change.To.Name
+		if path == "" {
+			path = change.From.Name
+		}
+		if _, _, ok := manifests.Identify(path); !ok {
+			continue
+		}
 
-			var path string
-			if change.To.Name != "" {
-				path = change.To.Name
-			} else {
-				path = change.From.Name
-			}
-
-			_, _, ok := manifests.Identify(path)
-			if !ok {
-				continue
-			}
-
-			switch action {
-			case merkletrie.Insert:
-				added = append(added, path)
-			case merkletrie.Modify:
-				modified = append(modified, path)
-			case merkletrie.Delete:
-				deleted = append(deleted, path)
-			}
+		switch action {
+		case merkletrie.Insert:
+			changes.Added = append(changes.Added, path)
+		case merkletrie.Modify:
+			changes.Modified = append(changes.Modified, path)
+		case merkletrie.Delete:
+			changes.Deleted = append(changes.Deleted, path)
 		}
 	}
+	return a.analyzeManifestChanges(changes, previousSnapshot, tree, parentTree, true)
+}
 
-	if len(added) == 0 && len(modified) == 0 && len(deleted) == 0 {
+// AnalyzeCommitChanges applies known manifest paths and updates previousSnapshot
+// in place. The caller must not retain an older view of that map.
+func (a *Analyzer) AnalyzeCommitChanges(
+	commit *object.Commit,
+	previousSnapshot Snapshot,
+	changes ManifestChanges,
+) (*Result, error) {
+	if len(commit.ParentHashes) > 1 || changes.empty() {
 		return nil, nil
 	}
 
-	result := &Result{
-		Snapshot: copySnapshot(previousSnapshot),
+	var tree, parentTree *object.Tree
+	if len(changes.Added) > 0 || len(changes.Modified) > 0 {
+		var err error
+		tree, err = commit.Tree()
+		if err != nil {
+			return nil, err
+		}
 	}
+	if commit.NumParents() > 0 && (len(changes.Modified) > 0 || len(changes.Deleted) > 0) {
+		parent, err := commit.Parent(0)
+		if err != nil {
+			return nil, err
+		}
+		parentTree, err = parent.Tree()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return a.analyzeManifestChanges(changes, previousSnapshot, tree, parentTree, false)
+}
+
+func (c ManifestChanges) empty() bool {
+	return len(c.Added) == 0 && len(c.Modified) == 0 && len(c.Deleted) == 0
+}
+
+//nolint:gocognit,gocyclo,maintidx // Manifest changes share one ordered snapshot mutation pass.
+func (a *Analyzer) analyzeManifestChanges(
+	changes ManifestChanges,
+	previousSnapshot Snapshot,
+	tree *object.Tree,
+	parentTree *object.Tree,
+	copyPrevious bool,
+) (*Result, error) {
+	if changes.empty() {
+		return nil, nil
+	}
+
+	added, modified, deleted := changes.Added, changes.Modified, changes.Deleted
+
+	snapshot := previousSnapshot
+	if copyPrevious {
+		snapshot = copySnapshot(previousSnapshot)
+	} else if snapshot == nil {
+		snapshot = make(Snapshot)
+	}
+	result := &Result{Snapshot: snapshot}
 
 	for _, path := range added {
 		if isSupplementFile(path) {
@@ -636,23 +536,43 @@ func (a *Analyzer) parseManifestInTree(tree *object.Tree, path string) (*manifes
 }
 
 func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error) {
+	var deps []Change
+	err := a.walkDependenciesAtCommit(commit, func(dep Change) {
+		deps = append(deps, dep)
+	})
+	return deps, err
+}
+
+// SnapshotAtCommit returns dependency state parsed from the commit tree.
+func (a *Analyzer) SnapshotAtCommit(commit *object.Commit) (Snapshot, error) {
+	snapshot := make(Snapshot)
+	err := a.walkDependenciesAtCommit(commit, func(dep Change) {
+		key := SnapshotKey{
+			ManifestPath: dep.ManifestPath,
+			Name:         dep.Name,
+			Requirement:  dep.Requirement,
+		}
+		snapshot[key] = SnapshotEntry{
+			Ecosystem:      dep.Ecosystem,
+			Kind:           dep.Kind,
+			PURL:           dep.PURL,
+			Requirement:    dep.Requirement,
+			DependencyType: dep.DependencyType,
+			Integrity:      dep.Integrity,
+			Direct:         dep.Direct,
+		}
+	})
+	return snapshot, err
+}
+
+func (a *Analyzer) walkDependenciesAtCommit(commit *object.Commit, visit func(Change)) error {
 	tree, err := commit.Tree()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var deps []Change
-
-	err = tree.Files().ForEach(func(f *object.File) error {
-		_, _, ok := manifests.Identify(f.Name)
-		if !ok {
-			return nil
-		}
-		if isSupplementFile(f.Name) {
-			return nil
-		}
-
-		result, err := a.parseManifestInTree(tree, f.Name)
+	err = walkManifestPaths(tree, "", func(path string) error {
+		result, err := a.parseManifestInTree(tree, path)
 		if err != nil || result == nil {
 			return nil
 		}
@@ -660,7 +580,7 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 			return nil
 		}
 
-		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(f.Name))
+		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(path))
 
 		for _, dep := range result.Dependencies {
 			integrity := dep.Integrity
@@ -669,8 +589,8 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 					integrity = h
 				}
 			}
-			deps = append(deps, Change{
-				ManifestPath:   f.Name,
+			visit(Change{
+				ManifestPath:   path,
 				Ecosystem:      result.Ecosystem,
 				Kind:           string(result.Kind),
 				Name:           dep.Name,
@@ -684,8 +604,36 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 
 		return nil
 	})
+	return err
+}
 
-	return deps, err
+func walkManifestPaths(tree *object.Tree, prefix string, visit func(string) error) error {
+	for _, entry := range tree.Entries {
+		path := entry.Name
+		if prefix != "" {
+			path = prefix + "/" + entry.Name
+		}
+		if entry.Mode == filemode.Dir {
+			child, err := tree.Tree(entry.Name)
+			if err != nil {
+				return err
+			}
+			if err := walkManifestPaths(child, path, visit); err != nil {
+				return err
+			}
+			continue
+		}
+		if !entry.Mode.IsFile() || isSupplementFile(path) {
+			continue
+		}
+		if _, _, ok := manifests.Identify(path); !ok {
+			continue
+		}
+		if err := visit(path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // supplementKey identifies a dependency for supplement hash matching.

@@ -128,7 +128,7 @@ func runBisectStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check for clean working directory
-	if !isWorkingDirectoryClean() {
+	if !isWorkingDirectoryClean(repo) {
 		return fmt.Errorf("working directory is not clean. Please commit or stash your changes")
 	}
 
@@ -449,12 +449,12 @@ func runBisectReset(cmd *cobra.Command, args []string) error {
 
 	// Restore original HEAD
 	if state.OriginalRef != "" {
-		if err := gitCheckout(state.OriginalRef); err != nil {
+		if err := gitCheckout(repo, state.OriginalRef); err != nil {
 			return fmt.Errorf("restoring original branch: %w", err)
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Switched back to branch '%s'\n", state.OriginalRef)
 	} else if state.OriginalHead != "" {
-		if err := gitCheckout(state.OriginalHead); err != nil {
+		if err := gitCheckout(repo, state.OriginalHead); err != nil {
 			return fmt.Errorf("restoring original HEAD: %w", err)
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Restored to %s\n", shortSHA(state.OriginalHead))
@@ -580,7 +580,7 @@ func doBisectStep(cmd *cobra.Command, repo *git.Repository, mgr *bisect.Manager,
 	target := remaining[mid]
 
 	// Checkout the target commit
-	if err := gitCheckout(target.SHA); err != nil {
+	if err := gitCheckout(repo, target.SHA); err != nil {
 		return fmt.Errorf("checking out %s: %w", shortSHA(target.SHA), err)
 	}
 
@@ -750,20 +750,13 @@ func resolveRev(repo *git.Repository, rev string) (string, error) {
 	return hash.String(), nil
 }
 
-func gitCheckout(ref string) error {
-	cmd := exec.Command("git", "checkout", ref)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+func gitCheckout(repo *git.Repository, ref string) error {
+	return repo.Checkout(ref)
 }
 
-func isWorkingDirectoryClean() bool {
-	cmd := exec.Command("git", "status", "--porcelain")
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return len(strings.TrimSpace(string(output))) == 0
+func isWorkingDirectoryClean(repo *git.Repository) bool {
+	clean, err := repo.WorkingTreeClean()
+	return err == nil && clean
 }
 
 func getCommitSubject(repo *git.Repository, sha string) string {
