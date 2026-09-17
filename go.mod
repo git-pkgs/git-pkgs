@@ -9,7 +9,7 @@ require (
 	github.com/git-pkgs/enrichment v0.7.1
 	github.com/git-pkgs/gitignore v1.2.0
 	github.com/git-pkgs/integrity v0.1.1
-	github.com/git-pkgs/licenses v0.6.0
+	github.com/git-pkgs/licenses v0.8.0
 	github.com/git-pkgs/managers v0.11.0
 	github.com/git-pkgs/manifests v0.12.0
 	github.com/git-pkgs/purl v0.1.20
@@ -17,7 +17,7 @@ require (
 	github.com/git-pkgs/resolve v0.2.2
 	github.com/git-pkgs/sarif v0.1.2
 	github.com/git-pkgs/sbom v0.1.6
-	github.com/git-pkgs/spdx v0.3.1
+	github.com/git-pkgs/spdx v0.3.2
 	github.com/git-pkgs/vers v0.7.0
 	github.com/git-pkgs/vulns v0.2.3
 	github.com/go-git/go-billy/v5 v5.9.1
@@ -64,7 +64,7 @@ require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/ashanbrown/forbidigo/v2 v2.3.1 // indirect
 	github.com/ashanbrown/makezero/v2 v2.2.1 // indirect
-	github.com/bazelbuild/buildtools v0.0.0-20260716142318-04cf7de1434f // indirect
+	github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bkielbasa/cyclop v1.2.3 // indirect
 	github.com/blizzy78/varnamelen v0.8.0 // indirect
@@ -109,7 +109,7 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/ghostiam/protogetter v0.3.20 // indirect
-	github.com/git-pkgs/magic v0.3.0 // indirect
+	github.com/git-pkgs/magic v0.3.1 // indirect
 	github.com/git-pkgs/packageurl-go v0.3.1 // indirect
 	github.com/git-pkgs/pom v0.1.7 // indirect
 	github.com/github/go-spdx/v2 v2.7.0 // indirect
