@@ -293,6 +293,7 @@ func TestResolveRevision(t *testing.T) {
 	repoDir := createTestRepo(t)
 	addFile(t, repoDir, "README.md", "# Test")
 	sha := commit(t, repoDir, "Initial commit")
+	t.Setenv("PATH", t.TempDir())
 
 	repo, err := git.OpenRepository(repoDir)
 	if err != nil {
@@ -329,23 +330,15 @@ func TestResolveRevision(t *testing.T) {
 		}
 	})
 
-	t.Run("resolves reflog syntax via git fallback", func(t *testing.T) {
-		hash, err := repo.ResolveRevision("@{0}")
-		if err != nil {
-			t.Fatalf("failed to resolve @{0}: %v", err)
-		}
-		if hash.String() != sha {
-			t.Errorf("expected %s, got %s", sha, hash.String())
+	t.Run("rejects unsupported reflog syntax", func(t *testing.T) {
+		if _, err := repo.ResolveRevision("@{0}"); err == nil {
+			t.Fatal("expected reflog syntax error")
 		}
 	})
 
-	t.Run("resolves :/message syntax via git fallback", func(t *testing.T) {
-		hash, err := repo.ResolveRevision(":/Initial")
-		if err != nil {
-			t.Fatalf("failed to resolve :/Initial: %v", err)
-		}
-		if hash.String() != sha {
-			t.Errorf("expected %s, got %s", sha, hash.String())
+	t.Run("rejects unsupported message syntax", func(t *testing.T) {
+		if _, err := repo.ResolveRevision(":/Initial"); err == nil {
+			t.Fatal("expected message syntax error")
 		}
 	})
 
@@ -355,6 +348,87 @@ func TestResolveRevision(t *testing.T) {
 			t.Error("expected error for unknown revision")
 		}
 	})
+}
+
+func TestWorktreeOperationsWithoutGitBinary(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "README.md", "first")
+	first := commit(t, repoDir, "First commit")
+	addFile(t, repoDir, "second.txt", "second")
+	second := commit(t, repoDir, "Second commit")
+	t.Setenv("PATH", t.TempDir())
+
+	repo, err := git.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clean, err := repo.WorkingTreeClean()
+	if err != nil || !clean {
+		t.Fatalf("WorkingTreeClean() = %v, %v", clean, err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	clean, err = repo.WorkingTreeClean()
+	if err != nil || clean {
+		t.Fatalf("WorkingTreeClean() after edit = %v, %v", clean, err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.Checkout(first); err != nil {
+		t.Fatalf("Checkout(first): %v", err)
+	}
+	head, err := repo.Head()
+	if err != nil || head.Hash().String() != first {
+		t.Fatalf("HEAD after detached checkout = %v, %v", head, err)
+	}
+	if _, err := os.Stat(filepath.Join(repoDir, "second.txt")); !os.IsNotExist(err) {
+		t.Fatalf("second.txt still present after checkout: %v", err)
+	}
+
+	if err := repo.Checkout("main"); err != nil {
+		t.Fatalf("Checkout(main): %v", err)
+	}
+	head, err = repo.Head()
+	if err != nil || !head.Name().IsBranch() || head.Hash().String() != second {
+		t.Fatalf("HEAD after branch checkout = %v, %v", head, err)
+	}
+}
+
+func TestDiffDriverConfigWithoutGitBinary(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFile(t, repoDir, "README.md", "test")
+	commit(t, repoDir, "Initial commit")
+	t.Setenv("PATH", t.TempDir())
+
+	repo, err := git.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetDiffDriver("git pkgs diff-driver"); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(repoDir, ".git", "config")
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "textconv = git pkgs diff-driver") {
+		t.Fatalf("config missing textconv:\n%s", contents)
+	}
+
+	if err := repo.UnsetDiffDriver(); err != nil {
+		t.Fatal(err)
+	}
+	contents, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(contents), "textconv") {
+		t.Fatalf("config still contains textconv:\n%s", contents)
+	}
 }
 
 func TestCommitObject(t *testing.T) {

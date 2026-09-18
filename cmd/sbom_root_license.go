@@ -10,7 +10,7 @@ import (
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/manifests"
 	"github.com/git-pkgs/spdx"
-	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
 type projectLicenses struct {

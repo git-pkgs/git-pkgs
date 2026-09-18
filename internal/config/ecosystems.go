@@ -1,12 +1,11 @@
 package config
 
 import (
-	"errors"
-	"os/exec"
 	"sort"
 	"strings"
 
 	"github.com/git-pkgs/purl"
+	gitconfig "github.com/go-git/go-git/v6/config"
 )
 
 const (
@@ -19,17 +18,11 @@ type EcosystemFilter struct {
 	ignored map[string]bool
 }
 
-func LoadEcosystemFilter(dir string) (EcosystemFilter, error) {
-	allowed, err := gitConfigValues(dir, EcosystemsKey)
-	if err != nil {
-		return EcosystemFilter{}, err
-	}
-	ignored, err := gitConfigValues(dir, IgnoredEcosystemsKey)
-	if err != nil {
-		return EcosystemFilter{}, err
-	}
-
-	return NewEcosystemFilter(allowed, ignored), nil
+func LoadEcosystemFilter(cfg *gitconfig.Config) EcosystemFilter {
+	section := cfg.Raw.Section("pkgs")
+	allowed := configValues(section.Options.GetAll("ecosystems"))
+	ignored := configValues(section.Options.GetAll("ignoredEcosystems"))
+	return NewEcosystemFilter(allowed, ignored)
 }
 
 func NewEcosystemFilter(allowed, ignored []string) EcosystemFilter {
@@ -101,18 +94,12 @@ func filterValues(values map[string]bool) []string {
 	return result
 }
 
-func gitConfigValues(dir, key string) ([]string, error) {
-	cmd := exec.Command("git", "config", "--get-all", key)
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return nil, nil
-		}
-		return nil, err
+func configValues(raw []string) []string {
+	var values []string
+	for _, value := range raw {
+		values = append(values, splitConfigValues(value)...)
 	}
-	return splitConfigValues(string(out)), nil
+	return values
 }
 
 func splitConfigValues(raw string) []string {

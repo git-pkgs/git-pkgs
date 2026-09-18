@@ -162,3 +162,33 @@ func TestDiffDriverEmitsNoRawContentAfterLicenseRemoval(t *testing.T) {
 		t.Fatalf("diff-driver output = %q, want empty semantic output", stdout.String())
 	}
 }
+
+func TestDiffDriverInstallWithoutGitBinary(t *testing.T) {
+	repoDir := createTestRepo(t)
+	restore := chdir(t, repoDir)
+	defer restore()
+	t.Setenv("PATH", t.TempDir())
+
+	if _, _, err := runCmd(t, "diff-driver", "--install"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	configPath := filepath.Join(repoDir, ".git", "config")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(config), "textconv = git pkgs diff-driver") {
+		t.Fatalf("config missing textconv:\n%s", config)
+	}
+
+	if _, _, err := runCmd(t, "diff-driver", "--uninstall"); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	config, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(config), "textconv") {
+		t.Fatalf("config still contains textconv:\n%s", config)
+	}
+}
