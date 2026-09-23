@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	gitconfig "github.com/go-git/go-git/v6/config"
 )
 
 func TestEcosystemFilterAllowsAllWhenUnset(t *testing.T) {
@@ -87,5 +89,24 @@ func TestSplitConfigValues(t *testing.T) {
 		if values[i] != want[i] {
 			t.Fatalf("value %d = %q, want %q", i, values[i], want[i])
 		}
+	}
+}
+
+func TestLoadEcosystemFilter(t *testing.T) {
+	cfg, err := gitconfig.ReadConfig(strings.NewReader(`[pkgs]
+	ecosystems = npm, rubygems
+	ecosystems = golang
+	ignoredEcosystems = pypi
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := LoadEcosystemFilter(cfg)
+	allowed, ignored := filter.Values()
+	if got, want := strings.Join(allowed, ","), "golang,npm,rubygems"; got != want {
+		t.Fatalf("allowed=%q, want %q", got, want)
+	}
+	if got, want := strings.Join(ignored, ","), "pypi"; got != want {
+		t.Fatalf("ignored=%q, want %q", got, want)
 	}
 }

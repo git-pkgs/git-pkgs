@@ -1,28 +1,26 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/git-pkgs/git-pkgs/internal/config"
 	"github.com/git-pkgs/git-pkgs/internal/mailmap"
-	"github.com/go-git/go-billy/v5/osfs"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/cache"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/storage/filesystem"
-	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
+	"github.com/git-pkgs/history"
+	"github.com/go-git/go-git/v6"
+	gitconfig "github.com/go-git/go-git/v6/config"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
 const DatabaseFile = "pkgs.sqlite3"
 
 type Repository struct {
 	repo                *git.Repository
+	history             *history.Repo
 	gitDir              string
 	workDir             string
 	mailmap             *mailmap.Mailmap
@@ -32,53 +30,26 @@ type Repository struct {
 }
 
 func OpenRepository(path string) (*Repository, error) {
-	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{
+	historyRepo, err := history.OpenWithOptions(path, history.OpenOptions{
+		Tuning:       history.DefaultTuning(),
 		DetectDotGit: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("opening repository: %w", err)
 	}
+	repo := historyRepo.Repository()
 
 	wt, err := repo.Worktree()
 	if err != nil {
 		return nil, fmt.Errorf("getting worktree: %w", err)
 	}
 
-	workDir := wt.Filesystem.Root()
-
-	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
-	cmd.Dir = workDir
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("resolving git common dir: %w", err)
-	}
-	gitDir := filepath.FromSlash(strings.TrimSpace(string(out)))
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(workDir, gitDir)
-	}
-
-	// PlainOpen roots its billy filesystem at the per-repo .git, so it can't
-	// follow alternates that point outside the repo, and in a linked worktree
-	// it can't see refs/objects in the common dir. PlainOpenOptions doesn't
-	// expose AlternatesFS, and EnableDotGitCommonDir leaks an fd in v5, so
-	// rebuild the storage here with both wired up. gitDir above is already
-	// the common dir from `git rev-parse --git-common-dir`.
-	if fsStorer, ok := repo.Storer.(*filesystem.Storage); ok {
-		dotFs := dotgit.NewRepositoryFilesystem(fsStorer.Filesystem(), osfs.New(gitDir))
-		root := filepath.VolumeName(gitDir) + string(filepath.Separator)
-		s := filesystem.NewStorageWithOptions(
-			dotFs,
-			cache.NewObjectLRUDefault(),
-			filesystem.Options{AlternatesFS: osfs.New(root)},
-		)
-		if reopened, rerr := git.Open(s, wt.Filesystem); rerr == nil {
-			repo = reopened
-		}
-	}
+	workDir := wt.Filesystem().Root()
 
 	return &Repository{
 		repo:    repo,
-		gitDir:  gitDir,
+		history: historyRepo,
+		gitDir:  historyRepo.CommonDir(),
 		workDir: workDir,
 	}, nil
 }
@@ -103,7 +74,11 @@ func (r *Repository) WorkDir() string {
 
 func (r *Repository) EcosystemFilter() (config.EcosystemFilter, error) {
 	r.ecosystemFilterOnce.Do(func() {
-		r.ecosystemFilter, r.ecosystemFilterErr = config.LoadEcosystemFilter(r.workDir)
+		var repoConfig *gitconfig.Config
+		repoConfig, r.ecosystemFilterErr = r.repo.Config()
+		if r.ecosystemFilterErr == nil {
+			r.ecosystemFilter = config.LoadEcosystemFilter(repoConfig)
+		}
 	})
 	if r.ecosystemFilterErr != nil {
 		return config.EcosystemFilter{}, r.ecosystemFilterErr
@@ -127,26 +102,81 @@ func (r *Repository) CurrentBranch() (string, error) {
 }
 
 func (r *Repository) ResolveRevision(rev string) (*plumbing.Hash, error) {
-	hash, err := r.repo.ResolveRevision(plumbing.Revision(rev))
-	if err == nil {
-		return hash, nil
-	}
-
-	// go-git's ResolveRevision does not implement the full gitrevisions(7)
-	// grammar (reflog @{n}, :/regex, dates) and can fail on hashes in some
-	// storage layouts. Fall back to the git CLI which we already require.
-	cmd := exec.Command("git", "rev-parse", "--verify", "--end-of-options", rev)
-	cmd.Dir = r.workDir
-	out, gitErr := cmd.Output()
-	if gitErr != nil {
-		return nil, err
-	}
-	h := plumbing.NewHash(strings.TrimSpace(string(out)))
-	return &h, nil
+	return r.repo.ResolveRevision(plumbing.Revision(rev))
 }
 
 func (r *Repository) CommitObject(hash plumbing.Hash) (*object.Commit, error) {
 	return r.repo.CommitObject(hash)
+}
+
+func (r *Repository) CommitHashes(opts history.CommitOptions) ([]plumbing.Hash, error) {
+	return r.history.CommitHashes(opts)
+}
+
+func (r *Repository) WalkCommits(opts history.CommitOptions, visit func(history.Commit) error) error {
+	return r.history.WalkCommits(opts, visit)
+}
+
+func (r *Repository) Checkout(ref string) error {
+	worktree, err := r.repo.Worktree()
+	if err != nil {
+		return err
+	}
+	branch := plumbing.NewBranchReferenceName(ref)
+	if _, err := r.repo.Reference(branch, true); err == nil {
+		return worktree.Checkout(&git.CheckoutOptions{Branch: branch})
+	} else if !errors.Is(err, plumbing.ErrReferenceNotFound) {
+		return err
+	}
+	hash, err := r.ResolveRevision(ref)
+	if err != nil {
+		return err
+	}
+	return worktree.Checkout(&git.CheckoutOptions{Hash: *hash})
+}
+
+func (r *Repository) WorkingTreeClean() (bool, error) {
+	worktree, err := r.repo.Worktree()
+	if err != nil {
+		return false, err
+	}
+	status, err := worktree.Status()
+	if err != nil {
+		return false, err
+	}
+	return status.IsClean(), nil
+}
+
+func (r *Repository) SetDiffDriver(command string) error {
+	cfg, err := r.repo.Config()
+	if err != nil {
+		return err
+	}
+	cfg.Raw.SetOption("diff", "git-pkgs", "textconv", command)
+	return r.repo.SetConfig(cfg)
+}
+
+func (r *Repository) UnsetDiffDriver() error {
+	cfg, err := r.repo.Config()
+	if err != nil {
+		return err
+	}
+	if !cfg.Raw.HasSection("diff") {
+		return nil
+	}
+	section := cfg.Raw.Section("diff")
+	if !section.HasSubsection("git-pkgs") {
+		return nil
+	}
+	subsection := section.Subsection("git-pkgs")
+	subsection.RemoveOption("textconv")
+	if len(subsection.Options) == 0 {
+		section.RemoveSubsection("git-pkgs")
+	}
+	if len(section.Options) == 0 && len(section.Subsections) == 0 {
+		cfg.Raw.RemoveSection("diff")
+	}
+	return r.repo.SetConfig(cfg)
 }
 
 // Tags returns a map of commit SHA to tag names for all tags in the repository.

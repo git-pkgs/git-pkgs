@@ -3,15 +3,17 @@ package indexer
 import (
 	"fmt"
 	"io"
-	"os/exec"
-	"strings"
+	"runtime"
 
 	"github.com/git-pkgs/git-pkgs/internal/analyzer"
 	"github.com/git-pkgs/git-pkgs/internal/config"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/git-pkgs/internal/progress"
-	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/git-pkgs/history"
+	"github.com/git-pkgs/manifests"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
 type Options struct {
@@ -146,7 +148,6 @@ func (idx *Indexer) Run() (*Result, error) {
 	}
 	idx.progress.Println("Analyzing %d commits on %s...", len(commits), branch)
 
-	idx.analyzer.SetRepoPath(idx.repo.WorkDir())
 	idx.analyzer.SetEcosystemFilter(idx.opts.EcosystemFilter)
 
 	refs := <-refCh
@@ -155,6 +156,7 @@ func (idx *Indexer) Run() (*Result, error) {
 
 	result := &Result{}
 	var lastSHAWithChanges string
+	var lastCommitWithChanges *object.Commit
 	var firstSnapshotStored bool
 
 	batchSize := database.DefaultBatchSize
@@ -168,22 +170,36 @@ func (idx *Indexer) Run() (*Result, error) {
 			batchEnd = len(commits)
 		}
 
-		const prefetchWorkers = 8
-		idx.analyzer.PrefetchDiffs(commits[batchStart:batchEnd], prefetchWorkers)
+		walked := make([]history.Commit, 0, batchEnd-batchStart)
+		err := idx.repo.WalkCommits(history.CommitOptions{
+			Hashes:  commits[batchStart:batchEnd],
+			Workers: runtime.GOMAXPROCS(0),
+			PathFilter: func(path string) bool {
+				_, _, ok := manifests.Identify(path)
+				return ok
+			},
+		}, func(commit history.Commit) error {
+			walked = append(walked, commit)
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("walking commits: %w", err)
+		}
 
-		for i := batchStart; i < batchEnd; i++ {
-			hash := commits[i]
+		for offset, walkedCommit := range walked {
+			i := batchStart + offset
 
 			if (i+1)%100 == 0 {
 				idx.progress.Update("  %d/%d commits processed", i+1, len(commits))
 			}
 
-			commit, err := idx.repo.CommitObject(hash)
-			if err != nil {
-				continue
-			}
+			commit := walkedCommit.Object
 
-			analysisResult, err := idx.analyzer.AnalyzeCommit(commit, snapshot)
+			analysisResult, err := idx.analyzer.AnalyzeCommitChanges(
+				commit,
+				snapshot,
+				manifestChanges(walkedCommit.Changes),
+			)
 			if err != nil {
 				continue
 			}
@@ -206,6 +222,7 @@ func (idx *Indexer) Run() (*Result, error) {
 			result.CommitsAnalyzed++
 
 			if analysisResult != nil {
+				snapshot = analysisResult.Snapshot
 				for _, license := range analysisResult.ManifestLicenses {
 					manifest := database.ManifestInfo{
 						Path:      license.ManifestPath,
@@ -223,8 +240,8 @@ func (idx *Indexer) Run() (*Result, error) {
 			if hasChanges {
 				result.CommitsWithChanges++
 				result.TotalChanges += len(analysisResult.Changes)
-				snapshot = analysisResult.Snapshot
 				lastSHAWithChanges = sha
+				lastCommitWithChanges = commit
 
 				writer.IncrementDepCommitCount()
 
@@ -253,27 +270,8 @@ func (idx *Indexer) Run() (*Result, error) {
 				shouldStore := !firstSnapshotStored || writer.ShouldStoreSnapshot() || isImportant
 				if shouldStore {
 					firstSnapshotStored = true
-					if len(analysisResult.Snapshot) == 0 {
-						writer.AddEmptySnapshot(sha)
-					} else {
-						for key, entry := range analysisResult.Snapshot {
-							manifest := database.ManifestInfo{
-								Path:      key.ManifestPath,
-								Ecosystem: entry.Ecosystem,
-								Kind:      entry.Kind,
-							}
-							snapshotInfo := database.SnapshotInfo{
-								ManifestPath:   key.ManifestPath,
-								Name:           key.Name,
-								Ecosystem:      entry.Ecosystem,
-								PURL:           entry.PURL,
-								Requirement:    entry.Requirement,
-								DependencyType: entry.DependencyType,
-								Integrity:      entry.Integrity,
-								Direct:         entry.Direct,
-							}
-							writer.AddSnapshot(sha, manifest, snapshotInfo)
-						}
+					if err := idx.addSnapshot(writer, sha, commit); err != nil {
+						return nil, err
 					}
 					if isImportant {
 						idx.logImportantSnapshot(sha, tagsBySHA[sha], branchesBySHA[sha])
@@ -281,25 +279,9 @@ func (idx *Indexer) Run() (*Result, error) {
 						result.BranchSnapshots += len(branchesBySHA[sha])
 					}
 				}
-			} else if len(snapshot) > 0 && (len(tagsBySHA[sha]) > 0 || len(branchesBySHA[sha]) > 0) {
-				// Store snapshot for important commits (tags, branch heads) even without changes
-				for key, entry := range snapshot {
-					manifest := database.ManifestInfo{
-						Path:      key.ManifestPath,
-						Ecosystem: entry.Ecosystem,
-						Kind:      entry.Kind,
-					}
-					snapshotInfo := database.SnapshotInfo{
-						ManifestPath:   key.ManifestPath,
-						Name:           key.Name,
-						Ecosystem:      entry.Ecosystem,
-						PURL:           entry.PURL,
-						Requirement:    entry.Requirement,
-						DependencyType: entry.DependencyType,
-						Integrity:      entry.Integrity,
-						Direct:         entry.Direct,
-					}
-					writer.AddSnapshot(sha, manifest, snapshotInfo)
+			} else if len(tagsBySHA[sha]) > 0 || len(branchesBySHA[sha]) > 0 {
+				if err := idx.addSnapshot(writer, sha, commit); err != nil {
+					return nil, err
 				}
 				idx.logImportantSnapshot(sha, tagsBySHA[sha], branchesBySHA[sha])
 				result.TagSnapshots += len(tagsBySHA[sha])
@@ -315,35 +297,14 @@ func (idx *Indexer) Run() (*Result, error) {
 			}
 		}
 
-		idx.analyzer.ClearDiffCache()
 	}
 
 	idx.progress.Clear()
 
 	// Always store final snapshot for the last commit with changes
 	if lastSHAWithChanges != "" && !writer.HasPendingSnapshots(lastSHAWithChanges) {
-		if len(snapshot) == 0 {
-			// Store empty snapshot marker
-			writer.AddEmptySnapshot(lastSHAWithChanges)
-		} else {
-			for key, entry := range snapshot {
-				manifest := database.ManifestInfo{
-					Path:      key.ManifestPath,
-					Ecosystem: entry.Ecosystem,
-					Kind:      entry.Kind,
-				}
-				snapshotInfo := database.SnapshotInfo{
-					ManifestPath:   key.ManifestPath,
-					Name:           key.Name,
-					Ecosystem:      entry.Ecosystem,
-					PURL:           entry.PURL,
-					Requirement:    entry.Requirement,
-					DependencyType: entry.DependencyType,
-					Integrity:      entry.Integrity,
-					Direct:         entry.Direct,
-				}
-				writer.AddSnapshot(lastSHAWithChanges, manifest, snapshotInfo)
-			}
+		if err := idx.addSnapshot(writer, lastSHAWithChanges, lastCommitWithChanges); err != nil {
+			return nil, err
 		}
 	}
 
@@ -364,6 +325,35 @@ func (idx *Indexer) Run() (*Result, error) {
 	}
 
 	return result, nil
+}
+
+func (idx *Indexer) addSnapshot(writer *database.BatchWriter, sha string, commit *object.Commit) error {
+	snapshot, err := idx.analyzer.SnapshotAtCommit(commit)
+	if err != nil {
+		return fmt.Errorf("building snapshot at %s: %w", sha, err)
+	}
+	if len(snapshot) == 0 {
+		writer.AddEmptySnapshot(sha)
+		return nil
+	}
+	for key, entry := range snapshot {
+		manifest := database.ManifestInfo{
+			Path:      key.ManifestPath,
+			Ecosystem: entry.Ecosystem,
+			Kind:      entry.Kind,
+		}
+		writer.AddSnapshot(sha, manifest, database.SnapshotInfo{
+			ManifestPath:   key.ManifestPath,
+			Name:           key.Name,
+			Ecosystem:      entry.Ecosystem,
+			PURL:           entry.PURL,
+			Requirement:    entry.Requirement,
+			DependencyType: entry.DependencyType,
+			Integrity:      entry.Integrity,
+			Direct:         entry.Direct,
+		})
+	}
+	return nil
 }
 
 func filterSnapshot(snapshot analyzer.Snapshot, filter config.EcosystemFilter) analyzer.Snapshot {
@@ -400,33 +390,22 @@ func convertDBSnapshot(dbSnapshot map[string]database.SnapshotInfo) analyzer.Sna
 }
 
 func (idx *Indexer) collectCommits(branch string, sinceSHA string) ([]plumbing.Hash, error) {
-	var revRange string
-	if sinceSHA != "" {
-		revRange = sinceSHA + ".." + branch
-	} else {
-		revRange = branch
+	return idx.repo.CommitHashes(history.CommitOptions{Ref: branch, Since: sinceSHA})
+}
+
+func manifestChanges(changes []history.Change) analyzer.ManifestChanges {
+	var result analyzer.ManifestChanges
+	for _, change := range changes {
+		switch {
+		case change.OldMode == "000000":
+			result.Added = append(result.Added, change.Path)
+		case change.NewMode == "000000":
+			result.Deleted = append(result.Deleted, change.Path)
+		default:
+			result.Modified = append(result.Modified, change.Path)
+		}
 	}
-
-	cmd := exec.Command("git", "rev-list", "--reverse", revRange)
-	cmd.Dir = idx.repo.WorkDir()
-
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("running git rev-list: %w", err)
-	}
-
-	trimmed := strings.TrimSpace(string(output))
-	if trimmed == "" {
-		return nil, nil
-	}
-
-	lines := strings.Split(trimmed, "\n")
-	hashes := make([]plumbing.Hash, len(lines))
-	for i, line := range lines {
-		hashes[i] = plumbing.NewHash(line)
-	}
-
-	return hashes, nil
+	return result
 }
 
 func (idx *Indexer) logImportantSnapshot(sha string, tags, branches []string) {

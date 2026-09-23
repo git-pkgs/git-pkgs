@@ -17,9 +17,9 @@ import (
 	gitpkg "github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/sbom"
 	"github.com/git-pkgs/spdx"
-	gitgo "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
+	gitgo "github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
 )
 
 type sbomEnrichmentClient struct {

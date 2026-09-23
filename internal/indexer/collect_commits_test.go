@@ -10,7 +10,7 @@ import (
 
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	gitpkg "github.com/git-pkgs/git-pkgs/internal/git"
-	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v6/plumbing"
 )
 
 func testGit(t *testing.T, dir string, args ...string) string {

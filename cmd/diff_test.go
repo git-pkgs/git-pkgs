@@ -212,7 +212,7 @@ jobs:
 	}
 	defer func() { _ = os.Chdir(oldDir) }()
 
-	// Initialize database (this exercises the PrefetchDiffs rename handling)
+	// Initialize the database through the normal indexing path.
 	rootCmd := NewRootCmd()
 	rootCmd.SetArgs([]string{"init"})
 	rootCmd.SetOut(&bytes.Buffer{})

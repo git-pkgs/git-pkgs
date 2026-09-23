@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -87,10 +86,7 @@ func installDiffDriver(cmd *cobra.Command) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	// Add to .git/config
-	gitCmd := exec.Command("git", "config", "diff.git-pkgs.textconv", "git pkgs diff-driver")
-	gitCmd.Dir = repo.WorkDir()
-	if err := gitCmd.Run(); err != nil {
+	if err := repo.SetDiffDriver("git pkgs diff-driver"); err != nil {
 		return fmt.Errorf("setting git config: %w", err)
 	}
 
@@ -139,10 +135,9 @@ func uninstallDiffDriver(cmd *cobra.Command) error {
 		return fmt.Errorf("not in a git repository: %w", err)
 	}
 
-	// Remove from .git/config
-	gitCmd := exec.Command("git", "config", "--unset", "diff.git-pkgs.textconv")
-	gitCmd.Dir = repo.WorkDir()
-	_ = gitCmd.Run() // Ignore error if not set
+	if err := repo.UnsetDiffDriver(); err != nil {
+		return fmt.Errorf("unsetting git config: %w", err)
+	}
 
 	// Remove from .gitattributes
 	attrPath := filepath.Join(repo.WorkDir(), ".gitattributes")

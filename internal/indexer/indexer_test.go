@@ -61,10 +61,35 @@ func addFileAndCommit(t *testing.T, repoDir, path, content, message string) {
 	}
 }
 
+func addFileAndCommitAt(t *testing.T, repoDir, path, content, message, commitDate string) {
+	t.Helper()
+	fullPath := filepath.Join(repoDir, path)
+
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	gitRun(t, repoDir, "add", path)
+	gitRunAt(t, repoDir, commitDate, "commit", "-m", message)
+}
+
 func gitRun(t *testing.T, repoDir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+}
+
+func gitRunAt(t *testing.T, repoDir, commitDate string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoDir
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+commitDate, "GIT_COMMITTER_DATE="+commitDate)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, out)
@@ -156,6 +181,34 @@ gem "sidekiq"
 	}
 	if changeCount != 4 {
 		t.Errorf("expected 4 changes, got %d", changeCount)
+	}
+}
+
+func TestIndexerRunsWithoutGitBinary(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFileAndCommit(t, repoDir, "Gemfile", "gem \"rails\", \"~> 7.0\"\n", "Add Gemfile")
+	t.Setenv("PATH", t.TempDir())
+
+	repo, err := gitpkg.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("OpenRepository: %v", err)
+	}
+	filter, err := repo.EcosystemFilter()
+	if err != nil {
+		t.Fatalf("EcosystemFilter: %v", err)
+	}
+	db, err := database.Create(filepath.Join(repoDir, ".git", "pkgs.sqlite3"))
+	if err != nil {
+		t.Fatalf("Create database: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	result, err := indexer.New(repo, db, indexer.Options{Quiet: true, EcosystemFilter: filter}).Run()
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.CommitsAnalyzed != 1 || result.TotalChanges != 1 {
+		t.Fatalf("result=%+v", result)
 	}
 }
 
@@ -573,6 +626,61 @@ func samplePackageLockJSON(deps map[string]string) string {
 	return sb.String()
 }
 
+func TestIndexerSnapshotIncludesChecksumOnlyChanges(t *testing.T) {
+	repoDir := createTestRepo(t)
+	lockfile := func(integrity string) string {
+		return fmt.Sprintf(`{
+  "name": "test",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "packages": {
+    "": {"name": "test", "version": "1.0.0"},
+    "node_modules/lodash": {
+      "version": "4.17.21",
+      "integrity": %q
+    }
+  }
+}
+`, integrity)
+	}
+	addFileAndCommit(t, repoDir, "package-lock.json", lockfile("sha512-YWJj"), "Add lockfile")
+	addFileAndCommit(t, repoDir, "package-lock.json", lockfile("sha512-ZGVm"), "Update checksum")
+	headSHA := gitOutput(t, repoDir, "rev-parse", "HEAD")
+
+	repo, err := gitpkg.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("failed to open repo: %v", err)
+	}
+	db, err := database.Create(filepath.Join(repoDir, ".git", "pkgs.sqlite3"))
+	if err != nil {
+		t.Fatalf("failed to create db: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	result, err := indexer.New(repo, db, indexer.Options{Quiet: true}).Run()
+	if err != nil {
+		t.Fatalf("indexer failed: %v", err)
+	}
+	if result.TotalChanges != 1 {
+		t.Fatalf("total changes = %d, want 1", result.TotalChanges)
+	}
+
+	var integrity string
+	err = db.QueryRow(`
+		SELECT ds.integrity
+		FROM dependency_snapshots ds
+		JOIN commits c ON c.id = ds.commit_id
+		JOIN manifests m ON m.id = ds.manifest_id
+		WHERE c.sha = ? AND m.path = 'package-lock.json' AND ds.name = 'lodash'
+	`, headSHA).Scan(&integrity)
+	if err != nil {
+		t.Fatalf("failed to read checksum snapshot: %v", err)
+	}
+	if integrity != "sha512-ZGVm" {
+		t.Fatalf("snapshot integrity = %q, want %q", integrity, "sha512-ZGVm")
+	}
+}
+
 func TestNpmMultipleVersionsSurviveModifiedLockfile(t *testing.T) {
 	repoDir := createTestRepo(t)
 
@@ -825,6 +933,48 @@ gem "puma"
 
 	if v110SnapshotCount != 2 {
 		t.Errorf("expected 2 snapshots at v1.1.0 (rails and puma), got %d", v110SnapshotCount)
+	}
+}
+
+func TestIndexerSnapshotsUseExactCommitTree(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFileAndCommitAt(t, repoDir, "Gemfile", "gem \"rails\", \"~> 7.0\"\n", "Add rails", "2020-01-01T00:00:00Z")
+	gitRun(t, repoDir, "branch", "feature")
+	addFileAndCommitAt(t, repoDir, "Gemfile", "gem \"rails\", \"~> 7.1\"\n", "Update rails", "2020-01-02T00:00:00Z")
+	gitRun(t, repoDir, "checkout", "feature")
+	addFileAndCommitAt(t, repoDir, "Gemfile", "# feature\ngem \"rails\", \"~> 7.0\"\n", "Document feature", "2020-01-03T00:00:00Z")
+	gitRun(t, repoDir, "checkout", "main")
+	gitRunAt(t, repoDir, "2020-01-04T00:00:00Z", "merge", "-s", "ours", "--no-edit", "feature")
+	gitRun(t, repoDir, "tag", "v1.0.0")
+	mergeSHA := gitOutput(t, repoDir, "rev-parse", "HEAD")
+
+	repo, err := gitpkg.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("failed to open repo: %v", err)
+	}
+	db, err := database.Create(filepath.Join(repoDir, ".git", "pkgs.sqlite3"))
+	if err != nil {
+		t.Fatalf("failed to create db: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if _, err := indexer.New(repo, db, indexer.Options{Quiet: true}).Run(); err != nil {
+		t.Fatalf("indexer failed: %v", err)
+	}
+
+	var requirement string
+	err = db.QueryRow(`
+		SELECT ds.requirement
+		FROM dependency_snapshots ds
+		JOIN commits c ON c.id = ds.commit_id
+		JOIN manifests m ON m.id = ds.manifest_id
+		WHERE c.sha = ? AND m.path = 'Gemfile' AND ds.name = 'rails'
+	`, mergeSHA).Scan(&requirement)
+	if err != nil {
+		t.Fatalf("failed to read merge snapshot: %v", err)
+	}
+	if requirement != "~> 7.1" {
+		t.Fatalf("merge snapshot requirement = %q, want %q", requirement, "~> 7.1")
 	}
 }
 
