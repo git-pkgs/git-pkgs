@@ -842,4 +842,4 @@ Bug reports, feature requests, and pull requests are welcome. If you're unsure a
 
 ## License
 
-MIT
+[MIT](LICENSE).
