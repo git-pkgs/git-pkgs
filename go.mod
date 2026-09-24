@@ -7,7 +7,7 @@ require (
 	github.com/git-pkgs/artifacts v0.2.1
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/enrichment v0.7.1
-	github.com/git-pkgs/gitignore v1.2.0
+	github.com/git-pkgs/gitignore v1.3.0
 	github.com/git-pkgs/integrity v0.1.1
 	github.com/git-pkgs/licenses v0.8.0
 	github.com/git-pkgs/managers v0.11.0
