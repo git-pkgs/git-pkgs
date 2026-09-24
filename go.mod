@@ -3,7 +3,7 @@ module github.com/git-pkgs/git-pkgs
 go 1.26.7
 
 require (
-	github.com/git-pkgs/archives v0.7.0
+	github.com/git-pkgs/archives v0.7.1
 	github.com/git-pkgs/artifacts v0.2.1
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/enrichment v0.7.1
@@ -162,7 +162,7 @@ require (
 	github.com/kevinburke/ssh_config v1.5.0 // indirect
 	github.com/kisielk/errcheck v1.10.0 // indirect
 	github.com/kkHAIKE/contextcheck v1.1.6 // indirect
-	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/kulti/thelper v0.7.1 // indirect
 	github.com/kunwardeep/paralleltest v1.0.15 // indirect
