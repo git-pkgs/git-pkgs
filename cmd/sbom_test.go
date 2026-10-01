@@ -207,6 +207,29 @@ func TestBuildSBOMOmitsOccurrencePropertiesForSPDX(t *testing.T) {
 	}
 }
 
+func TestSBOMCommandIncludesCompactLockfileDependencies(t *testing.T) {
+	repoDir := t.TempDir()
+	repository, err := gitgo.PlainInit(repoDir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	commitSBOMFile(t, repository, repoDir, "package.json",
+		`{"name":"example","version":"1.0.0","dependencies":{"is-odd":"^3.0.1"}}`, "add manifest")
+	commitSBOMFile(t, repository, repoDir, "package-lock.json",
+		`{"name":"example","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"example","version":"1.0.0","dependencies":{"is-odd":"^3.0.1"}},"node_modules/is-odd":{"version":"3.0.1","dependencies":{"is-number":"^6.0.0"}},"node_modules/is-number":{"version":"6.0.0"}}}`, "add compact lockfile")
+
+	document := runSBOMCommandForTest(t, repoDir)
+	var purls []string
+	for _, pkg := range document.Packages {
+		purls = append(purls, pkg.PURL())
+	}
+	slices.Sort(purls)
+	want := []string{"pkg:npm/is-number@6.0.0", "pkg:npm/is-odd@3.0.1"}
+	if !slices.Equal(purls, want) {
+		t.Fatalf("SBOM PURLs = %v, want %v", purls, want)
+	}
+}
+
 func TestSBOMCommandAssociatesWorkspaceManifestWithRootLockfile(t *testing.T) {
 	repoDir := t.TempDir()
 	repository, err := gitgo.PlainInit(repoDir, false)
