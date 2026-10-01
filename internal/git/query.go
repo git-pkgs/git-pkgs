@@ -84,7 +84,7 @@ func (r *Repository) GetDependenciesWithDB(commitRef, branchName string) ([]data
 	}
 
 	// Get dependencies from the database
-	deps, err := db.GetDependenciesAtRef(sha, branchInfo.ID)
+	deps, err := db.GetDependenciesAtCommit(sha)
 	if err != nil {
 		_ = db.Close()
 		return nil, nil, fmt.Errorf("getting dependencies: %w", err)
