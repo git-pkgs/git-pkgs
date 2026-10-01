@@ -840,6 +840,8 @@ Actions, Bazel, Cargo, CocoaPods, Composer, Go, Hex, Maven, npm, NuGet, Pub, PyP
 
 Bug reports, feature requests, and pull requests are welcome. If you're unsure about a change, open an issue first to discuss it.
 
+Run tests with `go test -race ./...`. For local linting, install a [golangci-lint v2.14.0 release binary](https://github.com/golangci/golangci-lint/releases/tag/v2.14.0) and run `golangci-lint run ./...`. CI uses the same version and `.golangci.yml` configuration.
+
 ## License
 
 [MIT](LICENSE).
