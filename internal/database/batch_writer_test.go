@@ -185,6 +185,7 @@ func TestManifestLicensesAtRef(t *testing.T) {
 		Licenses:    []string{"Apache-2.0"},
 		LicenseFile: "LICENSE",
 	})
+	writer.AddCommit(database.CommitInfo{SHA: "license-unchanged", CommittedAt: committedAt.Add(1500 * time.Millisecond)}, false)
 	writer.AddCommit(database.CommitInfo{SHA: "license-3", CommittedAt: committedAt.Add(2 * time.Second)}, false)
 	writer.AddManifestLicense("license-3", manifest, database.ManifestLicenseInfo{
 		Licenses: []string{"Apache-2.0"},
@@ -197,7 +198,7 @@ func TestManifestLicensesAtRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetManifestLicensesAtRef(first): %v", err)
 	}
-	if len(first) != 1 || !slices.Equal(first[0].Licenses, []string{"MIT", "ISC"}) {
+	if len(first) != 1 || first[0].CommitSHA != "license-1" || !slices.Equal(first[0].Licenses, []string{"MIT", "ISC"}) {
 		t.Fatalf("first licenses = %+v", first)
 	}
 
@@ -206,8 +207,15 @@ func TestManifestLicensesAtRef(t *testing.T) {
 		t.Fatalf("GetManifestLicensesAtRef(second): %v", err)
 	}
 	if len(second) != 1 || !slices.Equal(second[0].Licenses, []string{"Apache-2.0"}) ||
-		second[0].LicenseFile != "LICENSE" {
+		second[0].LicenseFile != "LICENSE" || second[0].CommitSHA != "license-2" {
 		t.Fatalf("second licenses = %+v", second)
+	}
+	unchanged, err := db.GetManifestLicensesAtRef("license-unchanged", branch.ID)
+	if err != nil {
+		t.Fatalf("GetManifestLicensesAtRef(unchanged): %v", err)
+	}
+	if len(unchanged) != 1 || unchanged[0].CommitSHA != "license-2" {
+		t.Fatalf("unchanged licenses = %+v, want source commit license-2", unchanged)
 	}
 
 	third, err := db.GetManifestLicensesAtRef("license-3", branch.ID)

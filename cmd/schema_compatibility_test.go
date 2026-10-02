@@ -1,6 +1,7 @@
 package cmd_test
 
 import (
+	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -145,5 +146,39 @@ func assertNewerSchemaError(t *testing.T, err error, version int) {
 	}
 	if strings.Contains(err.Error(), "run 'git pkgs upgrade'") {
 		t.Errorf("newer schema error incorrectly recommends upgrade: %v", err)
+	}
+}
+
+func TestSBOMFallsBackToTreeWithoutManifestLicensesTable(t *testing.T) {
+	repoDir := createTestRepo(t)
+	addFileAndCommit(t, repoDir, "package.json", `{"name":"example","license":"MIT"}`, "Initial commit")
+
+	cleanup := chdir(t, repoDir)
+	defer cleanup()
+
+	if _, _, err := runCmd(t, "init", "--no-hooks"); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+	setTestDatabaseSchemaVersion(t, repoDir, database.SchemaVersion-1, true)
+
+	stdout, _, err := runCmd(t, "sbom", "--skip-enrichment")
+	if err != nil {
+		t.Fatalf("sbom failed on previous schema: %v", err)
+	}
+	var doc struct {
+		Metadata struct {
+			Component struct {
+				Licenses []struct {
+					Expression string `json:"expression"`
+				} `json:"licenses"`
+			} `json:"component"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("parsing sbom output: %v", err)
+	}
+	licenses := doc.Metadata.Component.Licenses
+	if len(licenses) != 1 || licenses[0].Expression != "MIT" {
+		t.Fatalf("SBOM root licenses = %+v, want MIT", licenses)
 	}
 }

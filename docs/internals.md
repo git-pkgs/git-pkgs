@@ -125,6 +125,13 @@ Several commands need the full dependency set at a specific commit. The algorith
 This is handled by `GetDependenciesAtRef` and related methods in `internal/database/queries.go`.
 Manifest licenses use the same branch positions to select the latest license
 event for each manifest path at or before the requested commit.
+SBOM root licenses read these indexed declarations for root-level package
+manifests. Each declaration is reused only when its source manifest blob matches
+the requested revision; missing or changed manifests are parsed from that
+revision's tree. This fallback covers databases created before schema version
+16 that have no `manifest_licenses` table, partial indexing, and on-demand
+snapshots without license events. Declared license-file text is always
+read from the requested revision, not from the license event's commit.
 
 ## Git Hooks
 
