@@ -384,6 +384,19 @@ func (db *DB) GetManifestLicensesAtRef(ref string, branchID int64) ([]ManifestLi
 	return result, rows.Err()
 }
 
+// GetDependenciesAtCommit returns only the snapshot stored for this commit.
+func (db *DB) GetDependenciesAtCommit(sha string) ([]Dependency, error) {
+	var commitID int64
+	err := db.QueryRow(`SELECT id FROM commits WHERE sha = ?`, sha).Scan(&commitID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return db.getDependenciesForCommitID(commitID)
+}
+
 func (db *DB) GetDependenciesAtRef(ref string, branchID int64) ([]Dependency, error) {
 	// Find the commit ID for this ref on this branch
 	var commitID int64

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -19,6 +20,55 @@ func (changelogTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("unexpected request: %s", req.URL)
 	}
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("## [4.17.21]\n\nLatest fix\n\n## [4.17.20]\n\nInstalled change\n\n## [3.10.1]\n\nOld change\n")), Request: req}, nil
+}
+
+func TestChangelogFromIndexedFeatureBranch(t *testing.T) {
+	restore := setMockEnrichment(map[string]*enrichment.PackageInfo{
+		"pkg:npm/lodash": {LatestVersion: "4.17.21", Repository: "https://github.com/lodash/lodash", ChangelogFilename: "CHANGELOG.md"},
+	})
+	defer restore()
+	original := http.DefaultClient
+	http.DefaultClient = &http.Client{Transport: changelogTransport{}}
+	defer func() { http.DefaultClient = original }()
+
+	for _, detached := range []bool{false, true} {
+		t.Run(fmt.Sprintf("detached=%t", detached), func(t *testing.T) {
+			dir := createTestRepo(t)
+			addFileAndCommit(t, dir, "package-lock.json", outdatedLockfile("3.10.1"), "main dependency")
+			cleanup := chdir(t, dir)
+			defer cleanup()
+			if _, _, err := runCmd(t, "init", "--no-hooks"); err != nil {
+				t.Fatal(err)
+			}
+			if output, err := exec.Command("git", "checkout", "-b", "feature").CombinedOutput(); err != nil {
+				t.Fatalf("checkout feature: %v\n%s", err, output)
+			}
+			addFileAndCommit(t, dir, "package-lock.json", outdatedLockfile("4.17.20"), "feature dependency")
+			if _, _, err := runCmd(t, "branch", "add", "feature"); err != nil {
+				t.Fatal(err)
+			}
+			if detached {
+				if output, err := exec.Command("git", "checkout", "--detach", "HEAD").CombinedOutput(); err != nil {
+					t.Fatalf("detach HEAD: %v\n%s", err, output)
+				}
+			}
+
+			stdout, _, err := runCmd(t, "changelog", "lodash", "-e", "npm", "--format", "json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result cmd.ChangelogResult
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.From != "4.17.20" {
+				t.Errorf("from = %q; want 4.17.20", result.From)
+			}
+			if len(result.Entries) != 1 || result.Entries[0].Version != "4.17.21" {
+				t.Errorf("expected only the newer release: %s", stdout)
+			}
+		})
+	}
 }
 
 func TestChangelogFromVersion(t *testing.T) {
