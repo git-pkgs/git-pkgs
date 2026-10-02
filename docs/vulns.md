@@ -33,6 +33,16 @@ $ git pkgs vulns main
 
 ## Examples
 
+Fail CI for high or critical vulnerabilities:
+
+```sh
+git pkgs vulns scan --fail-on high
+```
+
+`--fail-on` accepts `critical`, `high`, `medium`, or `low`. The scan writes its report, then exits 1 if a finding meets or exceeds the threshold. Without this flag, findings do not change the exit status. Unknown severities do not meet a named threshold.
+
+`--severity` controls only the displayed findings. For example, `git pkgs vulns scan --severity critical --fail-on high` still fails for a high-severity finding even though it is hidden from the report. Cached and `--live` scans use the same thresholds.
+
 Show only critical and high severity:
 
 ```
