@@ -3,9 +3,11 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,6 +40,8 @@ const (
 )
 
 var severityOrder = map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
+
+var ErrVulnerabilityPolicy = errors.New("vulnerability policy failed")
 
 type osvQuery struct {
 	dependency  database.Dependency
@@ -469,6 +473,7 @@ func syncVulnerabilitiesForDeps(db *database.DB, source vulns.Source, lockfileDe
 
 	totalToFetch := len(uniqueVulnIDs)
 	var fetchCount int
+	var fetchErr error
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, vulnsSemaphoreSize)
 
@@ -483,6 +488,14 @@ func syncVulnerabilitiesForDeps(db *database.DB, source vulns.Source, lockfileDe
 			mu.Lock()
 			defer mu.Unlock()
 			fetchCount++
+			if fetchErr == nil {
+				switch {
+				case err != nil:
+					fetchErr = fmt.Errorf("fetching vulnerability %s: %w", id, err)
+				case fullVuln == nil:
+					fetchErr = fmt.Errorf("vulnerability %s not found", id)
+				}
+			}
 			if err == nil && fullVuln != nil {
 				fetchedVulns[id] = fullVuln
 			}
@@ -496,6 +509,9 @@ func syncVulnerabilitiesForDeps(db *database.DB, source vulns.Source, lockfileDe
 
 	if isTTY && !quiet && totalToFetch > 0 {
 		_, _ = fmt.Fprintf(w, "\r\033[K")
+	}
+	if fetchErr != nil {
+		return fetchErr
 	}
 
 	// Clear existing vulns and store results
@@ -639,7 +655,9 @@ Results are grouped by severity.
 By default, syncs vulnerability data from OSV before scanning. The sync uses a
 24-hour cache so repeated scans won't re-fetch everything.
 Use --live to query OSV directly for each dependency version.
-Use --no-sync to skip the sync and use only previously cached data.`,
+Use --no-sync to skip the sync and use only previously cached data.
+Use --fail-on to exit with status 1 for findings at or above a severity threshold.
+The report is written before exiting; --severity only filters the report.`,
 		RunE: runVulnsScan,
 	}
 
@@ -647,6 +665,7 @@ Use --no-sync to skip the sync and use only previously cached data.`,
 	scanCmd.Flags().StringP("branch", "b", "", "Branch to query (default: current branch)")
 	scanCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	scanCmd.Flags().StringP("severity", "s", "", "Minimum severity to report: critical, high, medium, low")
+	scanCmd.Flags().String("fail-on", "", "Fail for findings at or above: critical, high, medium, low")
 	scanCmd.Flags().StringP("format", "f", "text", "Output format: text, json, sarif")
 	scanCmd.Flags().Bool("live", false, "Query OSV directly instead of using cached data")
 	scanCmd.Flags().Bool("no-sync", false, "Skip auto-sync and use only cached vulnerability data")
@@ -654,6 +673,15 @@ Use --no-sync to skip the sync and use only previously cached data.`,
 }
 
 func runVulnsScan(cmd *cobra.Command, args []string) error {
+	defer CleanupOutput()
+	failOn, _ := cmd.Flags().GetString("fail-on")
+	failOn = strings.ToLower(failOn)
+	if cmd.Flags().Changed("fail-on") {
+		level, ok := severityOrder[failOn]
+		if !ok || level == severityOrder["unknown"] {
+			return fmt.Errorf("invalid --fail-on %q: expected critical, high, medium, or low", failOn)
+		}
+	}
 	commit, _ := cmd.Flags().GetString("commit")
 	branchName, _ := cmd.Flags().GetString("branch")
 	ecosystem, _ := cmd.Flags().GetString("ecosystem")
@@ -690,8 +718,8 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(lockfileDeps) == 0 {
-		if format == formatJSON {
-			return outputVulnsJSON(cmd, nil)
+		if format != formatText {
+			return outputVulnsScan(cmd, nil, format)
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No lockfile dependencies found to scan.")
 		return nil
@@ -700,7 +728,7 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	// Auto-sync before cached scan (skip for --live and --no-sync)
 	if !live && !noSync && db != nil {
 		source := osv.New(osv.WithUserAgent(userAgent))
-		if err := syncVulnerabilitiesForDeps(db, source, lockfileDeps, false, false, cmd.OutOrStdout()); err != nil {
+		if err := syncVulnerabilitiesForDeps(db, source, lockfileDeps, false, false, cmd.ErrOrStderr()); err != nil {
 			return fmt.Errorf("syncing vulnerabilities: %w", err)
 		}
 	}
@@ -717,18 +745,23 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	if live || db == nil {
 		// Live query mode - use OSV API directly
 		var skipped []skippedOSVDependency
-		vulnResults, skipped, err = scanLive(lockfileDeps, minSeverity)
+		vulnResults, skipped, err = scanLive(lockfileDeps, allSeverities)
 		if err != nil {
 			return err
 		}
 		reportSkippedOSVDependencies(cmd.ErrOrStderr(), skipped)
 	} else {
 		// Cached mode - use stored vulnerability data
-		vulnResults, err = scanCached(db, lockfileDeps, minSeverity)
+		vulnResults, err = scanCached(db, lockfileDeps, allSeverities)
 		if err != nil {
 			return err
 		}
 	}
+
+	policyErr := vulnerabilityPolicyError(vulnResults, failOn)
+	vulnResults = slices.DeleteFunc(vulnResults, func(result VulnResult) bool {
+		return severityOrder[result.Severity] > minSeverity
+	})
 
 	// Sort by severity, then package name
 	sort.Slice(vulnResults, func(i, j int) bool {
@@ -738,23 +771,38 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 		return vulnResults[i].Package < vulnResults[j].Package
 	})
 
-	if len(vulnResults) == 0 {
-		if format == formatJSON {
-			return outputVulnsJSON(cmd, vulnResults)
-		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No vulnerabilities found.")
-		return nil
+	if err := outputVulnsScan(cmd, vulnResults, format); err != nil {
+		return err
 	}
+	return policyErr
+}
 
+func outputVulnsScan(cmd *cobra.Command, results []VulnResult, format string) error {
 	switch format {
 	case formatJSON:
-		return outputVulnsJSON(cmd, vulnResults)
+		return outputVulnsJSON(cmd, results)
 	case "sarif":
-		return outputVulnsSARIF(cmd, vulnResults)
+		return outputVulnsSARIF(cmd, results)
 	default:
-		outputVulnsText(cmd, vulnResults)
+		if len(results) == 0 {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "No vulnerabilities found.")
+			return err
+		}
+		outputVulnsText(cmd, results)
 		return nil
 	}
+}
+
+func vulnerabilityPolicyError(results []VulnResult, failOn string) error {
+	if failOn == "" {
+		return nil
+	}
+	for _, result := range results {
+		if level, ok := severityOrder[result.Severity]; ok && level <= severityOrder[failOn] {
+			return fmt.Errorf("%w: findings at or above %s severity", ErrVulnerabilityPolicy, failOn)
+		}
+	}
+	return nil
 }
 
 func scanLive(deps []database.Dependency, minSeverity int) ([]VulnResult, []skippedOSVDependency, error) {
@@ -777,10 +825,21 @@ func scanLiveWithSource(source vulns.Source, deps []database.Dependency, minSeve
 	}
 
 	var vulnResults []VulnResult
-
+	fetched := make(map[string]*vulns.Vulnerability)
 	for i, batchVulns := range results {
 		dep := queries[i].dependency
-		for _, v := range batchVulns {
+		for _, summary := range batchVulns {
+			v := fetched[summary.ID]
+			if v == nil {
+				v, err = source.Get(ctx, summary.ID)
+				if err != nil {
+					return nil, skipped, fmt.Errorf("fetching vulnerability %s: %w", summary.ID, err)
+				}
+				if v == nil {
+					return nil, skipped, fmt.Errorf("vulnerability %s not found", summary.ID)
+				}
+				fetched[summary.ID] = v
+			}
 			sev := v.SeverityLevel()
 			if severityOrder[sev] > minSeverity {
 				continue

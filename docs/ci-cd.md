@@ -50,7 +50,7 @@ jobs:
           chmod +x git-pkgs
 
       - name: Scan for vulnerabilities
-        run: ./git-pkgs vulns -f sarif > results.sarif
+        run: ./git-pkgs vulns scan -f sarif > results.sarif
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -76,8 +76,8 @@ jobs:
           chmod +x git-pkgs
 
       - name: Check for high/critical vulnerabilities
-        run: ./git-pkgs vulns -s high
-        # Exits non-zero if vulnerabilities found
+        run: ./git-pkgs vulns scan --fail-on high
+        # Exits 1 for high or critical findings, after writing the report
 ```
 
 ### License compliance
@@ -178,7 +178,7 @@ vuln-scan:
   script:
     - curl -sL https://github.com/git-pkgs/git-pkgs/releases/latest/download/git-pkgs-linux-amd64 -o git-pkgs
     - chmod +x git-pkgs
-    - ./git-pkgs vulns -f json > gl-dependency-scanning-report.json
+    - ./git-pkgs vulns scan -f json > gl-dependency-scanning-report.json
   artifacts:
     reports:
       dependency_scanning: gl-dependency-scanning-report.json
@@ -343,6 +343,10 @@ git-pkgs commands use standard exit codes for CI integration:
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Error or findings (vulns found, license violations, etc.) |
+| 1 | Error or a configured policy failure |
 
-Commands that find issues (vulns, license checks) exit non-zero, making them suitable as quality gates.
+`git pkgs vulns scan --fail-on high` exits 1 when any high or critical finding is present. Without `--fail-on`, a successful scan exits 0 even when findings are reported. `--severity` filters the report independently of the failure threshold. Unknown severities do not meet a named threshold.
+
+The scan writes the requested text, JSON, or SARIF report before returning a policy failure. Synchronization messages and errors go to stderr, so redirected reports remain valid. Lookup or synchronization errors also exit 1, with a diagnostic distinct from `vulnerability policy failed`.
+
+License checks exit nonzero when findings violate the configured license policy.
