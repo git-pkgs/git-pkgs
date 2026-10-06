@@ -4,6 +4,7 @@ package index
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,10 +33,12 @@ type (
 	BranchInfo        = database.BranchInfo
 )
 
+const defaultMaxManifestBytes = 10 * 1024 * 1024
+
 // Options configures Open and Reindex behaviour.
 type Options struct {
-	// MaxManifestBytes caps the size of any single manifest blob passed to
-	// the parser. 0 uses the manifests package default (10 MiB).
+	// MaxManifestBytes skips larger blobs before reading them for parsing.
+	// Non-positive values use 10 MiB.
 	MaxManifestBytes int
 
 	// MaxDepsPerManifest caps the number of Change rows written per
@@ -149,7 +152,7 @@ func (i *Index) StatsFor(opts StatsOptions) (*Stats, error) {
 func (i *Index) Branch(name string) (*BranchInfo, error) {
 	info, err := i.db.GetBranch(name)
 	if err != nil {
-		if errors.Is(err, sqlErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrBranchNotIndexed
 		}
 		return nil, err
@@ -199,6 +202,11 @@ func (i *Index) Reindex(ctx context.Context, branch string, oldTip, newTip plumb
 
 	az := analyzer.New()
 	// Leave Analyzer.repoPath = "" so PrefetchDiffs is a no-op (no exec).
+	maxManifestBytes := i.opts.MaxManifestBytes
+	if maxManifestBytes <= 0 {
+		maxManifestBytes = defaultMaxManifestBytes
+	}
+	az.SetMaxManifestBytes(int64(maxManifestBytes))
 
 	var (
 		lastSHAWithChanges    string
@@ -410,16 +418,4 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max]
-}
-
-// sqlErrNoRows mirrors database/sql.ErrNoRows without importing it at the
-// public surface (callers should not need to handle a stdlib error from a
-// wrapper package). database.GetBranch returns sql.ErrNoRows directly today.
-var sqlErrNoRows = errNoRows{}
-
-type errNoRows struct{}
-
-func (errNoRows) Error() string { return "sql: no rows in result set" }
-func (errNoRows) Is(target error) bool {
-	return target != nil && target.Error() == "sql: no rows in result set"
 }

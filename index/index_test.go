@@ -2,6 +2,7 @@ package index_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -123,6 +124,84 @@ func TestOpen_Bare(t *testing.T) {
 	}
 	if !names["github.com/spf13/cobra"] || !names["github.com/stretchr/testify"] {
 		t.Fatalf("missing expected names: %v", deps)
+	}
+}
+
+func TestBranch(t *testing.T) {
+	bare, work := makeBareRepo(t)
+	idx, err := index.Open(bare, filepath.Join(bare, "pkgs.sqlite3"), index.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = idx.Close() })
+	if _, err := idx.Branch("missing"); !errors.Is(err, index.ErrBranchNotIndexed) {
+		t.Fatalf("missing branch: got %v, want ErrBranchNotIndexed", err)
+	}
+
+	writeFile(t, work, "go.mod", goModTwoDeps)
+	runGit(t, work, "add", "go.mod")
+	runGit(t, work, "commit", "-m", "add deps")
+	runGit(t, work, "push", "origin", "HEAD:refs/heads/main")
+	tip := head(t, work)
+	if err := idx.Reindex(t.Context(), "main", plumbing.ZeroHash, tip); err != nil {
+		t.Fatal(err)
+	}
+	branch, err := idx.Branch("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch.Name != "main" || branch.LastAnalyzedSHA != tip.String() {
+		t.Fatalf("indexed branch: %+v", branch)
+	}
+
+	if err := idx.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := idx.Branch("missing"); err == nil || errors.Is(err, index.ErrBranchNotIndexed) {
+		t.Fatalf("closed database: got %v, want a database error", err)
+	}
+}
+
+func TestReindex_MaxManifestBytes(t *testing.T) {
+	const defaultLimit = 10 * 1024 * 1024
+	large := goModTwoDeps + "\n//" + strings.Repeat("x", defaultLimit)
+	for _, tc := range []struct {
+		name    string
+		content string
+		limit   int
+		want    int
+	}{
+		{"below_limit", goModTwoDeps, len(goModTwoDeps) + 1, 3},
+		{"at_limit", goModTwoDeps, len(goModTwoDeps), 3},
+		{"above_limit", goModTwoDeps, len(goModTwoDeps) - 1, 1},
+		{"default_small", goModTwoDeps, 0, 3},
+		{"default_large", large, 0, 1},
+		{"raised_limit", large, len(large), 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bare, work := makeBareRepo(t)
+			writeFile(t, work, "go.mod", tc.content)
+			writeFile(t, work, "small/package.json", `{"dependencies":{"tiny":"1.0.0"}}`)
+			runGit(t, work, "add", ".")
+			runGit(t, work, "commit", "-m", "add manifests")
+			runGit(t, work, "push", "origin", "HEAD:refs/heads/main")
+			tip := head(t, work)
+			idx, err := index.Open(bare, filepath.Join(bare, "pkgs.sqlite3"), index.Options{MaxManifestBytes: tc.limit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = idx.Close() })
+			if err := idx.Reindex(t.Context(), "main", plumbing.ZeroHash, tip); err != nil {
+				t.Fatal(err)
+			}
+			deps, err := idx.List("main", tip.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(deps) != tc.want {
+				t.Fatalf("got %d dependencies, want %d: %+v", len(deps), tc.want, deps)
+			}
+		})
 	}
 }
 

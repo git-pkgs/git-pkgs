@@ -81,11 +81,12 @@ type cachedDiff struct {
 }
 
 type Analyzer struct {
-	blobCache       map[string]*manifests.ParseResult
-	diffCache       map[string]*cachedDiff
-	diffMu          sync.RWMutex
-	repoPath        string
-	ecosystemFilter config.EcosystemFilter
+	blobCache        map[string]*manifests.ParseResult
+	diffCache        map[string]*cachedDiff
+	diffMu           sync.RWMutex
+	repoPath         string
+	ecosystemFilter  config.EcosystemFilter
+	maxManifestBytes int64
 }
 
 func New() *Analyzer {
@@ -103,6 +104,11 @@ func (a *Analyzer) SetRepoPath(path string) {
 // SetEcosystemFilter limits which ecosystems are analyzed.
 func (a *Analyzer) SetEcosystemFilter(filter config.EcosystemFilter) {
 	a.ecosystemFilter = filter
+}
+
+// SetMaxManifestBytes limits Git blobs read for parsing; zero disables the limit.
+func (a *Analyzer) SetMaxManifestBytes(limit int64) {
+	a.maxManifestBytes = limit
 }
 
 func (a *Analyzer) allowsEcosystem(ecosystem string) bool {
@@ -613,6 +619,9 @@ func (a *Analyzer) parseManifestInTree(tree *object.Tree, path string) (*manifes
 	file, err := tree.File(path)
 	if err != nil {
 		return nil, err
+	}
+	if a.maxManifestBytes > 0 && file.Size > a.maxManifestBytes {
+		return nil, nil
 	}
 
 	content, err := file.Contents()
