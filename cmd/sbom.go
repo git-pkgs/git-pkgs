@@ -91,7 +91,7 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 		projectName = "project"
 	}
 
-	projectLicenses, licenseWarnings, err := projectLicensesAtRevision(repo, commit)
+	projectLicenses, licenseWarnings, err := projectLicensesAtRevision(repo, db, commit, branchName)
 	if err != nil {
 		return fmt.Errorf("loading project licenses: %w", err)
 	}

@@ -1,15 +1,18 @@
 package cmd
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"path"
 	"sort"
 	"strings"
 
+	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/manifests"
 	"github.com/git-pkgs/spdx"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -24,7 +27,7 @@ type projectLicenseFile struct {
 	Text string
 }
 
-func projectLicensesAtRevision(repo *git.Repository, revision string) (projectLicenses, []string, error) {
+func projectLicensesAtRevision(repo *git.Repository, db *database.DB, revision, branchName string) (projectLicenses, []string, error) {
 	if revision == "" {
 		revision = "HEAD"
 	}
@@ -40,6 +43,10 @@ func projectLicensesAtRevision(repo *git.Repository, revision string) (projectLi
 	tree, err := commit.Tree()
 	if err != nil {
 		return projectLicenses{}, nil, fmt.Errorf("getting commit tree: %w", err)
+	}
+	indexed, err := indexedProjectLicenses(db, hash.String(), branchName)
+	if err != nil {
+		return projectLicenses{}, nil, err
 	}
 
 	var declaredLicenses []string
@@ -59,17 +66,21 @@ func projectLicensesAtRevision(repo *git.Repository, revision string) (projectLi
 			continue
 		}
 
-		content, err := file.Contents()
-		if err != nil {
-			return projectLicenses{}, nil, fmt.Errorf("reading %s: %w", file.Name, err)
+		license, ok := indexed[file.Name]
+		if !ok || !projectLicenseMatchesManifest(repo, license, file) {
+			content, err := file.Contents()
+			if err != nil {
+				return projectLicenses{}, nil, fmt.Errorf("reading %s: %w", file.Name, err)
+			}
+			result, err := manifests.Parse(file.Name, []byte(content))
+			if err != nil {
+				continue
+			}
+			license = database.ManifestLicense{Licenses: result.Licenses, LicenseFile: result.LicenseFile}
 		}
-		result, err := manifests.Parse(file.Name, []byte(content))
-		if err != nil {
-			continue
-		}
-		declaredLicenses = append(declaredLicenses, result.Licenses...)
-		if result.LicenseFile != "" {
-			licenseFile, warning, err := readProjectLicenseFile(tree, file.Name, result.LicenseFile)
+		declaredLicenses = append(declaredLicenses, license.Licenses...)
+		if license.LicenseFile != "" {
+			licenseFile, warning, err := readProjectLicenseFile(tree, file.Name, license.LicenseFile)
 			if err != nil {
 				return projectLicenses{}, nil, err
 			}
@@ -83,6 +94,53 @@ func projectLicensesAtRevision(repo *git.Repository, revision string) (projectLi
 	licenses := normalizeProjectLicenses(declaredLicenses)
 	licenses.Files = sortedProjectLicenseFiles(declaredFiles)
 	return licenses, warnings, nil
+}
+
+func indexedProjectLicenses(db *database.DB, sha, branchName string) (map[string]database.ManifestLicense, error) {
+	if db == nil {
+		return nil, nil
+	}
+	// Databases from before the license index have no table; parse the tree instead.
+	hasTable, err := db.HasManifestLicenses()
+	if err != nil {
+		return nil, fmt.Errorf("checking indexed project licenses: %w", err)
+	}
+	if !hasTable {
+		return nil, nil
+	}
+	branch, err := resolveBranch(db, branchName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	licenses, err := db.GetManifestLicensesAtRef(sha, branch.ID)
+	if err != nil {
+		return nil, fmt.Errorf("querying indexed project licenses: %w", err)
+	}
+	result := make(map[string]database.ManifestLicense)
+	for _, license := range licenses {
+		if license.Kind == string(manifests.Manifest) && path.Dir(license.ManifestPath) == "." {
+			result[license.ManifestPath] = license
+		}
+	}
+	return result, nil
+}
+
+func projectLicenseMatchesManifest(repo *git.Repository, license database.ManifestLicense, file *object.File) bool {
+	// On-demand snapshots may inherit older license events without recording manifest edits.
+	// Only reuse metadata when the event's manifest blob matches the requested revision.
+	commit, err := repo.CommitObject(plumbing.NewHash(license.CommitSHA))
+	if err != nil {
+		return false
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return false
+	}
+	indexedFile, err := tree.File(license.ManifestPath)
+	return err == nil && indexedFile.Hash == file.Hash && indexedFile.Mode == file.Mode
 }
 
 func readProjectLicenseFile(

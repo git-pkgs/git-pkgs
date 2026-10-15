@@ -313,11 +313,25 @@ type Dependency struct {
 // ManifestLicense is the declared license state of a package manifest at a
 // point in repository history.
 type ManifestLicense struct {
+	CommitSHA    string   `json:"-"` // Commit that supplied this manifest's license state.
 	ManifestPath string   `json:"manifest_path"`
 	Ecosystem    string   `json:"ecosystem"`
 	Kind         string   `json:"kind"`
 	Licenses     []string `json:"licenses"`
 	LicenseFile  string   `json:"license_file,omitempty"`
+}
+
+// HasManifestLicenses reports whether the database has the manifest_licenses
+// table. Databases created before schema version 16 do not.
+func (db *DB) HasManifestLicenses() (bool, error) {
+	var count int
+	err := db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'manifest_licenses'",
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // GetManifestLicensesAtRef returns the latest license state for every active
@@ -332,18 +346,19 @@ func (db *DB) GetManifestLicensesAtRef(ref string, branchID int64) ([]ManifestLi
 			JOIN commits c ON c.id = bc.commit_id
 			WHERE c.sha = ? AND bc.branch_id = ?
 		), ranked AS (
-			SELECT m.path, m.ecosystem, m.kind, ml.licenses, ml.license_file, ml.removed,
+			SELECT c.sha, m.path, m.ecosystem, m.kind, ml.licenses, ml.license_file, ml.removed,
 				ROW_NUMBER() OVER (
 					PARTITION BY m.path
 					ORDER BY bc.position DESC
 				) AS row_num
 			FROM manifest_licenses ml
+			JOIN commits c ON c.id = ml.commit_id
 			JOIN manifests m ON m.id = ml.manifest_id
 			JOIN branch_commits bc ON bc.commit_id = ml.commit_id
 			CROSS JOIN target_position tp
 			WHERE bc.branch_id = ? AND bc.position <= tp.position
 		)
-		SELECT path, ecosystem, kind, licenses, license_file
+		SELECT sha, path, ecosystem, kind, licenses, license_file
 		FROM ranked
 		WHERE row_num = 1 AND removed = 0
 		ORDER BY path
@@ -359,6 +374,7 @@ func (db *DB) GetManifestLicensesAtRef(ref string, branchID int64) ([]ManifestLi
 		var ecosystem, kind sql.NullString
 		var licensesJSON string
 		if err := rows.Scan(
+			&license.CommitSHA,
 			&license.ManifestPath,
 			&ecosystem,
 			&kind,

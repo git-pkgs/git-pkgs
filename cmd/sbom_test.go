@@ -479,7 +479,7 @@ func TestProjectLicenseAtRevision(t *testing.T) {
 		t.Fatalf("OpenRepository: %v", err)
 	}
 
-	got, warnings, err := projectLicensesAtRevision(repo, first.String())
+	got, warnings, err := projectLicensesAtRevision(repo, nil, first.String(), "")
 	if err != nil {
 		t.Fatalf("projectLicensesAtRevision(first): %v", err)
 	}
@@ -490,7 +490,7 @@ func TestProjectLicenseAtRevision(t *testing.T) {
 		t.Fatalf("first revision licenses = %+v, want MIT", got)
 	}
 
-	got, warnings, err = projectLicensesAtRevision(repo, "HEAD")
+	got, warnings, err = projectLicensesAtRevision(repo, nil, "HEAD", "")
 	if err != nil {
 		t.Fatalf("projectLicensesAtRevision(HEAD): %v", err)
 	}
@@ -555,7 +555,7 @@ license-file = "LICENSE.custom"
 		t.Fatalf("OpenRepository: %v", err)
 	}
 
-	licenses, warnings, err := projectLicensesAtRevision(repo, manifestRevision.String())
+	licenses, warnings, err := projectLicensesAtRevision(repo, nil, manifestRevision.String(), "")
 	if err != nil {
 		t.Fatalf("projectLicensesAtRevision: %v", err)
 	}
@@ -586,7 +586,7 @@ license-file = "LICENSE.missing"
 	if err != nil {
 		t.Fatalf("OpenRepository: %v", err)
 	}
-	licenses, warnings, err := projectLicensesAtRevision(repo, "HEAD")
+	licenses, warnings, err := projectLicensesAtRevision(repo, nil, "HEAD", "")
 	if err != nil {
 		t.Fatalf("projectLicensesAtRevision: %v", err)
 	}
@@ -616,7 +616,7 @@ license-file = "LICENSE.custom"
 	if err != nil {
 		t.Fatalf("OpenRepository: %v", err)
 	}
-	licenses, warnings, err := projectLicensesAtRevision(repo, "HEAD")
+	licenses, warnings, err := projectLicensesAtRevision(repo, nil, "HEAD", "")
 	if err != nil {
 		t.Fatalf("projectLicensesAtRevision: %v", err)
 	}
