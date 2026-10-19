@@ -724,14 +724,14 @@ Enable tab completion for commands:
 
 ```bash
 # Bash: add to ~/.bashrc
-eval "$(git pkgs completions bash)"
+eval "$(git pkgs completion bash)"
 
-# Zsh: add to ~/.zshrc
-eval "$(git pkgs completions zsh)"
-
-# Or auto-install to standard completion directories
-git pkgs completions install
+# Zsh: add to ~/.zshrc after compinit
+source <(git pkgs completion zsh)
 ```
+
+The Zsh script completes both `git-pkgs` and `git pkgs`. Source it at shell startup
+so Git's own Zsh completion can find the `git pkgs` completion function.
 
 ### Aliases
 

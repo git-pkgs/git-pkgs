@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -27,10 +30,13 @@ Zsh:
   # you will need to enable it. You can execute the following once:
   $ echo "autoload -U compinit; compinit" >> ~/.zshrc
 
-  # To load completions for each session, execute once:
-  $ git pkgs completion zsh > "${fpath[1]}/_git-pkgs"
+  # Add this to ~/.zshrc after compinit to complete both git-pkgs and git pkgs:
+  $ source <(git pkgs completion zsh)
 
-  # You will need to start a new shell for this setup to take effect.
+  # With Zsh's bundled Git completion, you can instead install an autoload file:
+  $ git pkgs completion zsh > "${fpath[1]}/_git-pkgs"
+  # Restart the shell after installing it. Git's own Zsh completion requires
+  # the source command above so its _git_pkgs hook is defined at startup.
 
 Fish:
   $ git pkgs completion fish | source
@@ -52,7 +58,7 @@ PowerShell:
 			case "bash":
 				return cmd.Root().GenBashCompletionV2(out, true)
 			case "zsh":
-				return cmd.Root().GenZshCompletion(out)
+				return generateZshCompletion(cmd.Root(), out)
 			case "fish":
 				return cmd.Root().GenFishCompletion(out, true)
 			case "powershell":
@@ -65,3 +71,39 @@ PowerShell:
 
 	parent.AddCommand(completionCmd)
 }
+
+func generateZshCompletion(root *cobra.Command, out io.Writer) error {
+	var script bytes.Buffer
+	if err := root.GenZshCompletion(&script); err != nil {
+		return err
+	}
+	// Keep Cobra's function separate from the Git adapters and their autoload entrypoint.
+	completion := strings.ReplaceAll(script.String(), "_git-pkgs", "_git-pkgs_cobra")
+	_, err := io.WriteString(out, completion+zshGitCompletion)
+	return err
+}
+
+const zshGitCompletion = `
+_git-pkgs() {
+    local -a words=("${words[@]}")
+    if [[ ${words[1]} == pkgs ]]; then
+        words[1]=git-pkgs
+    fi
+    _git-pkgs_cobra "$@"
+}
+
+_git_pkgs() {
+    emulate -L zsh
+    setopt $_comp_options
+    local -a words=("${words[@]:$__git_cmd_idx}")
+    local CURRENT=$((cword - __git_cmd_idx + 1))
+    _git-pkgs "$@"
+    _ret=0
+}
+
+compdef _git-pkgs git-pkgs
+
+if [[ $funcstack[1] == _git-pkgs ]]; then
+    _git-pkgs "$@"
+fi
+`
