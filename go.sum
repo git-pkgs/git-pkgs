@@ -52,8 +52,8 @@ github.com/git-pkgs/enrichment v0.7.2 h1:flD/M89HxkOegUi6tC8EOspFiIMsl7m0o576IQK
 github.com/git-pkgs/enrichment v0.7.2/go.mod h1:xGyc/iz7u1UnbrOHk8lIX5ZaNF3mKFDEZc3VqBJ/LOk=
 github.com/git-pkgs/gitignore v1.3.0 h1:/lcTRp3QYzZDG1CyCLBZO2gxMb6oQWC5EnttSQg4zmU=
 github.com/git-pkgs/gitignore v1.3.0/go.mod h1:zleLGZ4PhQrUXrJSsVQWKoeEllEjJH49+DjyKpzIFPM=
-github.com/git-pkgs/integrity v0.1.1 h1:nHQ7SktOiGM1dOb5BFnkdtttG/6FCgE6r5ru6QnsGts=
-github.com/git-pkgs/integrity v0.1.1/go.mod h1:hxu24lcd230377hCF28JQW7sGcCbuNLqo/0ULeb+F1Q=
+github.com/git-pkgs/integrity v0.2.0 h1:sxpAk7EUllZnTYttOoPTW/Yfe5J2imglpuJiuBUZOxM=
+github.com/git-pkgs/integrity v0.2.0/go.mod h1:vPLb2RB+hR/iCMIgqph0PZbQ7iktXDTK+uupoHQikKk=
 github.com/git-pkgs/licenses v0.9.0 h1:KMrZ+sn8Te9hUh9/dw268eh7AIrmilyAprAGtR6svik=
 github.com/git-pkgs/licenses v0.9.0/go.mod h1:WJuQA5shOV2UN7IdRjXIYxVZCwW366/fFxx8gS8DYrw=
 github.com/git-pkgs/magic v0.5.0 h1:Pm+4fkHR+K6kg9pwJM4hnwWUuBlkYdLmF1yIAI8lU9Q=
