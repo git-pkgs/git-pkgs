@@ -109,6 +109,22 @@ func (a *Analyzer) allowsEcosystem(ecosystem string) bool {
 	return a.ecosystemFilter.Allows(ecosystem)
 }
 
+func (a *Analyzer) dependencies(parsed *manifests.ParseResult) []manifests.Dependency {
+	if parsed == nil {
+		return nil
+	}
+	if a.ecosystemFilter.Empty() {
+		return parsed.Dependencies
+	}
+	deps := make([]manifests.Dependency, 0, len(parsed.Dependencies))
+	for _, dep := range parsed.Dependencies {
+		if a.allowsEcosystem(dep.Ecosystem) {
+			deps = append(deps, dep)
+		}
+	}
+	return deps
+}
+
 // ClearBlobCache replaces the blobCache with a fresh empty map,
 // allowing the GC to reclaim all cached parse results.
 func (a *Analyzer) ClearBlobCache() {
@@ -321,15 +337,14 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		if err != nil || deps == nil {
 			continue
 		}
-		if !a.allowsEcosystem(deps.Ecosystem) {
-			continue
+		if a.allowsEcosystem(deps.Ecosystem) {
+			result.addManifestLicense(path, deps, false)
 		}
-		result.addManifestLicense(path, deps, false)
 
 		// Merge integrity hashes from supplement files in same directory
 		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(path))
 
-		for _, dep := range deps.Dependencies {
+		for _, dep := range a.dependencies(deps) {
 			integrity := dep.Integrity
 			if integrity == "" {
 				if h, ok := supHashes[supplementKey{dep.Name, dep.Version}]; ok {
@@ -338,7 +353,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			}
 			change := Change{
 				ManifestPath:   path,
-				Ecosystem:      deps.Ecosystem,
+				Ecosystem:      dep.Ecosystem,
 				Kind:           string(deps.Kind),
 				Name:           dep.Name,
 				PURL:           dep.PURL,
@@ -352,7 +367,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 
 			key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
 			result.Snapshot[key] = SnapshotEntry{
-				Ecosystem:      deps.Ecosystem,
+				Ecosystem:      dep.Ecosystem,
 				Kind:           string(deps.Kind),
 				PURL:           dep.PURL,
 				Requirement:    dep.Version,
@@ -375,15 +390,9 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		if err != nil || afterDeps == nil {
 			continue
 		}
-		if !a.allowsEcosystem(afterDeps.Ecosystem) {
-			for key := range result.Snapshot {
-				if key.ManifestPath == path {
-					delete(result.Snapshot, key)
-				}
-			}
-			continue
+		if a.allowsEcosystem(afterDeps.Ecosystem) {
+			result.addManifestLicense(path, afterDeps, false)
 		}
-		result.addManifestLicense(path, afterDeps, false)
 
 		// Merge integrity hashes from supplement files in same directory
 		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(path))
@@ -393,7 +402,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		beforeVersions := make(map[string][]manifests.Dependency)
 		beforeByNameVersion := make(map[string]bool)
 		if beforeDeps != nil {
-			for _, dep := range beforeDeps.Dependencies {
+			for _, dep := range a.dependencies(beforeDeps) {
 				beforeVersions[dep.Name] = append(beforeVersions[dep.Name], dep)
 				beforeByNameVersion[dep.Name+"\x00"+dep.Version] = true
 			}
@@ -401,7 +410,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 
 		afterVersions := make(map[string][]manifests.Dependency)
 		afterByNameVersion := make(map[string]bool)
-		for _, dep := range afterDeps.Dependencies {
+		for _, dep := range a.dependencies(afterDeps) {
 			afterVersions[dep.Name] = append(afterVersions[dep.Name], dep)
 			afterByNameVersion[dep.Name+"\x00"+dep.Version] = true
 		}
@@ -417,7 +426,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 
 		// Process all dependencies in after, storing each unique name+version
 		seen := make(map[string]bool)
-		for _, dep := range afterDeps.Dependencies {
+		for _, dep := range a.dependencies(afterDeps) {
 			nameVersion := dep.Name + "\x00" + dep.Version
 			if seen[nameVersion] {
 				continue
@@ -440,7 +449,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 					if before.Version == dep.Version && before.Scope != dep.Scope {
 						result.Changes = append(result.Changes, Change{
 							ManifestPath:           path,
-							Ecosystem:              afterDeps.Ecosystem,
+							Ecosystem:              dep.Ecosystem,
 							Kind:                   string(afterDeps.Kind),
 							Name:                   dep.Name,
 							PURL:                   dep.PURL,
@@ -467,7 +476,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 					// All old versions still exist, this is a newly added version
 					result.Changes = append(result.Changes, Change{
 						ManifestPath:   path,
-						Ecosystem:      afterDeps.Ecosystem,
+						Ecosystem:      dep.Ecosystem,
 						Kind:           string(afterDeps.Kind),
 						Name:           dep.Name,
 						PURL:           dep.PURL,
@@ -480,7 +489,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				} else {
 					result.Changes = append(result.Changes, Change{
 						ManifestPath:        path,
-						Ecosystem:           afterDeps.Ecosystem,
+						Ecosystem:           dep.Ecosystem,
 						Kind:                string(afterDeps.Kind),
 						Name:                dep.Name,
 						PURL:                dep.PURL,
@@ -496,7 +505,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				// Completely new package
 				result.Changes = append(result.Changes, Change{
 					ManifestPath:   path,
-					Ecosystem:      afterDeps.Ecosystem,
+					Ecosystem:      dep.Ecosystem,
 					Kind:           string(afterDeps.Kind),
 					Name:           dep.Name,
 					PURL:           dep.PURL,
@@ -509,7 +518,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			}
 
 			result.Snapshot[key] = SnapshotEntry{
-				Ecosystem:      afterDeps.Ecosystem,
+				Ecosystem:      dep.Ecosystem,
 				Kind:           string(afterDeps.Kind),
 				PURL:           dep.PURL,
 				Requirement:    dep.Version,
@@ -522,7 +531,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		// Check for removed dependencies
 		seenBefore := make(map[string]bool)
 		if beforeDeps != nil {
-			for _, dep := range beforeDeps.Dependencies {
+			for _, dep := range a.dependencies(beforeDeps) {
 				nameVersion := dep.Name + "\x00" + dep.Version
 				if seenBefore[nameVersion] {
 					continue
@@ -535,7 +544,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 						// Package completely removed (not just version change)
 						result.Changes = append(result.Changes, Change{
 							ManifestPath:   path,
-							Ecosystem:      beforeDeps.Ecosystem,
+							Ecosystem:      dep.Ecosystem,
 							Kind:           string(beforeDeps.Kind),
 							Name:           dep.Name,
 							PURL:           dep.PURL,
@@ -564,15 +573,14 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		if deps == nil {
 			continue
 		}
-		if !a.allowsEcosystem(deps.Ecosystem) {
-			continue
+		if a.allowsEcosystem(deps.Ecosystem) {
+			result.addManifestLicense(path, deps, true)
 		}
-		result.addManifestLicense(path, deps, true)
 
-		for _, dep := range deps.Dependencies {
+		for _, dep := range a.dependencies(deps) {
 			result.Changes = append(result.Changes, Change{
 				ManifestPath:   path,
-				Ecosystem:      deps.Ecosystem,
+				Ecosystem:      dep.Ecosystem,
 				Kind:           string(deps.Kind),
 				Name:           dep.Name,
 				PURL:           dep.PURL,
@@ -656,13 +664,9 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 		if err != nil || result == nil {
 			return nil
 		}
-		if !a.allowsEcosystem(result.Ecosystem) {
-			return nil
-		}
-
 		supHashes := a.parseSupplementsInDir(tree, filepath.Dir(f.Name))
 
-		for _, dep := range result.Dependencies {
+		for _, dep := range a.dependencies(result) {
 			integrity := dep.Integrity
 			if integrity == "" {
 				if h, ok := supHashes[supplementKey{dep.Name, dep.Version}]; ok {
@@ -671,7 +675,7 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 			}
 			deps = append(deps, Change{
 				ManifestPath:   f.Name,
-				Ecosystem:      result.Ecosystem,
+				Ecosystem:      dep.Ecosystem,
 				Kind:           string(result.Kind),
 				Name:           dep.Name,
 				PURL:           dep.PURL,
@@ -847,14 +851,10 @@ func (a *Analyzer) DependenciesInWorkingDir(root string, includeSubmodules bool)
 		if err != nil || result == nil {
 			return nil
 		}
-		if !a.allowsEcosystem(result.Ecosystem) {
-			return nil
-		}
-
 		// Look for supplement files in the same directory
 		supHashes := a.parseSupplementsInWorkingDir(osRoot, filepath.Dir(osRel), filepath.Dir(relPath))
 
-		for _, dep := range result.Dependencies {
+		for _, dep := range a.dependencies(result) {
 			integrity := dep.Integrity
 			if integrity == "" {
 				if h, ok := supHashes[supplementKey{dep.Name, dep.Version}]; ok {
@@ -863,7 +863,7 @@ func (a *Analyzer) DependenciesInWorkingDir(root string, includeSubmodules bool)
 			}
 			deps = append(deps, Change{
 				ManifestPath:   relPath,
-				Ecosystem:      result.Ecosystem,
+				Ecosystem:      dep.Ecosystem,
 				Kind:           string(result.Kind),
 				Name:           dep.Name,
 				PURL:           dep.PURL,

@@ -19,6 +19,8 @@ github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423/go.mod h1:jW
 github.com/bmatcuk/doublestar v1.1.1/go.mod h1:UD6OnuiIn0yFxxA2le/rnRU1G4RaI4UvFv1sNto9p6w=
 github.com/bmatcuk/doublestar/v4 v4.10.2 h1:eF7W7HWKg3z9NrWV9pTLnNeoXaqq3Tq9DNKXVMfoCnw=
 github.com/bmatcuk/doublestar/v4 v4.10.2/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
+github.com/bmatcuk/doublestar/v4 v4.10.3 h1:1UIv1+fqH3++ViVkpnaPTB+Pi1UHycnPFAq14zgK+gI=
+github.com/bmatcuk/doublestar/v4 v4.10.3/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
 github.com/cenk/backoff v2.2.1+incompatible h1:djdFT7f4gF2ttuzRKPbMOWgZajgesItGLwG5FTQKmmE=
 github.com/cenk/backoff v2.2.1+incompatible/go.mod h1:7FtoeaSnHoZnmZzz47cM35Y9nSW7tNyaidugnHTaFDE=
 github.com/cloudflare/circl v1.6.5 h1:O64F26HEqNhznd/hrC5KZXVKYuKM2rx4deZDTc4ihQA=
@@ -62,10 +64,14 @@ github.com/git-pkgs/managers v0.12.0 h1:Ex0fZ7hOzoxzXYLmY5ghxqel6jAltaehuGOcPFeQ
 github.com/git-pkgs/managers v0.12.0/go.mod h1:gWk/V63R12skgcTmVsYgED/kxlk2MERS2iWMYKBrJeM=
 github.com/git-pkgs/manifests v0.12.3 h1:6lhpuQYOT10jDVkD1TdAvIZ9lBIKYWL+7tBLIux8Bp0=
 github.com/git-pkgs/manifests v0.12.3/go.mod h1:jz0Vpic/FUdGHB8FZYGgYobjyH0LLpYONt6F0rzfzVU=
+github.com/git-pkgs/manifests v0.12.4-0.20261024111806-e5f4ca7bec9f h1:VpvzF3Q3kvx79914gHhOlHZf8Rn+Vxpzd38f2Ak+HQU=
+github.com/git-pkgs/manifests v0.12.4-0.20261024111806-e5f4ca7bec9f/go.mod h1:kLkyiqKGgOQ17iSB9dDqfIopAhHk4QRZfgi/c4jYLJc=
 github.com/git-pkgs/pom v0.1.8 h1:mXCuWw6XkrKKZb6IurRZyIznYLPhV5AYg5ZO38Uj/l8=
 github.com/git-pkgs/pom v0.1.8/go.mod h1:sQBeYRzjCUn77fcABPn6I/a1aBHFxm55jTmkNxYtGtw=
 github.com/git-pkgs/purl v0.1.21 h1:PDZUX43lxIiXPn2eHcsNiiiwQo+HajntZ/4TwSvCGlw=
 github.com/git-pkgs/purl v0.1.21/go.mod h1:4dOmris48ehjiKmWBqSmMHguUQht48BLeXW+hQUnuj0=
+github.com/git-pkgs/purl v0.1.24-0.20261024111216-f8360f267493 h1:tzTNAPB3Uua62MTrXBNeVQpvidIQtDhp5pEkZv+YhT4=
+github.com/git-pkgs/purl v0.1.24-0.20261024111216-f8360f267493/go.mod h1:l8rCfvt5iXVrFIcoQ8+vCLOaHhrtEW2id0LENP+IzMw=
 github.com/git-pkgs/registries v0.9.3 h1:nXIP//6kVqLKqYXOWhEMoWUkJPDAZYVLRUYfHz3jM2Y=
 github.com/git-pkgs/registries v0.9.3/go.mod h1:BpXlfRCfu4S5bTzm7u7igppVu94mXgll/PENe0AjKmI=
 github.com/git-pkgs/resolve v0.2.3 h1:/PD5csfLpYjLPFzbc9NmL1/piODvLpiV1j26rnPQJJo=

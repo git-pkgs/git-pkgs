@@ -11,8 +11,8 @@ require (
 	github.com/git-pkgs/integrity v0.2.0
 	github.com/git-pkgs/licenses v0.9.0
 	github.com/git-pkgs/managers v0.12.0
-	github.com/git-pkgs/manifests v0.12.3
-	github.com/git-pkgs/purl v0.1.21
+	github.com/git-pkgs/manifests v0.12.4-0.20261024111806-e5f4ca7bec9f
+	github.com/git-pkgs/purl v0.1.24-0.20261024111216-f8360f267493
 	github.com/git-pkgs/registries v0.9.3
 	github.com/git-pkgs/resolve v0.2.3
 	github.com/git-pkgs/sarif v0.1.3
@@ -37,7 +37,7 @@ require (
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/bazelbuild/buildtools v0.0.0-20260904073137-eaa4d125b423 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.10.2 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.3 // indirect
 	github.com/cenk/backoff v2.2.1+incompatible // indirect
 	github.com/cloudflare/circl v1.6.5 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
