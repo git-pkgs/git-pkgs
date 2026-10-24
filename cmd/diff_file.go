@@ -90,7 +90,7 @@ func parseFile(filename, defaultFilename string) (parsedDiffFile, error) {
 	for _, dep := range result.Dependencies {
 		deps = append(deps, database.Dependency{
 			Name:           dep.Name,
-			Ecosystem:      result.Ecosystem,
+			Ecosystem:      dep.Ecosystem,
 			Requirement:    dep.Version,
 			ManifestPath:   name,
 			DependencyType: string(dep.Scope),
