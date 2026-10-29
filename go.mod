@@ -13,7 +13,7 @@ require (
 	github.com/git-pkgs/managers v0.12.0
 	github.com/git-pkgs/manifests v0.12.3
 	github.com/git-pkgs/purl v0.1.21
-	github.com/git-pkgs/registries v0.9.3
+	github.com/git-pkgs/registries v0.11.0
 	github.com/git-pkgs/resolve v0.2.3
 	github.com/git-pkgs/sarif v0.1.3
 	github.com/git-pkgs/sbom v0.1.6
