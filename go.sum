@@ -64,8 +64,8 @@ github.com/git-pkgs/manifests v0.12.3 h1:6lhpuQYOT10jDVkD1TdAvIZ9lBIKYWL+7tBLIux
 github.com/git-pkgs/manifests v0.12.3/go.mod h1:jz0Vpic/FUdGHB8FZYGgYobjyH0LLpYONt6F0rzfzVU=
 github.com/git-pkgs/pom v0.1.8 h1:mXCuWw6XkrKKZb6IurRZyIznYLPhV5AYg5ZO38Uj/l8=
 github.com/git-pkgs/pom v0.1.8/go.mod h1:sQBeYRzjCUn77fcABPn6I/a1aBHFxm55jTmkNxYtGtw=
-github.com/git-pkgs/purl v0.1.21 h1:PDZUX43lxIiXPn2eHcsNiiiwQo+HajntZ/4TwSvCGlw=
-github.com/git-pkgs/purl v0.1.21/go.mod h1:4dOmris48ehjiKmWBqSmMHguUQht48BLeXW+hQUnuj0=
+github.com/git-pkgs/purl v0.1.23 h1:RG7F73S4ZnbAnB/posWf2WS4OhdG0xUbyX8UIkEUhPw=
+github.com/git-pkgs/purl v0.1.23/go.mod h1:l8rCfvt5iXVrFIcoQ8+vCLOaHhrtEW2id0LENP+IzMw=
 github.com/git-pkgs/registries v0.11.0 h1:kkB80NjO9UncyyxGfKmdPXWqUMNE/CkNw5Z/6gqW7Rs=
 github.com/git-pkgs/registries v0.11.0/go.mod h1:bKxgdy/PwnzQXL2FnOktmSQHTKk6B85MA4VtvvYItPc=
 github.com/git-pkgs/resolve v0.2.3 h1:/PD5csfLpYjLPFzbc9NmL1/piODvLpiV1j26rnPQJJo=
