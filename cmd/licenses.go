@@ -801,9 +801,19 @@ func getLicenseData(
 		return nil, err
 	}
 	if offline && len(uncachedPURLs) > 0 {
+		var mixedCaseGo []string
+		for _, packagePURL := range uncachedPURLs {
+			if strings.HasPrefix(packagePURL, "pkg:golang/") && packagePURL != strings.ToLower(packagePURL) {
+				mixedCaseGo = append(mixedCaseGo, packagePURL)
+			}
+		}
+		hint := ""
+		if len(mixedCaseGo) > 0 {
+			hint = fmt.Sprintf("; lowercase Go cache keys cannot safely identify mixed-case modules (%s)", strings.Join(mixedCaseGo, ", "))
+		}
 		return nil, fmt.Errorf(
-			"offline mode: license metadata is not cached for %d package(s); run 'git pkgs licenses' without --offline to populate the cache",
-			len(uncachedPURLs),
+			"offline mode: license metadata is not cached for %d package(s)%s; run 'git pkgs licenses' without --offline to populate the cache",
+			len(uncachedPURLs), hint,
 		)
 	}
 	if len(uncachedPURLs) == 0 {
