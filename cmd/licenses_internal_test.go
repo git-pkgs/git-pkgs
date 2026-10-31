@@ -529,20 +529,24 @@ func TestWarnUnresolvedLicenseTextTargets(t *testing.T) {
 		{dependency: database.Dependency{Name: "six", Ecosystem: "pypi", ManifestPath: "requirements.txt"}},
 		{dependency: database.Dependency{Name: "certifi", Ecosystem: "pypi", ManifestPath: "requirements.txt"}},
 		{dependency: database.Dependency{Name: "actions/checkout", Ecosystem: "github-actions", ManifestPath: ".github/workflows/ci.yml"}},
+		{dependency: database.Dependency{Name: "unavailable", Ecosystem: "unknown", ManifestPath: "unknown.lock"}},
 		{versionedPURL: "pkg:npm/example@1.0.0", dependency: database.Dependency{Name: "example", Ecosystem: "npm"}},
 	})
 	got := output.String()
 	if !strings.Contains(got, "skipped six, certifi from requirements.txt") {
 		t.Errorf("missing pypi warning: %q", got)
 	}
-	if strings.Contains(got, "actions/checkout") || strings.Contains(got, "ci.yml") {
-		t.Errorf("github-actions should be skipped silently: %q", got)
+	if !strings.Contains(got, "skipped actions/checkout from .github/workflows/ci.yml") {
+		t.Errorf("missing github-actions warning: %q", got)
+	}
+	if strings.Contains(got, "unavailable") {
+		t.Errorf("unsupported ecosystem should be skipped silently: %q", got)
 	}
 	if strings.Contains(got, "example") {
 		t.Errorf("resolved target should not warn: %q", got)
 	}
-	if n := strings.Count(got, "\n"); n != 1 {
-		t.Errorf("want one warning line, got %d: %q", n, got)
+	if n := strings.Count(got, "\n"); n != 2 {
+		t.Errorf("want two warning lines, got %d: %q", n, got)
 	}
 }
 
@@ -555,7 +559,8 @@ func TestHasArtifactRegistry(t *testing.T) {
 		{"gem", true},
 		{"pypi", true},
 		{"golang", true},
-		{"github-actions", false},
+		{"github-actions", true},
+		{"unknown", false},
 	}
 	for _, tt := range tests {
 		if got := hasArtifactRegistry(tt.ecosystem); got != tt.want {
@@ -664,7 +669,7 @@ func TestUniqueLicenseArtifactRequestsSkipsUnfetchable(t *testing.T) {
 	for _, r := range requests {
 		got = append(got, r.PURL)
 	}
-	want := []string{"pkg:gem/priv@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", "pkg:gem/rack@3.0.9"}
+	want := []string{"pkg:gem/priv@1.0.0?repository_url=https%3A%2F%2Fgems.example.com", "pkg:gem/rack@3.0.9", "pkg:githubactions/actions/checkout@v4"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("requests = %v, want %v", got, want)
 	}
