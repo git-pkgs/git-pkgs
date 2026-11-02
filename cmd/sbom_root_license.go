@@ -230,6 +230,7 @@ func sortedKeys(values map[string]bool) []string {
 }
 
 func joinSPDXExpressions(expressions []string) string {
+	expressions = withoutSpecialLicenseValues(expressions)
 	if len(expressions) == 0 {
 		return ""
 	}
@@ -246,4 +247,19 @@ func joinSPDXExpressions(expressions []string) string {
 		return ""
 	}
 	return joined
+}
+
+// withoutSpecialLicenseValues drops NONE and NOASSERTION when other
+// expressions are present, since SPDX only allows them standalone.
+func withoutSpecialLicenseValues(expressions []string) []string {
+	kept := make([]string, 0, len(expressions))
+	for _, expression := range expressions {
+		if expression != "NONE" && expression != "NOASSERTION" {
+			kept = append(kept, expression)
+		}
+	}
+	if len(kept) == 0 && len(expressions) > 0 {
+		return expressions[:1]
+	}
+	return kept
 }
