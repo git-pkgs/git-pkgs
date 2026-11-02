@@ -17,7 +17,7 @@ require (
 	github.com/git-pkgs/resolve v0.2.3
 	github.com/git-pkgs/sarif v0.1.3
 	github.com/git-pkgs/sbom v0.1.7
-	github.com/git-pkgs/spdx v0.3.3
+	github.com/git-pkgs/spdx v0.3.6
 	github.com/git-pkgs/vers v0.7.2
 	github.com/git-pkgs/vulns v0.2.4
 	github.com/go-git/go-billy/v5 v5.9.2
@@ -49,7 +49,7 @@ require (
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/git-pkgs/magic v0.5.0 // indirect
 	github.com/git-pkgs/pom v0.1.8 // indirect
-	github.com/github/go-spdx/v2 v2.7.0 // indirect
+	github.com/github/go-spdx/v2 v2.8.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/uuid v1.6.0 // indirect

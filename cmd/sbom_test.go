@@ -979,3 +979,49 @@ func TestSBOMFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectLicenseAtRevisionDropsSpecialValues(t *testing.T) {
+	repoDir := t.TempDir()
+	repository, err := gitgo.PlainInit(repoDir, false)
+	if err != nil {
+		t.Fatalf("PlainInit: %v", err)
+	}
+	commitSBOMFile(t, repository, repoDir, "package.json", `{
+  "name": "demo",
+  "version": "1.0.0",
+  "license": "MIT"
+}`, "add package manifest")
+	commitSBOMFile(t, repository, repoDir, "composer.json", `{
+  "name": "acme/demo",
+  "license": "NOASSERTION"
+}`, "add composer manifest")
+
+	repo, err := gitpkg.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("OpenRepository: %v", err)
+	}
+	got, _, err := projectLicensesAtRevision(repo, nil, "HEAD", "")
+	if err != nil {
+		t.Fatalf("projectLicensesAtRevision: %v", err)
+	}
+	if got.Expression != "MIT" {
+		t.Fatalf("licenses = %+v, want MIT", got)
+	}
+}
+
+func TestNormalizeProjectLicensesSpecialValues(t *testing.T) {
+	tests := []struct {
+		values []string
+		want   string
+	}{
+		{[]string{"MIT", "NOASSERTION"}, "MIT"},
+		{[]string{"NONE", "MIT OR Apache-2.0", "BSD-3-Clause"}, "BSD-3-Clause AND (MIT OR Apache-2.0)"},
+		{[]string{"NOASSERTION"}, "NOASSERTION"},
+		{[]string{"NONE", "NOASSERTION"}, "NOASSERTION"},
+	}
+	for _, test := range tests {
+		if got := normalizeProjectLicenses(test.values).Expression; got != test.want {
+			t.Errorf("normalizeProjectLicenses(%q).Expression = %q, want %q", test.values, got, test.want)
+		}
+	}
+}
