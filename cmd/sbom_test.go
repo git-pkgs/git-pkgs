@@ -83,7 +83,7 @@ func TestBuildSBOM(t *testing.T) {
 	}
 	licenses := map[string]string{"pkg:npm/lodash@4.17.21": "MIT"}
 
-	doc := buildSBOM(components, licenses, "demo", "1.0.0", projectLicenses{}, true)
+	doc := buildSBOM(components, licenses, nil, "demo", "1.0.0", projectLicenses{}, true)
 
 	if len(doc.Packages) != 2 {
 		t.Fatalf("Packages = %d, want 2", len(doc.Packages))
@@ -140,7 +140,7 @@ func TestEncodeSBOMOccurrencePropertiesCycloneDX(t *testing.T) {
 		DependencyType: "runtime",
 	}
 	document := buildSBOM([]sbomComponent{{primary: dep, occurrences: []database.Dependency{dep}}},
-		nil, "demo", "1.0.0", projectLicenses{}, true)
+		nil, nil, "demo", "1.0.0", projectLicenses{}, true)
 
 	var jsonOutput bytes.Buffer
 	if err := sbom.Encode(&jsonOutput, document, sbom.FormatCycloneDXJSON); err != nil {
@@ -193,7 +193,7 @@ func TestBuildSBOMOmitsOccurrencePropertiesForSPDX(t *testing.T) {
 		DependencyType: "runtime",
 	}
 	document := buildSBOM([]sbomComponent{{primary: dep, occurrences: []database.Dependency{dep}}},
-		nil, "demo", "1.0.0", projectLicenses{}, false)
+		nil, nil, "demo", "1.0.0", projectLicenses{}, false)
 
 	if len(document.Packages) != 1 || len(document.Packages[0].Properties) != 0 {
 		t.Fatalf("SPDX package properties = %+v, want none", document.Packages)
@@ -638,7 +638,7 @@ func testRootLicenses() (*sbom.SBOM, projectLicenses) {
 			Text: "Custom file terms\n",
 		}},
 	}
-	document := buildSBOM(nil, nil, "demo", "1.0.0", licenses, true)
+	document := buildSBOM(nil, nil, nil, "demo", "1.0.0", licenses, true)
 	return document, licenses
 }
 
@@ -939,15 +939,15 @@ func TestEnrichLicensesUsesVersionMetadata(t *testing.T) {
 					ManifestKind: manifestKindLockfile,
 				},
 			}
-			licenses, fallbacks, err := enrichLicenses(nil, deps)
+			enriched, err := enrichSBOMPackages(nil, deps)
 			if err != nil {
 				t.Fatalf("enrich licenses: %v", err)
 			}
-			if got := licenses["pkg:npm/ua-parser-js@1.0.41"]; got != tt.wantLicense {
+			if got := enriched.licenses["pkg:npm/ua-parser-js@1.0.41"]; got != tt.wantLicense {
 				t.Fatalf("license = %q, want %q", got, tt.wantLicense)
 			}
-			if fallbacks != tt.wantFallbacks {
-				t.Fatalf("package fallbacks = %d, want %d", fallbacks, tt.wantFallbacks)
+			if enriched.packageFallbacks != tt.wantFallbacks {
+				t.Fatalf("package fallbacks = %d, want %d", enriched.packageFallbacks, tt.wantFallbacks)
 			}
 			if client.bulkLookupCalls != 1 || client.getVersionCalls != 1 {
 				t.Fatalf("enrichment calls: BulkLookup=%d GetVersion=%d, want 1 each",

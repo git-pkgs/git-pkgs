@@ -120,6 +120,8 @@ func (db *DB) CreateSchema() error {
 		funding_synced_at DATETIME,
 		maintainers TEXT,
 		maintainers_synced_at DATETIME,
+		repository_parent TEXT,
+		repository_parent_synced_at DATETIME,
 		downloads INTEGER,
 		downloads_period TEXT,
 		dependent_packages_count INTEGER,

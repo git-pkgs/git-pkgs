@@ -2382,6 +2382,156 @@ func (db *DB) SavePackageFundingBatch(packages []PackageFundingData) error {
 	return tx.Commit()
 }
 
+// RepositoryParent is the declared upstream repository of a package's source
+// repository.
+type RepositoryParent struct {
+	FullName string `json:"full_name"`
+	Evidence string `json:"evidence"`
+	HostName string `json:"host_name,omitempty"`
+	HostKind string `json:"host_kind,omitempty"`
+	HostURL  string `json:"host_url,omitempty"`
+}
+
+// CachedRepositoryParent is a cached repository parent lookup. Parent is nil
+// when the package has no declared parent.
+type CachedRepositoryParent struct {
+	PURL     string
+	Parent   *RepositoryParent
+	SyncedAt time.Time
+}
+
+// PackageRepositoryParentData holds a package's repository parent for batch
+// saving. Parent is nil when the package has no declared parent.
+type PackageRepositoryParentData struct {
+	PURL      string
+	Ecosystem string
+	Name      string
+	Parent    *RepositoryParent
+}
+
+// HasRepositoryParentCache reports whether the packages table can cache
+// repository parents. Databases created before schema version 17 cannot.
+func (db *DB) HasRepositoryParentCache() (bool, error) {
+	var count int
+	err := db.QueryRow(
+		"SELECT COUNT(*) FROM pragma_table_info('packages') WHERE name = 'repository_parent_synced_at'",
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// GetCachedRepositoryParents returns cached repository parent lookups for the
+// given PURLs that aren't stale.
+func (db *DB) GetCachedRepositoryParents(purls []string, staleDuration time.Duration) (map[string]*CachedRepositoryParent, error) {
+	result := make(map[string]*CachedRepositoryParent)
+	if len(purls) == 0 {
+		return result, nil
+	}
+
+	staleThreshold := time.Now().Add(-staleDuration)
+
+	const batchSize = 500
+	for i := 0; i < len(purls); i += batchSize {
+		end := i + batchSize
+		if end > len(purls) {
+			end = len(purls)
+		}
+		batch := purls[i:end]
+
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch)+1)
+		args[0] = staleThreshold.Format(time.RFC3339)
+		for j, purl := range batch {
+			placeholders[j] = "?"
+			args[j+1] = purl
+		}
+
+		query := `SELECT purl, repository_parent, repository_parent_synced_at
+			FROM packages
+			WHERE repository_parent_synced_at >= ? AND purl IN (` + strings.Join(placeholders, ",") + `)`
+
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var cached CachedRepositoryParent
+			var parent sql.NullString
+			var syncedAt string
+			if err := rows.Scan(&cached.PURL, &parent, &syncedAt); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			if parent.Valid && parent.String != "" {
+				cached.Parent = &RepositoryParent{}
+				if err := json.Unmarshal([]byte(parent.String), cached.Parent); err != nil {
+					continue
+				}
+			}
+			cached.SyncedAt, _ = time.Parse(time.RFC3339, syncedAt)
+			result[cached.PURL] = &cached
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		_ = rows.Close()
+	}
+
+	return result, nil
+}
+
+// SavePackageRepositoryParentBatch saves repository parent lookups in a single
+// transaction.
+func (db *DB) SavePackageRepositoryParentBatch(packages []PackageRepositoryParentData) error {
+	if len(packages) == 0 {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	stmt, err := tx.Prepare(`
+		INSERT INTO packages (purl, ecosystem, name, repository_parent, repository_parent_synced_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(purl) DO UPDATE SET
+			repository_parent = excluded.repository_parent,
+			repository_parent_synced_at = excluded.repository_parent_synced_at,
+			updated_at = excluded.updated_at`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	for _, p := range packages {
+		var parent sql.NullString
+		if p.Parent != nil {
+			raw, err := json.Marshal(p.Parent)
+			if err != nil {
+				_ = stmt.Close()
+				_ = tx.Rollback()
+				return err
+			}
+			parent = sql.NullString{String: string(raw), Valid: true}
+		}
+		_, err = stmt.Exec(p.PURL, p.Ecosystem, p.Name, parent, now, now, now)
+		if err != nil {
+			_ = stmt.Close()
+			_ = tx.Rollback()
+			return err
+		}
+	}
+
+	_ = stmt.Close()
+	return tx.Commit()
+}
+
 // PackageMaintainersData holds maintainer data for batch saving.
 type PackageMaintainersData struct {
 	PURL        string

@@ -496,7 +496,7 @@ git pkgs sbom -f xml               # XML instead of JSON
 git pkgs sbom --name my-project    # custom project name
 ```
 
-Includes package URLs (purls), versions, and licenses (fetched from registries). CycloneDX output also includes each component's manifest path, declared requirement, and dependency type as occurrence properties. SPDX output omits occurrence metadata because SPDX 2.3 has no package-properties field. Use `--skip-enrichment` to omit license lookups.
+Includes package URLs (purls), versions, and licenses (fetched from registries). CycloneDX output also includes each component's manifest path, declared requirement, and dependency type as occurrence properties. SPDX output omits occurrence metadata because SPDX 2.3 has no package-properties field. When a component's source repository is a declared fork on GitHub or Bitbucket, CycloneDX output lists the upstream repository under `pedigree.ancestors`, such as `pkg:github/d3/d3` for `@plotly/d3`, without inferring an upstream package or version. Use `--skip-enrichment` to omit license and ancestry lookups.
 
 ### Diff between commits or working tree
 

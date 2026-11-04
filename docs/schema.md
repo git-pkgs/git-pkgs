@@ -153,6 +153,8 @@ Caches package metadata from registries and vulnerability sync status.
 | funding_synced_at | datetime | When funding metadata was last fetched |
 | maintainers | text | JSON-encoded package maintainer data |
 | maintainers_synced_at | datetime | When maintainer data was last fetched |
+| repository_parent | text | JSON-encoded declared parent of the package's source repository, or NULL when none |
+| repository_parent_synced_at | datetime | When the repository parent was last fetched |
 | downloads | integer | Package download count from metadata source |
 | downloads_period | text | Period the download count covers |
 | dependent_packages_count | integer | Number of packages depending on this package |
