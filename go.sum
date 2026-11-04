@@ -58,8 +58,8 @@ github.com/git-pkgs/licenses v0.9.0 h1:KMrZ+sn8Te9hUh9/dw268eh7AIrmilyAprAGtR6sv
 github.com/git-pkgs/licenses v0.9.0/go.mod h1:WJuQA5shOV2UN7IdRjXIYxVZCwW366/fFxx8gS8DYrw=
 github.com/git-pkgs/magic v0.5.0 h1:Pm+4fkHR+K6kg9pwJM4hnwWUuBlkYdLmF1yIAI8lU9Q=
 github.com/git-pkgs/magic v0.5.0/go.mod h1:SXOqcsNmbmpZjJZHEEWnwxprbsFvpwWgTAZrgXp4Jm4=
-github.com/git-pkgs/mailmap v0.1.0 h1:CUIBI1MW4jW+EiJA7BAGY1R2WLU+Qt93sATK3nnfOe8=
-github.com/git-pkgs/mailmap v0.1.0/go.mod h1:9TZQk9wpOPcuUUr2Gdnp0prMxpN0QDQsnV5v+7DOAdI=
+github.com/git-pkgs/mailmap v0.1.1 h1:XCt7+0yiWrtAvVX1UwsI+ryWO3qGm7CYm5tof3daeDU=
+github.com/git-pkgs/mailmap v0.1.1/go.mod h1:9TZQk9wpOPcuUUr2Gdnp0prMxpN0QDQsnV5v+7DOAdI=
 github.com/git-pkgs/managers v0.12.0 h1:Ex0fZ7hOzoxzXYLmY5ghxqel6jAltaehuGOcPFeQz4U=
 github.com/git-pkgs/managers v0.12.0/go.mod h1:gWk/V63R12skgcTmVsYgED/kxlk2MERS2iWMYKBrJeM=
 github.com/git-pkgs/manifests v0.12.3 h1:6lhpuQYOT10jDVkD1TdAvIZ9lBIKYWL+7tBLIux8Bp0=
