@@ -6,14 +6,14 @@ require (
 	github.com/git-pkgs/archives v0.10.0
 	github.com/git-pkgs/artifacts v0.2.1
 	github.com/git-pkgs/changelog v0.2.1
-	github.com/git-pkgs/enrichment v0.7.3
+	github.com/git-pkgs/enrichment v0.7.5
 	github.com/git-pkgs/gitignore v1.3.0
 	github.com/git-pkgs/integrity v0.2.0
 	github.com/git-pkgs/licenses v0.9.0
 	github.com/git-pkgs/managers v0.12.0
 	github.com/git-pkgs/manifests v0.12.3
-	github.com/git-pkgs/purl v0.1.23
-	github.com/git-pkgs/registries v0.11.0
+	github.com/git-pkgs/purl v0.2.1
+	github.com/git-pkgs/registries v0.13.0
 	github.com/git-pkgs/resolve v0.2.3
 	github.com/git-pkgs/sarif v0.1.3
 	github.com/git-pkgs/sbom v0.1.7
