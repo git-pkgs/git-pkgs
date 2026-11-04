@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
@@ -33,7 +34,7 @@ The SBOM includes all dependencies and optionally enriched license information.`
 	sbomCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	sbomCmd.Flags().String("name", "", "Project name (default: git directory name)")
 	sbomCmd.Flags().String("version", "", "Project version")
-	sbomCmd.Flags().Bool("skip-enrichment", false, "Skip license enrichment from ecosyste.ms")
+	sbomCmd.Flags().Bool("skip-enrichment", false, "Skip license and ancestry enrichment from ecosyste.ms")
 	parent.AddCommand(sbomCmd)
 }
 
@@ -72,18 +73,21 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 	components := selectSBOMDependencies(deps)
 	deps = sbomComponentDependencies(components)
 
-	licenseMap := map[string]string{}
+	var enriched sbomEnrichment
 	if !skipEnrichment {
-		var packageFallbacks int
-		licenseMap, packageFallbacks, err = enrichLicenses(db, deps)
+		enriched, err = enrichSBOMPackages(db, deps)
 		if err != nil {
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Warning: SBOM license enrichment incomplete: %v\n", err)
 		}
-		if packageFallbacks > 0 {
+		if enriched.packageFallbacks > 0 {
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 				"Warning: using package-level license metadata for %d SBOM component(s) without version license metadata\n",
-				packageFallbacks,
+				enriched.packageFallbacks,
 			)
+		}
+		if enriched.ancestryUnavailable {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"Warning: database schema predates the repository ancestry cache; run 'git pkgs upgrade' to include pedigree ancestors")
 		}
 	}
 
@@ -101,7 +105,8 @@ func runSBOM(cmd *cobra.Command, args []string) error {
 
 	doc := buildSBOM(
 		components,
-		licenseMap,
+		enriched.licenses,
+		enriched.ancestors,
 		projectName,
 		projectVersion,
 		projectLicenses,
@@ -126,6 +131,7 @@ func sbomFormat(sbomType, format string) (sbom.Format, error) {
 func buildSBOM(
 	components []sbomComponent,
 	licenses map[string]string,
+	ancestors map[string][]sbom.Ancestor,
 	name, ver string,
 	projectLicenseData projectLicenses,
 	includeOccurrenceProperties bool,
@@ -177,6 +183,7 @@ func buildSBOM(
 			p.LicenseConcluded = lic
 			p.LicenseDeclared = lic
 		}
+		p.Ancestors = ancestors[purlStr]
 		s.AddPackage(p)
 	}
 	return s
@@ -423,7 +430,21 @@ func sbomDependencyPackageKey(dep database.Dependency) string {
 	return strings.ToLower(dep.Ecosystem) + "\x00" + strings.ToLower(dep.Name)
 }
 
-func enrichLicenses(db *database.DB, deps []database.Dependency) (map[string]string, int, error) {
+// sbomEnrichment holds enrichment results keyed by component PURL.
+type sbomEnrichment struct {
+	licenses            map[string]string
+	ancestors           map[string][]sbom.Ancestor
+	packageFallbacks    int
+	ancestryUnavailable bool
+}
+
+// sbomPackageData is the package-level enrichment for one package PURL.
+type sbomPackageData struct {
+	license string
+	parent  *database.RepositoryParent
+}
+
+func enrichSBOMPackages(db *database.DB, deps []database.Dependency) (sbomEnrichment, error) {
 	purls := make([]string, 0, len(deps))
 	purlToDep := make(map[string]database.Dependency)
 	seen := make(map[string]bool)
@@ -437,10 +458,14 @@ func enrichLicenses(db *database.DB, deps []database.Dependency) (map[string]str
 		purlToDep[purlStr] = d
 	}
 	if len(purls) == 0 {
-		return map[string]string{}, 0, nil
+		return sbomEnrichment{}, nil
 	}
 
-	packageLicenses, packageErr := getSBOMLicenseData(db, purls, purlToDep)
+	packageData, ancestryCached, packageErr := getSBOMPackageData(db, purls, purlToDep)
+	packageLicenses := make(map[string]string, len(packageData))
+	for purlStr, data := range packageData {
+		packageLicenses[purlStr] = data.license
+	}
 	resolved := make([]database.Dependency, 0, len(deps))
 	for _, dep := range deps {
 		if isResolvedDependency(dep) {
@@ -450,7 +475,49 @@ func enrichLicenses(db *database.DB, deps []database.Dependency) (map[string]str
 	versionLicenses, versionErr := loadLicenseVersionLicenses(db, resolved, false)
 
 	licenses, packageFallbacks := selectSBOMLicenses(deps, packageLicenses, versionLicenses)
-	return licenses, packageFallbacks, errors.Join(packageErr, versionErr)
+	return sbomEnrichment{
+		licenses:            licenses,
+		ancestors:           selectSBOMAncestors(deps, packageData),
+		packageFallbacks:    packageFallbacks,
+		ancestryUnavailable: packageErr == nil && !ancestryCached,
+	}, errors.Join(packageErr, versionErr)
+}
+
+func selectSBOMAncestors(deps []database.Dependency, packageData map[string]sbomPackageData) map[string][]sbom.Ancestor {
+	ancestors := make(map[string][]sbom.Ancestor)
+	for _, dep := range deps {
+		componentPURL := sbomPURLForDependency(dep)
+		if componentPURL == "" {
+			continue
+		}
+		if ancestor, ok := repositoryAncestor(packageData[licensePackagePURLForDependency(dep)].parent); ok {
+			ancestors[componentPURL] = []sbom.Ancestor{ancestor}
+		}
+	}
+	return ancestors
+}
+
+// repositoryAncestorPURLTypes are the PURL types that identify a repository on
+// its public host.
+var repositoryAncestorPURLTypes = map[string]bool{"github": true, "bitbucket": true}
+
+// repositoryAncestor converts a declared fork parent into an unversioned
+// repository ancestor. Hosts without a PURL type, such as self-hosted
+// instances, yield no ancestor.
+func repositoryAncestor(parent *database.RepositoryParent) (sbom.Ancestor, bool) {
+	if parent == nil || parent.Evidence != enrichment.AncestryDeclaredFork ||
+		!repositoryAncestorPURLTypes[parent.HostKind] ||
+		strings.TrimSuffix(parent.HostURL, "/") != purl.DefaultRegistry(parent.HostKind) {
+		return sbom.Ancestor{}, false
+	}
+	owner, name, ok := strings.Cut(parent.FullName, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return sbom.Ancestor{}, false
+	}
+	return sbom.Ancestor{
+		Name: parent.FullName,
+		PURL: purl.New(parent.HostKind, owner, name, "", nil).String(),
+	}, true
 }
 
 func selectSBOMLicenses(
@@ -479,59 +546,105 @@ func selectSBOMLicenses(
 	return licenses, len(fallbacks)
 }
 
-func getSBOMLicenseData(db *database.DB, purls []string, purlToDep map[string]database.Dependency) (map[string]string, error) {
-	result := make(map[string]string)
-	var uncachedPurls []string
+// getSBOMPackageData returns package-level enrichment keyed by package PURL.
+// When the database cannot cache repository parents, it returns no parents and
+// reports ancestryCached as false.
+func getSBOMPackageData(
+	db *database.DB,
+	purls []string,
+	purlToDep map[string]database.Dependency,
+) (map[string]sbomPackageData, bool, error) {
+	result := make(map[string]sbomPackageData)
+	ancestryCached := true
+	uncachedPurls := purls
 
-	// Check cache if DB is available
 	if db != nil {
 		cached, err := db.GetCachedPackages(purls, enrichmentCacheTTL)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		for purl, cp := range cached {
-			result[purl] = cp.License
-		}
-		// Find uncached PURLs
-		for _, purl := range purls {
-			if _, ok := cached[purl]; !ok {
-				uncachedPurls = append(uncachedPurls, purl)
-			}
-		}
-	} else {
-		uncachedPurls = purls
-	}
-
-	// Fetch uncached from API
-	if len(uncachedPurls) > 0 {
-		client, err := newEnrichmentClient()
+		ancestryCached, err = db.HasRepositoryParentCache()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-
-		const sbomTimeout = 60 * time.Second
-		ctx, cancel := context.WithTimeout(context.Background(), sbomTimeout)
-		defer cancel()
-
-		packages, err := client.BulkLookup(ctx, uncachedPurls)
-		if err != nil {
-			return nil, wrapEcosystemsError(err)
+		var cachedParents map[string]*database.CachedRepositoryParent
+		if ancestryCached {
+			cachedParents, err = db.GetCachedRepositoryParents(purls, enrichmentCacheTTL)
+			if err != nil {
+				return nil, false, err
+			}
 		}
-
-		for purl, pkg := range packages {
-			license := ""
-			if pkg != nil {
-				license = pkg.License
+		uncachedPurls = nil
+		for _, purlStr := range purls {
+			cachedPackage, ok := cached[purlStr]
+			cachedParent, parentOK := cachedParents[purlStr]
+			if !ok || (ancestryCached && !parentOK) {
+				uncachedPurls = append(uncachedPurls, purlStr)
+				continue
 			}
-			result[purl] = license
-
-			// Save to cache if DB available
-			if db != nil && pkg != nil {
-				dep := purlToDep[purl]
-				_ = db.SavePackageEnrichment(purl, dep.Ecosystem, dep.Name, pkg.LatestVersion, pkg.License, pkg.RegistryURL, pkg.Source)
+			data := sbomPackageData{license: cachedPackage.License}
+			if cachedParent != nil {
+				data.parent = cachedParent.Parent
 			}
+			result[purlStr] = data
 		}
 	}
 
-	return result, nil
+	if len(uncachedPurls) == 0 {
+		return result, ancestryCached, nil
+	}
+
+	client, err := newEnrichmentClient()
+	if err != nil {
+		return nil, ancestryCached, err
+	}
+
+	const sbomTimeout = 60 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), sbomTimeout)
+	defer cancel()
+
+	packages, err := client.BulkLookup(ctx, uncachedPurls)
+	if err != nil {
+		return nil, ancestryCached, wrapEcosystemsError(err)
+	}
+
+	var parentsToSave []database.PackageRepositoryParentData
+	for purlStr, pkg := range packages {
+		var data sbomPackageData
+		if pkg != nil {
+			data.license = pkg.License
+			if ancestryCached {
+				data.parent = databaseRepositoryParent(pkg.RepositoryParent)
+			}
+		}
+		result[purlStr] = data
+
+		if db != nil && pkg != nil {
+			dep := purlToDep[purlStr]
+			_ = db.SavePackageEnrichment(purlStr, dep.Ecosystem, dep.Name, pkg.LatestVersion, pkg.License, pkg.RegistryURL, pkg.Source)
+			if ancestryCached {
+				parentsToSave = append(parentsToSave, database.PackageRepositoryParentData{
+					PURL: purlStr, Ecosystem: dep.Ecosystem, Name: dep.Name, Parent: data.parent,
+				})
+			}
+		}
+	}
+	if db != nil {
+		_ = db.SavePackageRepositoryParentBatch(parentsToSave)
+	}
+
+	return result, ancestryCached, nil
+}
+
+func databaseRepositoryParent(parent *enrichment.RepositoryParent) *database.RepositoryParent {
+	if parent == nil {
+		return nil
+	}
+	return &database.RepositoryParent{
+		FullName: parent.FullName,
+		Evidence: parent.Evidence,
+		HostName: parent.HostName,
+		HostKind: parent.HostKind,
+		HostURL:  parent.HostURL,
+	}
 }
