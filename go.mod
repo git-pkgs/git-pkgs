@@ -11,7 +11,7 @@ require (
 	github.com/git-pkgs/integrity v0.2.0
 	github.com/git-pkgs/licenses v0.9.0
 	github.com/git-pkgs/mailmap v0.1.1
-	github.com/git-pkgs/managers v0.12.0
+	github.com/git-pkgs/managers v0.12.1-0.20261105210959-0c5f2c9d8e26
 	github.com/git-pkgs/manifests v0.12.3
 	github.com/git-pkgs/purl v0.2.1
 	github.com/git-pkgs/registries v0.13.0
