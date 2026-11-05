@@ -498,6 +498,21 @@ git pkgs sbom --name my-project    # custom project name
 
 Includes package URLs (purls), versions, and licenses (fetched from registries). CycloneDX output also includes each component's manifest path, declared requirement, and dependency type as occurrence properties. SPDX output omits occurrence metadata because SPDX 2.3 has no package-properties field. When a component's source repository is a declared fork on GitHub or Bitbucket, CycloneDX output lists the upstream repository under `pedigree.ancestors`, such as `pkg:github/d3/d3` for `@plotly/d3`, without inferring an upstream package or version. Use `--skip-enrichment` to omit license and ancestry lookups.
 
+### Warm a proxy cache
+
+Prefill a running git-pkgs proxy with the repository's resolved package versions:
+
+```bash
+git pkgs proxy warm --url http://localhost:8080
+git pkgs proxy warm --dry-run
+git pkgs proxy warm --url http://localhost:8080 --commit HEAD~1
+git pkgs proxy warm --url http://localhost:8080 --ecosystem npm
+```
+
+Enable `mirror_api: true` or `PROXY_MIRROR_API=true` on the proxy. Set `PROXY_URL` to avoid repeating `--url`. The command reads committed HEAD by default, deduplicates package versions, and includes transitive dependencies recorded in lockfiles. Use `--manifest` or `--type` to narrow the selection. Unresolved dependencies and local sources are skipped with a reason; unversioned PURLs are never submitted.
+
+`--dry-run` lists the PURLs without contacting the proxy and does not require a URL. A normal run waits for the mirror job and reports downloaded, already cached, and failed versions. Any failed package makes the command exit nonzero, including unsupported packages or versions rejected by proxy policy. The default timeout is 30 minutes; override it with `--timeout`. Interrupting the command or reaching the timeout stops waiting but leaves the server job running, with its ID printed for follow-up through the proxy API.
+
 ### Diff between commits or working tree
 
 ```bash
