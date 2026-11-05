@@ -11,6 +11,7 @@ import (
 
 	"github.com/git-pkgs/changelog"
 	"github.com/git-pkgs/git-pkgs/internal/git"
+	"github.com/git-pkgs/managers"
 	"github.com/git-pkgs/purl"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -241,14 +242,21 @@ func detectEcosystem(managerFlag string) (string, error) {
 				return d.Ecosystem, nil
 			}
 		}
-		// Manager flag didn't match any detected manager, check config
-		for _, eco := range ecosystemConfigs {
-			if eco.Default == managerFlag {
-				return eco.Ecosystem, nil
+		detector, err := getDetector()
+		if err != nil {
+			return "", err
+		}
+		ecosystem, known := detector.Ecosystem(managerFlag)
+		for _, eco := range managers.GitPkgsFileDetectionPolicy().Ecosystems {
+			if !known || eco.Ecosystem != ecosystem {
+				continue
+			}
+			if eco.DefaultManager == managerFlag {
+				return ecosystem, nil
 			}
 			for _, lf := range eco.Lockfiles {
 				if lf.Manager == managerFlag {
-					return eco.Ecosystem, nil
+					return ecosystem, nil
 				}
 			}
 		}
