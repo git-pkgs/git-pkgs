@@ -138,3 +138,34 @@ func TestDetectEcosystem(t *testing.T) {
 		}
 	})
 }
+
+func TestDetectEcosystemSharedDefinitions(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, tt := range []struct{ manager, ecosystem string }{
+		{"bundler", "rubygems"},
+		{"gomod", "go"},
+		{"gradle", "maven"},
+		{"cabal", "hackage"},
+		{"stack", "hackage"},
+		{"pkg", "julia"},
+		{"carthage", "carthage"},
+		{"elm", "elm"},
+		{"dub", "dub"},
+		{"haxelib", "haxelib"},
+		{"nix", "nix"},
+	} {
+		t.Run(tt.manager, func(t *testing.T) {
+			got, err := detectEcosystem(tt.manager)
+			if err != nil || got != tt.ecosystem {
+				t.Fatalf("detectEcosystem(%q) = %q, %v; want %q", tt.manager, got, err, tt.ecosystem)
+			}
+		})
+	}
+	for _, manager := range []string{"helm", "brew", "gem", "rebar3", "pip"} {
+		t.Run(manager, func(t *testing.T) {
+			if got, err := detectEcosystem(manager); err == nil {
+				t.Fatalf("detectEcosystem(%q) = %q; want unknown manager error", manager, got)
+			}
+		})
+	}
+}

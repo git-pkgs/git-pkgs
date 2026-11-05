@@ -6,6 +6,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/git-pkgs/managers"
 	"github.com/git-pkgs/manifests"
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries"
@@ -33,11 +34,11 @@ func addEcosystemsCmd(parent *cobra.Command) {
 }
 
 func buildEcosystemDetails() []EcosystemDetail {
-	// Build a map from ecosystemConfigs, keyed by PURL type
-	configMap := make(map[string]*ecosystemConfig)
-	for i := range ecosystemConfigs {
-		pt := purl.EcosystemToPURLType(ecosystemConfigs[i].Ecosystem)
-		configMap[pt] = &ecosystemConfigs[i]
+	configs := managers.GitPkgsFileDetectionPolicy().Ecosystems
+	configMap := make(map[string]*managers.EcosystemDetectionPolicy)
+	for i := range configs {
+		pt := purl.EcosystemToPURLType(configs[i].Ecosystem)
+		configMap[pt] = &configs[i]
 	}
 
 	// Build a set of registry-supported ecosystems, keyed by PURL type
@@ -46,7 +47,6 @@ func buildEcosystemDetails() []EcosystemDetail {
 		registrySet[purl.EcosystemToPURLType(eco)] = true
 	}
 
-	// Use manifests.Ecosystems() as the base list (already PURL types), then add extras from ecosystemConfigs
 	seen := make(map[string]bool)
 	var details []EcosystemDetail
 
@@ -59,8 +59,7 @@ func buildEcosystemDetails() []EcosystemDetail {
 		details = append(details, buildDetail(pt, configMap[pt], registrySet[pt]))
 	}
 
-	// Add ecosystems from ecosystemConfigs not already covered
-	for _, cfg := range ecosystemConfigs {
+	for _, cfg := range configs {
 		pt := purl.EcosystemToPURLType(cfg.Ecosystem)
 		if !seen[pt] {
 			seen[pt] = true
@@ -71,22 +70,22 @@ func buildEcosystemDetails() []EcosystemDetail {
 	return details
 }
 
-func buildDetail(name string, cfg *ecosystemConfig, hasRegistry bool) EcosystemDetail {
+func buildDetail(name string, cfg *managers.EcosystemDetectionPolicy, hasRegistry bool) EcosystemDetail {
 	d := EcosystemDetail{
 		Name:     name,
 		Registry: hasRegistry,
 	}
 	if cfg != nil {
-		d.Manifest = cfg.Manifest
+		d.Manifest = strings.Join(cfg.Manifests, ", ")
 		for _, lf := range cfg.Lockfiles {
 			d.Lockfiles = append(d.Lockfiles, lf.File)
 		}
 		// Collect unique managers
 		managerSet := make(map[string]bool)
 		var mgrs []string
-		if cfg.Default != "" {
-			managerSet[cfg.Default] = true
-			mgrs = append(mgrs, cfg.Default)
+		if cfg.DefaultManager != "" {
+			managerSet[cfg.DefaultManager] = true
+			mgrs = append(mgrs, cfg.DefaultManager)
 		}
 		for _, lf := range cfg.Lockfiles {
 			if !managerSet[lf.Manager] {
