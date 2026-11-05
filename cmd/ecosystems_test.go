@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -84,5 +85,33 @@ func TestBuildEcosystemDetails(t *testing.T) {
 			t.Errorf("duplicate ecosystem: %s", d.Name)
 		}
 		seen[d.Name] = true
+	}
+}
+
+func TestEcosystemsSharedDetectionPolicy(t *testing.T) {
+	root := NewRootCmd()
+	root.SetArgs([]string{"ecosystems", "-f", "json"})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var details []EcosystemDetail
+	if err := json.Unmarshal(out.Bytes(), &details); err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]EcosystemDetail)
+	for _, detail := range details {
+		byName[detail.Name] = detail
+	}
+	for _, want := range []EcosystemDetail{
+		{Name: "npm", Manifest: "package.json", Lockfiles: []string{"bun.lock", "pnpm-lock.yaml", "yarn.lock", "package-lock.json"}, Managers: []string{"npm", "bun", "pnpm", "yarn"}},
+		{Name: "hackage", Manifest: "*.cabal", Lockfiles: []string{"cabal.project.freeze", "stack.yaml.lock"}, Managers: []string{"cabal", "stack"}},
+		{Name: "julia", Manifest: "Project.toml", Lockfiles: []string{"Manifest.toml"}, Managers: []string{"pkg"}},
+	} {
+		got := byName[want.Name]
+		if got.Manifest != want.Manifest || !reflect.DeepEqual(got.Lockfiles, want.Lockfiles) || !reflect.DeepEqual(got.Managers, want.Managers) {
+			t.Errorf("ecosystems entry = %+v, want %+v", got, want)
+		}
 	}
 }
