@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/git-pkgs/enrichment"
@@ -65,7 +68,12 @@ func TestBuildHealthResult(t *testing.T) {
 			DependentPackagesCount: 500,
 			DependentReposCount:    10000,
 		},
-		"pkg:npm/left-pad": {},
+		"pkg:npm/left-pad": {
+			MaintainerCount:        1,
+			DownloadsPeriod:        "last-month",
+			DependentPackagesCount: 2,
+			DependentReposCount:    3,
+		},
 	}
 
 	result := buildHealthResult(deps, packageData, 70)
@@ -78,8 +86,8 @@ func TestBuildHealthResult(t *testing.T) {
 	if result.Summary.AtRiskDependencies != 1 {
 		t.Fatalf("at-risk dependencies = %d, want 1", result.Summary.AtRiskDependencies)
 	}
-	if result.Summary.AverageScore != 77 {
-		t.Fatalf("average score = %d, want 77", result.Summary.AverageScore)
+	if result.Summary.AverageScore != 82 {
+		t.Fatalf("average score = %d, want 82", result.Summary.AverageScore)
 	}
 	if len(result.Dependencies) != 1 {
 		t.Fatalf("displayed dependencies = %d, want 1", len(result.Dependencies))
@@ -89,8 +97,8 @@ func TestBuildHealthResult(t *testing.T) {
 	if entry.Name != "left-pad" {
 		t.Fatalf("dependency = %q, want left-pad", entry.Name)
 	}
-	if entry.Score != 55 {
-		t.Fatalf("score = %d, want 55", entry.Score)
+	if entry.Score != 65 {
+		t.Fatalf("score = %d, want 65", entry.Score)
 	}
 	if entry.Risk != "medium" {
 		t.Fatalf("risk = %q, want medium", entry.Risk)
@@ -112,8 +120,8 @@ func TestBuildHealthResult(t *testing.T) {
 	}
 	boundaryData := map[string]*healthPackageData{
 		"pkg:npm/boundary": {
-			MaintainerCount:        0,
-			Downloads:              100,
+			MaintainerCount:        1,
+			DownloadsPeriod:        "last-month",
 			DependentPackagesCount: 20,
 			DependentReposCount:    20,
 		},
@@ -127,6 +135,65 @@ func TestBuildHealthResult(t *testing.T) {
 	}
 	if result.Dependencies[0].Score != 70 {
 		t.Fatalf("boundary score = %d, want 70", result.Dependencies[0].Score)
+	}
+}
+
+func TestMaintenanceHealthScoreUnknownInputs(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    healthPackageData
+		score   int
+		unknown int
+		signals []string
+	}{
+		{
+			name:    "no data",
+			score:   100,
+			unknown: 3,
+			signals: []string{"maintainer count unknown", "dependent usage unknown", "download count unknown"},
+		},
+		{
+			name:    "registry without maintainers or downloads",
+			data:    healthPackageData{DependentPackagesCount: 50000, DependentReposCount: 100000},
+			score:   100,
+			unknown: 2,
+			signals: []string{"maintainer count unknown", "download count unknown"},
+		},
+		{
+			name: "known low values",
+			data: healthPackageData{
+				MaintainerCount:        1,
+				DownloadsPeriod:        "last-month",
+				DependentPackagesCount: 2,
+				DependentReposCount:    3,
+			},
+			score:   65,
+			signals: []string{"single maintainer", "limited dependent usage", "no downloads"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			score, _, signals, unknown := maintenanceHealthScore(&tt.data)
+			if score != tt.score || unknown != tt.unknown || !slices.Equal(signals, tt.signals) {
+				t.Errorf("score=%d unknown=%d signals=%q, want %d %d %q", score, unknown, signals, tt.score, tt.unknown, tt.signals)
+			}
+		})
+	}
+
+	unknownMaintainers, _, _, _ := maintenanceHealthScore(&healthPackageData{DownloadsPeriod: "total", Downloads: 1, DependentReposCount: 100})
+	singleMaintainer, _, _, _ := maintenanceHealthScore(&healthPackageData{MaintainerCount: 1, DownloadsPeriod: "total", Downloads: 1, DependentReposCount: 100})
+	if unknownMaintainers <= singleMaintainer {
+		t.Errorf("unknown maintainers scored %d, single maintainer %d", unknownMaintainers, singleMaintainer)
+	}
+
+	deps := []database.Dependency{{Name: "cobra", Ecosystem: "golang", ManifestPath: "go.mod", ManifestKind: "manifest"}}
+	result := buildHealthResult(deps, map[string]*healthPackageData{"pkg:golang/cobra": {DependentReposCount: 100}}, 100)
+	out, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"unknown_inputs":2`) {
+		t.Errorf("json = %s, want unknown_inputs 2", out)
 	}
 }
 

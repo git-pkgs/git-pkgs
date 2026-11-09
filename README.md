@@ -320,7 +320,7 @@ git pkgs health --all           # include transitive lockfile dependencies
 git pkgs health --format=json
 ```
 
-Scores dependency maintenance health from ecosyste.ms package metadata, including maintainer count and usage signals. Scores start at 100 and drop for missing maintainer data, a single maintainer, a small maintainer team, low dependent usage, missing usage data, and missing download data. `--threshold` controls both which dependencies are displayed and the `at_risk_dependencies` summary count. Results are sorted from lowest score to highest.
+Scores dependency maintenance health from ecosyste.ms package metadata, including maintainer count and usage signals. Scores start at 100 and drop for a single maintainer, a small maintainer team, low dependent usage, and no downloads. Inputs ecosyste.ms has no data for, such as download counts on registries that don't publish them, don't lower the score: they show up in the signals as unknown and are counted in `unknown_inputs` in the JSON output. `--threshold` controls both which dependencies are displayed and the `at_risk_dependencies` summary count. Results are sorted from lowest score to highest.
 
 ### Check provenance metadata
 

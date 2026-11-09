@@ -54,6 +54,7 @@ type HealthEntry struct {
 	DependentPackagesCount int      `json:"dependent_packages_count"`
 	DependentReposCount    int      `json:"dependent_repos_count"`
 	Signals                []string `json:"signals"`
+	UnknownInputs          int      `json:"unknown_inputs"`
 	ManifestPath           string   `json:"manifest_path"`
 	PURL                   string   `json:"purl,omitempty"`
 }
@@ -329,7 +330,7 @@ func buildHealthResult(
 			continue
 		}
 
-		score, risk, signals := maintenanceHealthScore(pkg)
+		score, risk, signals, unknown := maintenanceHealthScore(pkg)
 		result.Summary.CheckedDependencies++
 		scoreTotal += score
 		if score <= threshold {
@@ -351,6 +352,7 @@ func buildHealthResult(
 			DependentPackagesCount: pkg.DependentPackagesCount,
 			DependentReposCount:    pkg.DependentReposCount,
 			Signals:                signals,
+			UnknownInputs:          unknown,
 			ManifestPath:           dep.ManifestPath,
 			PURL:                   purlStr,
 		})
@@ -374,14 +376,16 @@ func buildHealthResult(
 	return result
 }
 
-func maintenanceHealthScore(data *healthPackageData) (int, string, []string) {
+// maintenanceHealthScore skips deductions for inputs with no data and returns how many there were.
+func maintenanceHealthScore(data *healthPackageData) (int, string, []string, int) {
 	score := 100
 	var signals []string
+	unknown := 0
 
 	switch data.MaintainerCount {
 	case 0:
-		score -= 30
-		signals = append(signals, "no maintainer data")
+		unknown++
+		signals = append(signals, "maintainer count unknown")
 	case 1:
 		score -= 25
 		signals = append(signals, "single maintainer")
@@ -391,23 +395,27 @@ func maintenanceHealthScore(data *healthPackageData) (int, string, []string) {
 	}
 
 	if data.DependentReposCount == 0 && data.DependentPackagesCount == 0 {
-		score -= 10
-		signals = append(signals, "no dependent usage data")
+		unknown++
+		signals = append(signals, "dependent usage unknown")
 	} else if data.DependentReposCount < 10 && data.DependentPackagesCount < 10 {
 		score -= 5
 		signals = append(signals, "limited dependent usage")
 	}
 
-	if data.Downloads == 0 {
+	// Registries that publish no download counts have no downloads period.
+	if data.Downloads == 0 && data.DownloadsPeriod == "" {
+		unknown++
+		signals = append(signals, "download count unknown")
+	} else if data.Downloads == 0 {
 		score -= 5
-		signals = append(signals, "no download data")
+		signals = append(signals, "no downloads")
 	}
 
 	if score < 0 {
 		score = 0
 	}
 
-	return score, healthRisk(score), signals
+	return score, healthRisk(score), signals, unknown
 }
 
 func healthRisk(score int) string {
