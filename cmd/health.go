@@ -325,7 +325,7 @@ func buildHealthResult(
 		seen[key] = true
 
 		pkg := packageData[purlStr]
-		if pkg == nil {
+		if pkg == nil || nothingMeasured(pkg) {
 			result.Summary.UnresolvedPackageData++
 			continue
 		}
@@ -394,9 +394,10 @@ func maintenanceHealthScore(data *healthPackageData) (int, string, []string, int
 		signals = append(signals, "small maintainer team")
 	}
 
+	// ecosyste.ms reports 0/0 for packages it does count dependents for, so zero is observed.
 	if data.DependentReposCount == 0 && data.DependentPackagesCount == 0 {
-		unknown++
-		signals = append(signals, "dependent usage unknown")
+		score -= 5
+		signals = append(signals, "no dependents")
 	} else if data.DependentReposCount < 10 && data.DependentPackagesCount < 10 {
 		score -= 5
 		signals = append(signals, "limited dependent usage")
@@ -416,6 +417,12 @@ func maintenanceHealthScore(data *healthPackageData) (int, string, []string, int
 	}
 
 	return score, healthRisk(score), signals, unknown
+}
+
+// nothingMeasured reports a package with no maintainer, download or dependent data to score.
+func nothingMeasured(data *healthPackageData) bool {
+	return data.MaintainerCount == 0 && data.Downloads == 0 && data.DownloadsPeriod == "" &&
+		data.DependentReposCount == 0 && data.DependentPackagesCount == 0
 }
 
 func healthRisk(score int) string {

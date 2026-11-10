@@ -148,9 +148,15 @@ func TestMaintenanceHealthScoreUnknownInputs(t *testing.T) {
 	}{
 		{
 			name:    "no data",
-			score:   100,
-			unknown: 3,
-			signals: []string{"maintainer count unknown", "dependent usage unknown", "download count unknown"},
+			score:   95,
+			unknown: 2,
+			signals: []string{"maintainer count unknown", "no dependents", "download count unknown"},
+		},
+		{
+			name:    "no dependents",
+			data:    healthPackageData{MaintainerCount: 1, Downloads: 100, DownloadsPeriod: "last-month"},
+			score:   70,
+			signals: []string{"single maintainer", "no dependents"},
 		},
 		{
 			name:    "registry without maintainers or downloads",
@@ -186,6 +192,12 @@ func TestMaintenanceHealthScoreUnknownInputs(t *testing.T) {
 		t.Errorf("unknown maintainers scored %d, single maintainer %d", unknownMaintainers, singleMaintainer)
 	}
 
+	noDependents, _, _, _ := maintenanceHealthScore(&healthPackageData{MaintainerCount: 3, DownloadsPeriod: "last-month", Downloads: 10})
+	threeDependents, _, _, _ := maintenanceHealthScore(&healthPackageData{MaintainerCount: 3, DownloadsPeriod: "last-month", Downloads: 10, DependentReposCount: 3})
+	if noDependents > threeDependents {
+		t.Errorf("no dependents scored %d, three dependents %d", noDependents, threeDependents)
+	}
+
 	deps := []database.Dependency{{Name: "cobra", Ecosystem: "golang", ManifestPath: "go.mod", ManifestKind: "manifest"}}
 	result := buildHealthResult(deps, map[string]*healthPackageData{"pkg:golang/cobra": {DependentReposCount: 100}}, 100)
 	out, err := json.Marshal(result)
@@ -194,6 +206,26 @@ func TestMaintenanceHealthScoreUnknownInputs(t *testing.T) {
 	}
 	if !strings.Contains(string(out), `"unknown_inputs":2`) {
 		t.Errorf("json = %s, want unknown_inputs 2", out)
+	}
+}
+
+func TestBuildHealthResultSkipsUnmeasuredPackages(t *testing.T) {
+	deps := []database.Dependency{
+		{Name: "cobra", Ecosystem: "golang", ManifestPath: "go.mod", ManifestKind: "manifest"},
+		{Name: "express", Ecosystem: "npm", ManifestPath: "package.json", ManifestKind: "manifest"},
+	}
+	packageData := map[string]*healthPackageData{
+		"pkg:golang/cobra": {},
+		"pkg:npm/express":  {MaintainerCount: 4, Downloads: 1000000, DownloadsPeriod: "last-month", DependentReposCount: 10000},
+	}
+
+	result := buildHealthResult(deps, packageData, 100)
+	s := result.Summary
+	if s.CheckedDependencies != 1 || s.UnresolvedPackageData != 1 || s.AverageScore != 100 {
+		t.Fatalf("checked=%d unresolved=%d average=%d, want 1 1 100", s.CheckedDependencies, s.UnresolvedPackageData, s.AverageScore)
+	}
+	if len(result.Dependencies) != 1 || result.Dependencies[0].Name != "express" {
+		t.Fatalf("dependencies = %+v, want only express", result.Dependencies)
 	}
 }
 
