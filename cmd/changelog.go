@@ -242,21 +242,13 @@ func detectEcosystem(managerFlag string) (string, error) {
 				return d.Ecosystem, nil
 			}
 		}
-		detector, err := getDetector()
-		if err != nil {
-			return "", err
-		}
-		ecosystem, known := detector.Ecosystem(managerFlag)
 		for _, eco := range managers.GitPkgsFileDetectionPolicy().Ecosystems {
-			if !known || eco.Ecosystem != ecosystem {
-				continue
-			}
 			if eco.DefaultManager == managerFlag {
-				return ecosystem, nil
+				return eco.Ecosystem, nil
 			}
 			for _, lf := range eco.Lockfiles {
 				if lf.Manager == managerFlag {
-					return ecosystem, nil
+					return eco.Ecosystem, nil
 				}
 			}
 		}
