@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
+	"github.com/spf13/cobra"
 )
 
 type mockHealthEnrichmentClient struct {
@@ -226,6 +228,32 @@ func TestBuildHealthResultSkipsUnmeasuredPackages(t *testing.T) {
 	}
 	if len(result.Dependencies) != 1 || result.Dependencies[0].Name != "express" {
 		t.Fatalf("dependencies = %+v, want only express", result.Dependencies)
+	}
+}
+
+func TestOutputHealthTextPrintsUnknownCounts(t *testing.T) {
+	deps := []database.Dependency{
+		{Name: "cobra", Ecosystem: "golang", ManifestPath: "go.mod", ManifestKind: "manifest"},
+		{Name: "left-pad", Ecosystem: "npm", ManifestPath: "package.json", ManifestKind: "manifest"},
+	}
+	packageData := map[string]*healthPackageData{
+		"pkg:golang/cobra": {DependentReposCount: 5},
+		"pkg:npm/left-pad": {MaintainerCount: 1, DownloadsPeriod: "last-month", DependentReposCount: 5},
+	}
+
+	var stdout bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&stdout)
+	outputHealthText(cmd, buildHealthResult(deps, packageData, 100))
+	out := stdout.String()
+
+	for _, want := range []string{
+		"cobra (golang): score 95 [low]\n  maintainers: unknown, downloads: unknown, dependent repos: 5",
+		"left-pad (npm): score 65 [medium]\n  maintainers: 1, downloads: 0 (last-month), dependent repos: 5",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output missing %q\ngot:\n%s", want, out)
+		}
 	}
 }
 

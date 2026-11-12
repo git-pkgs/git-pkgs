@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -481,8 +482,14 @@ func outputHealthText(cmd *cobra.Command, result *HealthResult) {
 	for _, entry := range result.Dependencies {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%s): score %d [%s]\n",
 			entry.Name, entry.Ecosystem, entry.Score, entry.Risk)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  maintainers: %d, downloads: %d",
-			entry.MaintainerCount, entry.Downloads)
+		maintainers, downloads := "unknown", "unknown"
+		if entry.MaintainerCount != 0 {
+			maintainers = strconv.Itoa(entry.MaintainerCount)
+		}
+		if entry.Downloads != 0 || entry.DownloadsPeriod != "" {
+			downloads = strconv.Itoa(entry.Downloads)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  maintainers: %s, downloads: %s", maintainers, downloads)
 		if entry.DownloadsPeriod != "" {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), " (%s)", entry.DownloadsPeriod)
 		}
