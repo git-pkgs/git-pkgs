@@ -42,8 +42,8 @@ github.com/emirpasic/gods v1.18.1 h1:FXtiHYKDGKCW2KzwZKx0iC0PQmdlorYgdFG9jPXJ1Bc
 github.com/emirpasic/gods v1.18.1/go.mod h1:8tpGGwCnJ5H4r6BWwaV6OrWmMoPhUl5jm/FMNAnJvWQ=
 github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a h1:yDWHCSQ40h88yih2JAcL6Ls/kVkSE8GFACTGVnMPruw=
 github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a/go.mod h1:7Ga40egUymuWXxAe151lTNnCv97MddSOVsjpPPkityA=
-github.com/git-pkgs/archives v0.10.0 h1:/qgk0MI6VK2sKOoVTd0B4zs5hwTo+St0X8cYYftzumc=
-github.com/git-pkgs/archives v0.10.0/go.mod h1:GJ/h7NPTUYiPinOUxpYNsHFCUikYZcJXvugBvP1VGNc=
+github.com/git-pkgs/archives v0.11.0 h1:ovCoyIZhbTZB5/GOgJIGB4y4yT0oHo1IvM4LbM4UEM0=
+github.com/git-pkgs/archives v0.11.0/go.mod h1:whtYzdsMLufW+aNoGcGSip/FC0NsiJhaqiZBxSe9AUc=
 github.com/git-pkgs/artifacts v0.2.1 h1:VwdxR4yTDaqBZ34h0slxQBVyr2Xfa+QGOKCKviMx2xk=
 github.com/git-pkgs/artifacts v0.2.1/go.mod h1:Otosgq52pXT5UNN7lh6s/lszpWKVDO8XrOjN1M70/IA=
 github.com/git-pkgs/changelog v0.2.1 h1:xQ6j4Zg3/JJ8zevD/eG7ff7vhLRALN9hTri5UZivIIs=
@@ -56,8 +56,8 @@ github.com/git-pkgs/integrity v0.2.0 h1:sxpAk7EUllZnTYttOoPTW/Yfe5J2imglpuJiuBUZ
 github.com/git-pkgs/integrity v0.2.0/go.mod h1:vPLb2RB+hR/iCMIgqph0PZbQ7iktXDTK+uupoHQikKk=
 github.com/git-pkgs/licenses v0.9.0 h1:KMrZ+sn8Te9hUh9/dw268eh7AIrmilyAprAGtR6svik=
 github.com/git-pkgs/licenses v0.9.0/go.mod h1:WJuQA5shOV2UN7IdRjXIYxVZCwW366/fFxx8gS8DYrw=
-github.com/git-pkgs/magic v0.5.0 h1:Pm+4fkHR+K6kg9pwJM4hnwWUuBlkYdLmF1yIAI8lU9Q=
-github.com/git-pkgs/magic v0.5.0/go.mod h1:SXOqcsNmbmpZjJZHEEWnwxprbsFvpwWgTAZrgXp4Jm4=
+github.com/git-pkgs/magic v0.6.0 h1:fINPe67FEIaFRVlZzhOIDClMkm+gftBroBENa8bHSxQ=
+github.com/git-pkgs/magic v0.6.0/go.mod h1:SXOqcsNmbmpZjJZHEEWnwxprbsFvpwWgTAZrgXp4Jm4=
 github.com/git-pkgs/mailmap v0.1.1 h1:XCt7+0yiWrtAvVX1UwsI+ryWO3qGm7CYm5tof3daeDU=
 github.com/git-pkgs/mailmap v0.1.1/go.mod h1:9TZQk9wpOPcuUUr2Gdnp0prMxpN0QDQsnV5v+7DOAdI=
 github.com/git-pkgs/managers v0.12.0 h1:Ex0fZ7hOzoxzXYLmY5ghxqel6jAltaehuGOcPFeQz4U=

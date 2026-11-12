@@ -3,7 +3,7 @@ module github.com/git-pkgs/git-pkgs
 go 1.26.7
 
 require (
-	github.com/git-pkgs/archives v0.10.0
+	github.com/git-pkgs/archives v0.11.0
 	github.com/git-pkgs/artifacts v0.2.1
 	github.com/git-pkgs/changelog v0.2.1
 	github.com/git-pkgs/enrichment v0.7.5
@@ -48,7 +48,7 @@ require (
 	github.com/ecosyste-ms/ecosystems-go v0.5.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
-	github.com/git-pkgs/magic v0.5.0 // indirect
+	github.com/git-pkgs/magic v0.6.0 // indirect
 	github.com/git-pkgs/pom v0.1.8 // indirect
 	github.com/github/go-spdx/v2 v2.8.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
