@@ -54,8 +54,8 @@ github.com/git-pkgs/gitignore v1.3.0 h1:/lcTRp3QYzZDG1CyCLBZO2gxMb6oQWC5EnttSQg4
 github.com/git-pkgs/gitignore v1.3.0/go.mod h1:zleLGZ4PhQrUXrJSsVQWKoeEllEjJH49+DjyKpzIFPM=
 github.com/git-pkgs/integrity v0.2.0 h1:sxpAk7EUllZnTYttOoPTW/Yfe5J2imglpuJiuBUZOxM=
 github.com/git-pkgs/integrity v0.2.0/go.mod h1:vPLb2RB+hR/iCMIgqph0PZbQ7iktXDTK+uupoHQikKk=
-github.com/git-pkgs/licenses v0.9.0 h1:KMrZ+sn8Te9hUh9/dw268eh7AIrmilyAprAGtR6svik=
-github.com/git-pkgs/licenses v0.9.0/go.mod h1:WJuQA5shOV2UN7IdRjXIYxVZCwW366/fFxx8gS8DYrw=
+github.com/git-pkgs/licenses v0.10.0 h1:7o9LmFvWPG1HEy2nZZ674J3ut80mjljASdGu8vZiOto=
+github.com/git-pkgs/licenses v0.10.0/go.mod h1:TK8t/MUqhXAV7Jtw9qBl4/QrfE3LOyJiUajuqFTWa80=
 github.com/git-pkgs/magic v0.6.0 h1:fINPe67FEIaFRVlZzhOIDClMkm+gftBroBENa8bHSxQ=
 github.com/git-pkgs/magic v0.6.0/go.mod h1:SXOqcsNmbmpZjJZHEEWnwxprbsFvpwWgTAZrgXp4Jm4=
 github.com/git-pkgs/mailmap v0.1.1 h1:XCt7+0yiWrtAvVX1UwsI+ryWO3qGm7CYm5tof3daeDU=
