@@ -134,8 +134,16 @@ func TestVulnsScanUntrackedPoetryLockInRepository(t *testing.T) {
 
 func TestLockfileFlagRejectsUnusableFiles(t *testing.T) {
 	writeUntrackedLockfile(t, "package-lock.json", outdatedLockfile("4.17.20"))
-	for _, name := range []string{"package.json", "go.sum", "requirements.txt", "deps.lock"} {
-		if err := os.WriteFile(name, []byte("{}"), 0o644); err != nil {
+	for name, content := range map[string]string{
+		"package.json":     "{}",
+		"go.sum":           "{}",
+		"requirements.txt": "{}",
+		"deps.lock":        "{}",
+		"poetry.lock":      "",
+		"build.gradle":     "dependencies {\n  implementation 'org.example:dynamic:1.+'\n}\n",
+		"pom.xml":          mavenPOM("[1.0,2.0)"),
+	} {
+		if err := os.WriteFile(name, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -149,6 +157,9 @@ func TestLockfileFlagRejectsUnusableFiles(t *testing.T) {
 		{[]string{"--lockfile", "go.sum"}, "does not list resolved versions"},
 		{[]string{"--lockfile", "deps.lock"}, "unrecognized lockfile"},
 		{[]string{"--lockfile", "missing/poetry.lock"}, "reading lockfile"},
+		{[]string{"--lockfile", "poetry.lock"}, "poetry.lock is empty"},
+		{[]string{"--lockfile", "build.gradle"}, `declares version "1.+" for org.example:dynamic`},
+		{[]string{"--lockfile", "pom.xml"}, `declares version "[1.0,2.0)" for org.example:library`},
 		{[]string{"--lockfile", "package-lock.json", "--commit", "HEAD"}, "lockfile"},
 		{[]string{"--lockfile", "package-lock.json", "--branch", "main"}, "lockfile"},
 	} {
@@ -159,6 +170,40 @@ func TestLockfileFlagRejectsUnusableFiles(t *testing.T) {
 			}
 		}
 	}
+}
+
+func mavenPOM(version string) string {
+	return `<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>app</artifactId>
+  <version>1.0.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>org.example</groupId>
+      <artifactId>library</artifactId>
+      <version>` + version + `</version>
+    </dependency>
+  </dependencies>
+</project>
+`
+}
+
+func TestVulnsScanLockfileAcceptsPinnedMavenManifest(t *testing.T) {
+	dir := writeUntrackedLockfile(t, "pom.xml", mavenPOM("2.3.4"))
+	recorder := &osvQueryRecorder{}
+	original := http.DefaultTransport
+	http.DefaultTransport = recorder
+	t.Cleanup(func() { http.DefaultTransport = original })
+
+	stdout, _, err := runCmd(t, "vulns", "scan", "--lockfile", "pom.xml")
+	if err != nil || !strings.Contains(stdout, "No vulnerabilities found.") {
+		t.Fatalf("vulns scan --lockfile pom.xml = %q, %v", stdout, err)
+	}
+	if len(recorder.bodies) != 1 || !strings.Contains(recorder.bodies[0], "2.3.4") {
+		t.Fatalf("OSV queries = %v, want org.example:library 2.3.4", recorder.bodies)
+	}
+	assertNoIndex(t, dir)
 }
 
 // lockfileEnrichmentClient reports lodash 4.17.21 as the latest release with a

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
@@ -56,11 +57,19 @@ func parseLockfile(path string) ([]database.Dependency, error) {
 		return nil, fmt.Errorf("reading lockfile: %w", err)
 	}
 	if len(data) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("%s is empty", path)
 	}
 	result, err := manifests.Parse(name, data)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	if result.Kind != manifests.Lockfile && result.Ecosystem == "maven" {
+		for _, dep := range result.Dependencies {
+			if isMavenVersionRange(dep.Version) {
+				return nil, fmt.Errorf("%s declares version %q for %s rather than a resolved version; pass a lockfile such as gradle.lockfile",
+					path, dep.Version, dep.Name)
+			}
+		}
 	}
 
 	deps := make([]database.Dependency, 0, len(result.Dependencies))
@@ -78,4 +87,10 @@ func parseLockfile(path string) ([]database.Dependency, error) {
 		})
 	}
 	return deps, nil
+}
+
+// isMavenVersionRange reports whether v is a Maven version range, a Gradle
+// dynamic version or an unresolved property rather than one version.
+func isMavenVersionRange(v string) bool {
+	return strings.ContainsAny(v, "[](),+$") || strings.HasPrefix(v, "latest.")
 }

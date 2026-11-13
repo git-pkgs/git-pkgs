@@ -47,7 +47,7 @@ Scan a lockfile that is not tracked in git, such as a library's local `poetry.lo
 git pkgs vulns scan --lockfile poetry.lock
 ```
 
-`--lockfile` parses the file directly and queries OSV live, without opening the repository or index, so it also works outside a git repository. It cannot be combined with `--commit` or `--branch`, and it rejects manifests such as `package.json` that do not list resolved versions.
+`--lockfile` parses the file directly and queries OSV live, without opening the repository or index, so it also works outside a git repository. It cannot be combined with `--commit` or `--branch`, and it rejects manifests such as `package.json` that do not list resolved versions, as well as Maven or Gradle manifests that declare version ranges.
 
 `--severity` controls only the displayed findings. For example, `git pkgs vulns scan --severity critical --fail-on high` still fails for a high-severity finding even though it is hidden from the report. Cached and `--live` scans use the same thresholds.
 
