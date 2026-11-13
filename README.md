@@ -261,6 +261,7 @@ Shows dependencies sorted by how long since they were last changed in your repo.
 git pkgs freshness                  # average days behind latest releases
 git pkgs freshness --limit=20       # show more lagging dependencies
 git pkgs freshness --ecosystem=npm  # filter by ecosystem
+git pkgs freshness --lockfile=uv.lock  # read an untracked lockfile instead of the repository
 ```
 
 Compares installed versions with registry release dates to report average days behind latest and the dependencies with the largest release-date lag.
@@ -273,6 +274,7 @@ git pkgs outdated --major       # only major version updates
 git pkgs outdated --minor       # minor and major updates (skip patch)
 git pkgs outdated --at v2.0     # what was outdated when we released v2.0?
 git pkgs outdated --at 2024-03-01  # what was outdated on this date?
+git pkgs outdated --lockfile=poetry.lock  # read an untracked lockfile instead of the repository
 ```
 
 Checks package registries (via [ecosyste.ms](https://packages.ecosyste.ms/)) to find dependencies with newer versions available. Major updates are shown in red, minor in yellow, patch in cyan.
@@ -296,6 +298,7 @@ git pkgs funding                # show dependencies with funding links
 git pkgs funding --missing      # show dependencies without funding links
 git pkgs funding --ecosystem=npm
 git pkgs funding --format=json
+git pkgs funding --lockfile=Cargo.lock  # read an untracked lockfile instead of the repository
 ```
 
 Checks ecosyste.ms package metadata for funding links so you can see which dependencies publish sponsorship information and which ones do not.
@@ -443,7 +446,10 @@ git pkgs vulns v1.0.0           # scan at a tag, branch, or commit
 git pkgs vulns -s high          # only critical and high severity
 git pkgs vulns -e npm           # filter by ecosystem
 git pkgs vulns -f sarif         # output for GitHub code scanning
+git pkgs vulns scan --lockfile=poetry.lock  # scan an untracked lockfile
 ```
+
+`vulns scan`, `outdated`, `freshness` and `funding` accept `--lockfile <path>` to read a lockfile directly, without git history or the index. This suits projects that deliberately leave their lockfile untracked. The file must keep its standard name (`poetry.lock`, `package-lock.json`, `go.mod`, ...). History features such as blame and exposure do not apply, and `vulns scan --lockfile` always queries OSV live.
 
 Subcommands for historical analysis:
 
