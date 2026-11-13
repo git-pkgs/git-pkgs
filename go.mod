@@ -26,7 +26,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.61.0
 )
