@@ -627,7 +627,7 @@ func TestDependenciesInWorkingDirIgnoresSubmodules(t *testing.T) {
 	for _, dep := range deps {
 		names[dep.Name] = true
 	}
-	for _, expected := range []string{"rails", "vendor/lib", "external/tool"} {
+	for _, expected := range []string{"rails", "github.com/example/lib", "github.com/example/tool"} {
 		if !names[expected] {
 			t.Errorf("expected %s dependency", expected)
 		}
@@ -695,7 +695,7 @@ func TestDependenciesInWorkingDirIncludesSubmodules(t *testing.T) {
 		names[dep.Name] = true
 	}
 
-	expected := []string{"rails", "sinatra", "lodash", "vendor/lib", "external/tool"}
+	expected := []string{"rails", "sinatra", "lodash", "github.com/example/lib", "github.com/example/tool"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("expected to find %s in dependencies", name)
