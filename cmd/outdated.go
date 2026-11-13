@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/git-pkgs/git-pkgs/internal/database"
-	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/vers"
 	"github.com/spf13/cobra"
@@ -29,6 +28,7 @@ with newer versions available.`,
 	outdatedCmd.Flags().Bool("major", false, "Only show major version updates")
 	outdatedCmd.Flags().Bool("minor", false, "Skip patch-only updates")
 	outdatedCmd.Flags().String("at", "", "Check what was outdated at this date (YYYY-MM-DD)")
+	addLockfileFlag(outdatedCmd)
 	parent.AddCommand(outdatedCmd)
 }
 
@@ -57,17 +57,12 @@ func runOutdated(cmd *cobra.Command, args []string) error {
 	minorUp, _ := cmd.Flags().GetBool("minor")
 	atDate, _ := cmd.Flags().GetString("at")
 
-	repo, err := git.OpenRepository(".")
-	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
-	}
-
-	deps, db, err := repo.GetDependenciesWithDB(commit, branchName)
+	deps, db, err := loadDependencies(cmd, commit, branchName)
 	if db != nil {
 		defer func() { _ = db.Close() }()
 	}
 	if err != nil {
-		return fmt.Errorf("loading dependencies: %w", err)
+		return err
 	}
 
 	deps = filterByEcosystem(deps, ecosystem)

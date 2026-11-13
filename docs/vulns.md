@@ -41,6 +41,14 @@ git pkgs vulns scan --fail-on high
 
 `--fail-on` accepts `critical`, `high`, `medium`, or `low`. The scan writes its report, then exits 1 if a finding meets or exceeds the threshold. Without this flag, findings do not change the exit status. Unknown severities do not meet a named threshold.
 
+Scan a lockfile that is not tracked in git, such as a library's local `poetry.lock`:
+
+```sh
+git pkgs vulns scan --lockfile poetry.lock
+```
+
+`--lockfile` parses the file directly and queries OSV live, without opening the repository or index, so it also works outside a git repository. It cannot be combined with `--commit` or `--branch`, and it rejects manifests such as `package.json` that do not list resolved versions, as well as Maven or Gradle manifests that declare version ranges.
+
 `--severity` controls only the displayed findings. For example, `git pkgs vulns scan --severity critical --fail-on high` still fails for a high-severity finding even though it is hidden from the report. Cached and `--live` scans use the same thresholds.
 
 Show only critical and high severity:

@@ -663,6 +663,8 @@ By default, syncs vulnerability data from OSV before scanning. The sync uses a
 24-hour cache so repeated scans won't re-fetch everything.
 Use --live to query OSV directly for each dependency version.
 Use --no-sync to skip the sync and use only previously cached data.
+Use --lockfile to scan a local lockfile directly, without git history or the
+index. It always queries OSV live.
 Use --fail-on to exit with status 1 for findings at or above a severity threshold.
 The report is written before exiting; --severity only filters the report.`,
 		RunE: runVulnsScan,
@@ -676,6 +678,7 @@ The report is written before exiting; --severity only filters the report.`,
 	scanCmd.Flags().StringP("format", "f", "text", "Output format: text, json, sarif")
 	scanCmd.Flags().Bool("live", false, "Query OSV directly instead of using cached data")
 	scanCmd.Flags().Bool("no-sync", false, "Skip auto-sync and use only cached vulnerability data")
+	addLockfileFlag(scanCmd)
 	parent.AddCommand(scanCmd)
 }
 
@@ -700,17 +703,12 @@ func runVulnsScan(cmd *cobra.Command, args []string) error {
 	live, _ := cmd.Flags().GetBool("live")
 	noSync, _ := cmd.Flags().GetBool("no-sync")
 
-	repo, err := git.OpenRepository(".")
-	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
-	}
-
-	deps, db, err := repo.GetDependenciesWithDB(commit, branchName)
+	deps, db, err := loadDependencies(cmd, commit, branchName)
 	if db != nil {
 		defer func() { _ = db.Close() }()
 	}
 	if err != nil {
-		return fmt.Errorf("loading dependencies: %w", err)
+		return err
 	}
 
 	// Filter by ecosystem
