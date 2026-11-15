@@ -158,8 +158,8 @@ func TestLockfileFlagRejectsUnusableFiles(t *testing.T) {
 		{[]string{"--lockfile", "deps.lock"}, "unrecognized lockfile"},
 		{[]string{"--lockfile", "missing/poetry.lock"}, "reading lockfile"},
 		{[]string{"--lockfile", "poetry.lock"}, "poetry.lock is empty"},
-		{[]string{"--lockfile", "build.gradle"}, `declares version "1.+" for org.example:dynamic`},
-		{[]string{"--lockfile", "pom.xml"}, `declares version "[1.0,2.0)" for org.example:library`},
+		{[]string{"--lockfile", "build.gradle"}, "build.gradle has no dependencies with resolved versions; pass gradle.lockfile"},
+		{[]string{"--lockfile", "pom.xml"}, "pom.xml has no dependencies with resolved versions; pass maven-resolved-dependencies.txt"},
 		{[]string{"--lockfile", "package-lock.json", "--commit", "HEAD"}, "lockfile"},
 		{[]string{"--lockfile", "package-lock.json", "--branch", "main"}, "lockfile"},
 	} {
@@ -187,6 +187,96 @@ func mavenPOM(version string) string {
   </dependencies>
 </project>
 `
+}
+
+// unresolvedMavenPOM inherits from a parent, so one dependency's version is
+// managed there and another uses a property the parse cannot resolve.
+func unresolvedMavenPOM(pinned string) string {
+	return `<project>
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.5.0</version>
+  </parent>
+  <artifactId>app</artifactId>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.example</groupId>
+      <artifactId>inherited</artifactId>
+      <version>${parent.prop}</version>
+    </dependency>` + pinned + `
+  </dependencies>
+</project>
+`
+}
+
+const pinnedLog4j = `
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>2.14.1</version>
+    </dependency>`
+
+const unresolvedMavenWarning = `Skipping 2 dependencies without a resolved version: ` +
+	`maven package "org.example:inherited" at "${parent.prop}" (pom.xml), ` +
+	`maven package "org.springframework.boot:spring-boot-starter-web" with no version (pom.xml).`
+
+func TestVulnsScanLockfileSkipsUnresolvedMavenVersions(t *testing.T) {
+	dir := writeUntrackedLockfile(t, "pom.xml", unresolvedMavenPOM(pinnedLog4j))
+	recorder := &osvQueryRecorder{}
+	original := http.DefaultTransport
+	http.DefaultTransport = recorder
+	t.Cleanup(func() { http.DefaultTransport = original })
+
+	stdout, stderr, err := runCmd(t, "vulns", "scan", "--lockfile", "pom.xml", "--fail-on", "high")
+	if err != nil || !strings.Contains(stdout, "No vulnerabilities found.") {
+		t.Fatalf("vulns scan --lockfile pom.xml = %q, %v", stdout, err)
+	}
+	if !strings.Contains(stderr, unresolvedMavenWarning) {
+		t.Errorf("stderr = %q, want %q", stderr, unresolvedMavenWarning)
+	}
+	if len(recorder.bodies) != 1 {
+		t.Fatalf("OSV queries = %v, want one batch", recorder.bodies)
+	}
+	query := recorder.bodies[0]
+	if !strings.Contains(query, "log4j-core") || !strings.Contains(query, "2.14.1") ||
+		strings.Contains(query, "inherited") || strings.Contains(query, "spring-boot-starter-web") {
+		t.Errorf("OSV query = %s, want only log4j-core 2.14.1", query)
+	}
+	assertNoIndex(t, dir)
+}
+
+func TestLockfileReportsUnresolvedMavenVersionsForEveryCommand(t *testing.T) {
+	writeUntrackedLockfile(t, "pom.xml", unresolvedMavenPOM(pinnedLog4j))
+	setLockfileEnrichment(t)
+	for _, command := range [][]string{{"outdated"}, {"freshness"}, {"funding"}} {
+		_, stderr, err := runCmd(t, append(command, "--lockfile", "pom.xml", "--format", "json")...)
+		if err != nil {
+			t.Fatalf("%v --lockfile pom.xml: %v", command, err)
+		}
+		if !strings.Contains(stderr, unresolvedMavenWarning) {
+			t.Errorf("%v stderr = %q, want %q", command, stderr, unresolvedMavenWarning)
+		}
+	}
+}
+
+func TestLockfileRejectsMavenManifestWithoutResolvedVersions(t *testing.T) {
+	writeUntrackedLockfile(t, "pom.xml", unresolvedMavenPOM(""))
+	for _, command := range [][]string{{"vulns", "scan"}, {"outdated"}, {"freshness"}, {"funding"}} {
+		stdout, _, err := runCmd(t, append(command, "--lockfile", "pom.xml")...)
+		want := "pom.xml has no dependencies with resolved versions; pass maven-resolved-dependencies.txt (mvn dependency:list output)"
+		if err == nil || err.Error() != want {
+			t.Errorf("%v: error = %v, want %q", command, err, want)
+		}
+		if strings.Contains(stdout, "No lockfile dependencies found") {
+			t.Errorf("%v reported an empty scan: %q", command, stdout)
+		}
+	}
 }
 
 func TestVulnsScanLockfileAcceptsPinnedMavenManifest(t *testing.T) {
