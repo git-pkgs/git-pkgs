@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,7 @@ type HealthEntry struct {
 	DependentPackagesCount int      `json:"dependent_packages_count"`
 	DependentReposCount    int      `json:"dependent_repos_count"`
 	Signals                []string `json:"signals"`
+	UnknownInputs          int      `json:"unknown_inputs"`
 	ManifestPath           string   `json:"manifest_path"`
 	PURL                   string   `json:"purl,omitempty"`
 }
@@ -324,12 +326,12 @@ func buildHealthResult(
 		seen[key] = true
 
 		pkg := packageData[purlStr]
-		if pkg == nil {
+		if pkg == nil || nothingMeasured(pkg) {
 			result.Summary.UnresolvedPackageData++
 			continue
 		}
 
-		score, risk, signals := maintenanceHealthScore(pkg)
+		score, risk, signals, unknown := maintenanceHealthScore(pkg)
 		result.Summary.CheckedDependencies++
 		scoreTotal += score
 		if score <= threshold {
@@ -351,6 +353,7 @@ func buildHealthResult(
 			DependentPackagesCount: pkg.DependentPackagesCount,
 			DependentReposCount:    pkg.DependentReposCount,
 			Signals:                signals,
+			UnknownInputs:          unknown,
 			ManifestPath:           dep.ManifestPath,
 			PURL:                   purlStr,
 		})
@@ -374,14 +377,16 @@ func buildHealthResult(
 	return result
 }
 
-func maintenanceHealthScore(data *healthPackageData) (int, string, []string) {
+// maintenanceHealthScore skips deductions for inputs with no data and returns how many there were.
+func maintenanceHealthScore(data *healthPackageData) (int, string, []string, int) {
 	score := 100
 	var signals []string
+	unknown := 0
 
 	switch data.MaintainerCount {
 	case 0:
-		score -= 30
-		signals = append(signals, "no maintainer data")
+		unknown++
+		signals = append(signals, "maintainer count unknown")
 	case 1:
 		score -= 25
 		signals = append(signals, "single maintainer")
@@ -390,24 +395,35 @@ func maintenanceHealthScore(data *healthPackageData) (int, string, []string) {
 		signals = append(signals, "small maintainer team")
 	}
 
+	// ecosyste.ms reports 0/0 for packages it does count dependents for, so zero is observed.
 	if data.DependentReposCount == 0 && data.DependentPackagesCount == 0 {
-		score -= 10
-		signals = append(signals, "no dependent usage data")
+		score -= 5
+		signals = append(signals, "no dependents")
 	} else if data.DependentReposCount < 10 && data.DependentPackagesCount < 10 {
 		score -= 5
 		signals = append(signals, "limited dependent usage")
 	}
 
-	if data.Downloads == 0 {
+	// Registries that publish no download counts have no downloads period.
+	if data.Downloads == 0 && data.DownloadsPeriod == "" {
+		unknown++
+		signals = append(signals, "download count unknown")
+	} else if data.Downloads == 0 {
 		score -= 5
-		signals = append(signals, "no download data")
+		signals = append(signals, "no downloads")
 	}
 
 	if score < 0 {
 		score = 0
 	}
 
-	return score, healthRisk(score), signals
+	return score, healthRisk(score), signals, unknown
+}
+
+// nothingMeasured reports a package with no maintainer, download or dependent data to score.
+func nothingMeasured(data *healthPackageData) bool {
+	return data.MaintainerCount == 0 && data.Downloads == 0 && data.DownloadsPeriod == "" &&
+		data.DependentReposCount == 0 && data.DependentPackagesCount == 0
 }
 
 func healthRisk(score int) string {
@@ -466,8 +482,14 @@ func outputHealthText(cmd *cobra.Command, result *HealthResult) {
 	for _, entry := range result.Dependencies {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%s): score %d [%s]\n",
 			entry.Name, entry.Ecosystem, entry.Score, entry.Risk)
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  maintainers: %d, downloads: %d",
-			entry.MaintainerCount, entry.Downloads)
+		maintainers, downloads := "unknown", "unknown"
+		if entry.MaintainerCount != 0 {
+			maintainers = strconv.Itoa(entry.MaintainerCount)
+		}
+		if entry.Downloads != 0 || entry.DownloadsPeriod != "" {
+			downloads = strconv.Itoa(entry.Downloads)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  maintainers: %s, downloads: %s", maintainers, downloads)
 		if entry.DownloadsPeriod != "" {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), " (%s)", entry.DownloadsPeriod)
 		}
