@@ -18,6 +18,7 @@ import (
 
 var (
 	managerTranslator     *managers.Translator
+	managerDetector       *managers.Detector
 	managerTranslatorOnce sync.Once
 	managerTranslatorErr  error
 )
@@ -30,239 +31,17 @@ func getTranslator() (*managers.Translator, error) {
 			managerTranslatorErr = fmt.Errorf("loading package manager definitions: %w", err)
 			return
 		}
+		managerDetector = managers.NewDetector(managerTranslator, nil)
 		for _, def := range defs {
-			managerTranslator.Register(def)
+			managerDetector.Register(def)
 		}
 	})
 	return managerTranslator, managerTranslatorErr
 }
 
-// lockfileMapping maps a lockfile to its package manager
-type lockfileMapping struct {
-	File    string
-	Manager string
-}
-
-// ecosystemConfig defines detection rules for a single ecosystem
-type ecosystemConfig struct {
-	Ecosystem string
-	Manifest  string
-	Default   string            // default manager when only manifest exists
-	Lockfiles []lockfileMapping // in priority order (first match wins)
-}
-
-// ecosystems defines detection rules organized by ecosystem/purl type.
-// Order matters: first ecosystem match wins for a given directory.
-var ecosystemConfigs = []ecosystemConfig{
-	{
-		Ecosystem: ecosystemNPM,
-		Manifest:  "package.json",
-		Default:   ecosystemNPM,
-		Lockfiles: []lockfileMapping{
-			{"bun.lock", "bun"},
-			{"pnpm-lock.yaml", "pnpm"},
-			{"yarn.lock", "yarn"},
-			{"package-lock.json", ecosystemNPM},
-		},
-	},
-	{
-		Ecosystem: "rubygems",
-		Manifest:  "Gemfile",
-		Default:   "bundler",
-		Lockfiles: []lockfileMapping{
-			{"Gemfile.lock", "bundler"},
-		},
-	},
-	{
-		Ecosystem: "cargo",
-		Manifest:  "Cargo.toml",
-		Default:   "cargo",
-		Lockfiles: []lockfileMapping{
-			{"Cargo.lock", "cargo"},
-		},
-	},
-	{
-		Ecosystem: "go",
-		Manifest:  "go.mod",
-		Default:   "gomod",
-		Lockfiles: []lockfileMapping{},
-	},
-	{
-		Ecosystem: "pypi",
-		Manifest:  "pyproject.toml",
-		Default:   "uv",
-		Lockfiles: []lockfileMapping{
-			{"uv.lock", "uv"},
-			{"poetry.lock", "poetry"},
-		},
-	},
-	{
-		Ecosystem: "packagist",
-		Manifest:  "composer.json",
-		Default:   "composer",
-		Lockfiles: []lockfileMapping{
-			{"composer.lock", "composer"},
-		},
-	},
-	{
-		Ecosystem: "hex",
-		Manifest:  "mix.exs",
-		Default:   "mix",
-		Lockfiles: []lockfileMapping{
-			{"mix.lock", "mix"},
-		},
-	},
-	{
-		Ecosystem: "pub",
-		Manifest:  "pubspec.yaml",
-		Default:   "pub",
-		Lockfiles: []lockfileMapping{
-			{"pubspec.lock", "pub"},
-		},
-	},
-	{
-		Ecosystem: "cocoapods",
-		Manifest:  "Podfile",
-		Default:   "cocoapods",
-		Lockfiles: []lockfileMapping{
-			{"Podfile.lock", "cocoapods"},
-		},
-	},
-	// Additional ecosystems from manifests library (detection only, commands may not be supported)
-	{
-		Ecosystem: "maven",
-		Manifest:  "pom.xml",
-		Default:   "maven",
-		Lockfiles: []lockfileMapping{
-			{"gradle.lockfile", "gradle"},
-		},
-	},
-	{
-		Ecosystem: "nuget",
-		Manifest:  "packages.config",
-		Default:   "nuget",
-		Lockfiles: []lockfileMapping{
-			{"packages.lock.json", "nuget"},
-			{"project.assets.json", "nuget"},
-		},
-	},
-	{
-		Ecosystem: "swift",
-		Manifest:  "Package.swift",
-		Default:   "swift",
-		Lockfiles: []lockfileMapping{
-			{"Package.resolved", "swift"},
-		},
-	},
-	{
-		Ecosystem: "deno",
-		Manifest:  "deno.json",
-		Default:   "deno",
-		Lockfiles: []lockfileMapping{
-			{"deno.lock", "deno"},
-		},
-	},
-	{
-		Ecosystem: "hackage",
-		Manifest:  "", // uses suffix match *.cabal
-		Default:   "cabal",
-		Lockfiles: []lockfileMapping{
-			{"cabal.project.freeze", "cabal"},
-			{"stack.yaml.lock", "stack"},
-		},
-	},
-	{
-		Ecosystem: "crystal",
-		Manifest:  "shard.yml",
-		Default:   "shards",
-		Lockfiles: []lockfileMapping{
-			{"shard.lock", "shards"},
-		},
-	},
-	{
-		Ecosystem: "julia",
-		Manifest:  "Project.toml",
-		Default:   "pkg",
-		Lockfiles: []lockfileMapping{
-			{"Manifest.toml", "pkg"},
-		},
-	},
-	{
-		Ecosystem: "conan",
-		Manifest:  "conanfile.txt",
-		Default:   "conan",
-		Lockfiles: []lockfileMapping{
-			{"conan.lock", "conan"},
-		},
-	},
-	{
-		Ecosystem: "vcpkg",
-		Manifest:  "vcpkg.json",
-		Default:   "vcpkg",
-		Lockfiles: []lockfileMapping{},
-	},
-	{
-		Ecosystem: "carthage",
-		Manifest:  "Cartfile",
-		Default:   "carthage",
-		Lockfiles: []lockfileMapping{
-			{"Cartfile.resolved", "carthage"},
-		},
-	},
-	{
-		Ecosystem: "cpan",
-		Manifest:  "cpanfile",
-		Default:   "cpanm",
-		Lockfiles: []lockfileMapping{
-			{"cpanfile.snapshot", "cpanm"},
-		},
-	},
-	{
-		Ecosystem: "cran",
-		Manifest:  "DESCRIPTION",
-		Default:   "renv",
-		Lockfiles: []lockfileMapping{
-			{"renv.lock", "renv"},
-		},
-	},
-	{
-		Ecosystem: "clojars",
-		Manifest:  "project.clj",
-		Default:   "lein",
-		Lockfiles: []lockfileMapping{},
-	},
-	{
-		Ecosystem: "elm",
-		Manifest:  "elm.json",
-		Default:   "elm",
-		Lockfiles: []lockfileMapping{},
-	},
-	{
-		Ecosystem: "dub",
-		Manifest:  "dub.json",
-		Default:   "dub",
-		Lockfiles: []lockfileMapping{},
-	},
-	{
-		Ecosystem: "haxelib",
-		Manifest:  "haxelib.json",
-		Default:   "haxelib",
-		Lockfiles: []lockfileMapping{},
-	},
-	{
-		Ecosystem: "nix",
-		Manifest:  "flake.nix",
-		Default:   "nix",
-		Lockfiles: []lockfileMapping{
-			{"flake.lock", "nix"},
-		},
-	},
-	{
-		Ecosystem: "conda",
-		Manifest:  "environment.yml",
-		Default:   "conda",
-		Lockfiles: []lockfileMapping{},
-	},
+func getDetector() (*managers.Detector, error) {
+	_, err := getTranslator()
+	return managerDetector, err
 }
 
 // DetectedManager holds info about a detected package manager
@@ -276,43 +55,25 @@ type DetectedManager struct {
 // For each ecosystem, checks lockfiles first (in priority order), then falls back
 // to the default manager if only a manifest file exists.
 func DetectManagers(dir string) ([]DetectedManager, error) {
-	entries, err := os.ReadDir(dir)
+	detector, err := getDetector()
+	if err != nil {
+		return nil, err
+	}
+	matches, err := detector.DetectAllFS(os.DirFS(dir), ".", managers.FileDetectOptions{
+		OnConflict: managers.ConflictUseFirst,
+		Policy:     managers.GitPkgsFileDetectionPolicy(),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	fileSet := make(map[string]bool)
-	for _, e := range entries {
-		if !e.IsDir() {
-			fileSet[e.Name()] = true
-		}
-	}
-
 	var detected []DetectedManager
-
-	for _, eco := range ecosystemConfigs {
-		// Try lockfiles first (in priority order)
-		var found bool
-		for _, lf := range eco.Lockfiles {
-			if fileSet[lf.File] {
-				detected = append(detected, DetectedManager{
-					Name:      lf.Manager,
-					Ecosystem: eco.Ecosystem,
-					Lockfile:  lf.File,
-				})
-				found = true
-				break // first lockfile wins for this ecosystem
-			}
-		}
-
-		// Fall back to manifest with default manager
-		if !found && fileSet[eco.Manifest] {
-			detected = append(detected, DetectedManager{
-				Name:      eco.Default,
-				Ecosystem: eco.Ecosystem,
-				Lockfile:  "", // no lockfile yet
-			})
-		}
+	for _, match := range matches {
+		detected = append(detected, DetectedManager{
+			Name:      match.Manager,
+			Ecosystem: match.Ecosystem,
+			Lockfile:  match.Lockfile,
+		})
 	}
 
 	return detected, nil
