@@ -9,7 +9,6 @@ import (
 
 	"github.com/git-pkgs/enrichment"
 	"github.com/git-pkgs/git-pkgs/internal/database"
-	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/git-pkgs/purl"
 	"github.com/spf13/cobra"
 )
@@ -27,6 +26,7 @@ func addFundingCmd(parent *cobra.Command) {
 	fundingCmd.Flags().StringP("ecosystem", "e", "", "Filter by ecosystem")
 	fundingCmd.Flags().StringP("format", "f", "text", "Output format: text, json")
 	fundingCmd.Flags().Bool("missing", false, "Show dependencies without funding links")
+	addLockfileFlag(fundingCmd)
 	parent.AddCommand(fundingCmd)
 }
 
@@ -66,17 +66,12 @@ func runFunding(cmd *cobra.Command, args []string) error {
 	}
 	showMissing, _ := cmd.Flags().GetBool("missing")
 
-	repo, err := git.OpenRepository(".")
-	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
-	}
-
-	deps, db, err := repo.GetDependenciesWithDB(commit, branchName)
+	deps, db, err := loadDependencies(cmd, commit, branchName)
 	if db != nil {
 		defer func() { _ = db.Close() }()
 	}
 	if err != nil {
-		return fmt.Errorf("loading dependencies: %w", err)
+		return err
 	}
 
 	deps = filterByEcosystem(deps, ecosystem)
