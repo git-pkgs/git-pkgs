@@ -1,6 +1,6 @@
 module github.com/git-pkgs/git-pkgs
 
-go 1.26.7
+go 1.27
 
 require (
 	github.com/git-pkgs/archives v0.11.0
@@ -12,7 +12,7 @@ require (
 	github.com/git-pkgs/licenses v0.10.0
 	github.com/git-pkgs/mailmap v0.1.1
 	github.com/git-pkgs/managers v0.13.0
-	github.com/git-pkgs/manifests v0.13.0
+	github.com/git-pkgs/manifests v0.14.0
 	github.com/git-pkgs/purl v0.2.1
 	github.com/git-pkgs/registries v0.13.0
 	github.com/git-pkgs/resolve v0.2.3
