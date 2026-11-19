@@ -62,8 +62,8 @@ github.com/git-pkgs/mailmap v0.1.1 h1:XCt7+0yiWrtAvVX1UwsI+ryWO3qGm7CYm5tof3daeD
 github.com/git-pkgs/mailmap v0.1.1/go.mod h1:9TZQk9wpOPcuUUr2Gdnp0prMxpN0QDQsnV5v+7DOAdI=
 github.com/git-pkgs/managers v0.13.0 h1:a6p50OcLwRTGf1KIPShZDrNQbGUFGFj9inuV0YN1xu4=
 github.com/git-pkgs/managers v0.13.0/go.mod h1:gWk/V63R12skgcTmVsYgED/kxlk2MERS2iWMYKBrJeM=
-github.com/git-pkgs/manifests v0.13.0 h1:i915wJiBZkPEwbhUM8j3JUxBZYisQXKXOe+qwJeMWlw=
-github.com/git-pkgs/manifests v0.13.0/go.mod h1:eSnUurNP7HiYO3Vpg1kwfNU4+cfTbPE/tO3PV1BgzKY=
+github.com/git-pkgs/manifests v0.14.0 h1:UE+kxktTLN77XiaklhlhzG0zD8GAd/g2lOjQepO6LYI=
+github.com/git-pkgs/manifests v0.14.0/go.mod h1:+yP/Ivk5j9MDfs7G70BlzxWnFB8q+kFOWtbLhXd+OT0=
 github.com/git-pkgs/pom v0.1.8 h1:mXCuWw6XkrKKZb6IurRZyIznYLPhV5AYg5ZO38Uj/l8=
 github.com/git-pkgs/pom v0.1.8/go.mod h1:sQBeYRzjCUn77fcABPn6I/a1aBHFxm55jTmkNxYtGtw=
 github.com/git-pkgs/purl v0.2.1 h1:b46hRlOMbrG6aXjjFJdYixGi5WTh0TLlAnH9iNeuOS0=
