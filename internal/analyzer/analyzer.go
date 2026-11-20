@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -338,7 +339,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			}
 			change := Change{
 				ManifestPath:   path,
-				Ecosystem:      deps.Ecosystem,
+				Ecosystem:      cmp.Or(dep.Ecosystem, deps.Ecosystem),
 				Kind:           string(deps.Kind),
 				Name:           dep.Name,
 				PURL:           dep.PURL,
@@ -352,7 +353,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 
 			key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
 			result.Snapshot[key] = SnapshotEntry{
-				Ecosystem:      deps.Ecosystem,
+				Ecosystem:      cmp.Or(dep.Ecosystem, deps.Ecosystem),
 				Kind:           string(deps.Kind),
 				PURL:           dep.PURL,
 				Requirement:    dep.Version,
@@ -440,7 +441,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 					if before.Version == dep.Version && before.Scope != dep.Scope {
 						result.Changes = append(result.Changes, Change{
 							ManifestPath:           path,
-							Ecosystem:              afterDeps.Ecosystem,
+							Ecosystem:              cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
 							Kind:                   string(afterDeps.Kind),
 							Name:                   dep.Name,
 							PURL:                   dep.PURL,
@@ -467,7 +468,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 					// All old versions still exist, this is a newly added version
 					result.Changes = append(result.Changes, Change{
 						ManifestPath:   path,
-						Ecosystem:      afterDeps.Ecosystem,
+						Ecosystem:      cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
 						Kind:           string(afterDeps.Kind),
 						Name:           dep.Name,
 						PURL:           dep.PURL,
@@ -480,7 +481,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				} else {
 					result.Changes = append(result.Changes, Change{
 						ManifestPath:        path,
-						Ecosystem:           afterDeps.Ecosystem,
+						Ecosystem:           cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
 						Kind:                string(afterDeps.Kind),
 						Name:                dep.Name,
 						PURL:                dep.PURL,
@@ -496,7 +497,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				// Completely new package
 				result.Changes = append(result.Changes, Change{
 					ManifestPath:   path,
-					Ecosystem:      afterDeps.Ecosystem,
+					Ecosystem:      cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
 					Kind:           string(afterDeps.Kind),
 					Name:           dep.Name,
 					PURL:           dep.PURL,
@@ -509,7 +510,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			}
 
 			result.Snapshot[key] = SnapshotEntry{
-				Ecosystem:      afterDeps.Ecosystem,
+				Ecosystem:      cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
 				Kind:           string(afterDeps.Kind),
 				PURL:           dep.PURL,
 				Requirement:    dep.Version,
@@ -535,7 +536,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 						// Package completely removed (not just version change)
 						result.Changes = append(result.Changes, Change{
 							ManifestPath:   path,
-							Ecosystem:      beforeDeps.Ecosystem,
+							Ecosystem:      cmp.Or(dep.Ecosystem, beforeDeps.Ecosystem),
 							Kind:           string(beforeDeps.Kind),
 							Name:           dep.Name,
 							PURL:           dep.PURL,
@@ -572,7 +573,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 		for _, dep := range deps.Dependencies {
 			result.Changes = append(result.Changes, Change{
 				ManifestPath:   path,
-				Ecosystem:      deps.Ecosystem,
+				Ecosystem:      cmp.Or(dep.Ecosystem, deps.Ecosystem),
 				Kind:           string(deps.Kind),
 				Name:           dep.Name,
 				PURL:           dep.PURL,
@@ -671,7 +672,7 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 			}
 			deps = append(deps, Change{
 				ManifestPath:   f.Name,
-				Ecosystem:      result.Ecosystem,
+				Ecosystem:      cmp.Or(dep.Ecosystem, result.Ecosystem),
 				Kind:           string(result.Kind),
 				Name:           dep.Name,
 				PURL:           dep.PURL,
@@ -863,7 +864,7 @@ func (a *Analyzer) DependenciesInWorkingDir(root string, includeSubmodules bool)
 			}
 			deps = append(deps, Change{
 				ManifestPath:   relPath,
-				Ecosystem:      result.Ecosystem,
+				Ecosystem:      cmp.Or(dep.Ecosystem, result.Ecosystem),
 				Kind:           string(result.Kind),
 				Name:           dep.Name,
 				PURL:           dep.PURL,

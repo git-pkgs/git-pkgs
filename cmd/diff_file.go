@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"slices"
@@ -90,7 +91,7 @@ func parseFile(filename, defaultFilename string) (parsedDiffFile, error) {
 	for _, dep := range result.Dependencies {
 		deps = append(deps, database.Dependency{
 			Name:           dep.Name,
-			Ecosystem:      result.Ecosystem,
+			Ecosystem:      cmp.Or(dep.Ecosystem, result.Ecosystem),
 			Requirement:    dep.Version,
 			ManifestPath:   name,
 			DependencyType: string(dep.Scope),
