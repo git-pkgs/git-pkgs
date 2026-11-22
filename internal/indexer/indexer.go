@@ -231,7 +231,7 @@ func (idx *Indexer) Run() (*Result, error) {
 				for _, change := range analysisResult.Changes {
 					manifest := database.ManifestInfo{
 						Path:      change.ManifestPath,
-						Ecosystem: change.Ecosystem,
+						Ecosystem: change.ManifestEcosystem,
 						Kind:      change.Kind,
 					}
 					changeInfo := database.ChangeInfo{
@@ -259,7 +259,7 @@ func (idx *Indexer) Run() (*Result, error) {
 						for key, entry := range analysisResult.Snapshot {
 							manifest := database.ManifestInfo{
 								Path:      key.ManifestPath,
-								Ecosystem: entry.Ecosystem,
+								Ecosystem: entry.ManifestEcosystem,
 								Kind:      entry.Kind,
 							}
 							snapshotInfo := database.SnapshotInfo{
@@ -286,7 +286,7 @@ func (idx *Indexer) Run() (*Result, error) {
 				for key, entry := range snapshot {
 					manifest := database.ManifestInfo{
 						Path:      key.ManifestPath,
-						Ecosystem: entry.Ecosystem,
+						Ecosystem: entry.ManifestEcosystem,
 						Kind:      entry.Kind,
 					}
 					snapshotInfo := database.SnapshotInfo{
@@ -329,7 +329,7 @@ func (idx *Indexer) Run() (*Result, error) {
 			for key, entry := range snapshot {
 				manifest := database.ManifestInfo{
 					Path:      key.ManifestPath,
-					Ecosystem: entry.Ecosystem,
+					Ecosystem: entry.ManifestEcosystem,
 					Kind:      entry.Kind,
 				}
 				snapshotInfo := database.SnapshotInfo{
@@ -372,7 +372,9 @@ func filterSnapshot(snapshot analyzer.Snapshot, filter config.EcosystemFilter) a
 	}
 	filtered := make(analyzer.Snapshot, len(snapshot))
 	for key, entry := range snapshot {
-		if filter.Allows(entry.Ecosystem) {
+		// The analyzer admits a manifest by the file's ecosystem, and restoring
+		// must keep the same entries or unchanged manifests lose them.
+		if filter.Allows(entry.ManifestEcosystem) {
 			filtered[key] = entry
 		}
 	}
@@ -388,12 +390,13 @@ func convertDBSnapshot(dbSnapshot map[string]database.SnapshotInfo) analyzer.Sna
 			Requirement:  info.Requirement,
 		}
 		result[key] = analyzer.SnapshotEntry{
-			Ecosystem:      info.Ecosystem,
-			PURL:           info.PURL,
-			Requirement:    info.Requirement,
-			DependencyType: info.DependencyType,
-			Integrity:      info.Integrity,
-			Direct:         info.Direct,
+			Ecosystem:         info.Ecosystem,
+			ManifestEcosystem: info.ManifestEcosystem,
+			PURL:              info.PURL,
+			Requirement:       info.Requirement,
+			DependencyType:    info.DependencyType,
+			Integrity:         info.Integrity,
+			Direct:            info.Direct,
 		}
 	}
 	return result

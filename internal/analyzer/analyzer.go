@@ -27,7 +27,8 @@ func isSupplementFile(path string) bool {
 
 type Change struct {
 	ManifestPath           string
-	Ecosystem              string
+	Ecosystem              string // the dependency's own ecosystem
+	ManifestEcosystem      string // the ecosystem of the file that declares it
 	Kind                   string
 	Name                   string
 	PURL                   string
@@ -41,13 +42,14 @@ type Change struct {
 }
 
 type SnapshotEntry struct {
-	Ecosystem      string
-	Kind           string
-	PURL           string
-	Requirement    string
-	DependencyType string
-	Integrity      string
-	Direct         bool
+	Ecosystem         string // the dependency's own ecosystem
+	ManifestEcosystem string // the ecosystem of the file that declares it
+	Kind              string
+	PURL              string
+	Requirement       string
+	DependencyType    string
+	Integrity         string
+	Direct            bool
 }
 
 type SnapshotKey struct {
@@ -338,28 +340,30 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				}
 			}
 			change := Change{
-				ManifestPath:   path,
-				Ecosystem:      cmp.Or(dep.Ecosystem, deps.Ecosystem),
-				Kind:           string(deps.Kind),
-				Name:           dep.Name,
-				PURL:           dep.PURL,
-				ChangeType:     "added",
-				Requirement:    dep.Version,
-				DependencyType: string(dep.Scope),
-				Integrity:      integrity,
-				Direct:         dep.Direct,
+				ManifestPath:      path,
+				Ecosystem:         cmp.Or(dep.Ecosystem, deps.Ecosystem),
+				ManifestEcosystem: deps.Ecosystem,
+				Kind:              string(deps.Kind),
+				Name:              dep.Name,
+				PURL:              dep.PURL,
+				ChangeType:        "added",
+				Requirement:       dep.Version,
+				DependencyType:    string(dep.Scope),
+				Integrity:         integrity,
+				Direct:            dep.Direct,
 			}
 			result.Changes = append(result.Changes, change)
 
 			key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
 			result.Snapshot[key] = SnapshotEntry{
-				Ecosystem:      cmp.Or(dep.Ecosystem, deps.Ecosystem),
-				Kind:           string(deps.Kind),
-				PURL:           dep.PURL,
-				Requirement:    dep.Version,
-				DependencyType: string(dep.Scope),
-				Integrity:      integrity,
-				Direct:         dep.Direct,
+				Ecosystem:         cmp.Or(dep.Ecosystem, deps.Ecosystem),
+				ManifestEcosystem: deps.Ecosystem,
+				Kind:              string(deps.Kind),
+				PURL:              dep.PURL,
+				Requirement:       dep.Version,
+				DependencyType:    string(dep.Scope),
+				Integrity:         integrity,
+				Direct:            dep.Direct,
 			}
 		}
 	}
@@ -442,6 +446,7 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 						result.Changes = append(result.Changes, Change{
 							ManifestPath:           path,
 							Ecosystem:              cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
+							ManifestEcosystem:      afterDeps.Ecosystem,
 							Kind:                   string(afterDeps.Kind),
 							Name:                   dep.Name,
 							PURL:                   dep.PURL,
@@ -467,21 +472,23 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 				if previousVersion == "" {
 					// All old versions still exist, this is a newly added version
 					result.Changes = append(result.Changes, Change{
-						ManifestPath:   path,
-						Ecosystem:      cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
-						Kind:           string(afterDeps.Kind),
-						Name:           dep.Name,
-						PURL:           dep.PURL,
-						ChangeType:     "added",
-						Requirement:    dep.Version,
-						DependencyType: string(dep.Scope),
-						Integrity:      integrity,
-						Direct:         dep.Direct,
+						ManifestPath:      path,
+						Ecosystem:         cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
+						ManifestEcosystem: afterDeps.Ecosystem,
+						Kind:              string(afterDeps.Kind),
+						Name:              dep.Name,
+						PURL:              dep.PURL,
+						ChangeType:        "added",
+						Requirement:       dep.Version,
+						DependencyType:    string(dep.Scope),
+						Integrity:         integrity,
+						Direct:            dep.Direct,
 					})
 				} else {
 					result.Changes = append(result.Changes, Change{
 						ManifestPath:        path,
 						Ecosystem:           cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
+						ManifestEcosystem:   afterDeps.Ecosystem,
 						Kind:                string(afterDeps.Kind),
 						Name:                dep.Name,
 						PURL:                dep.PURL,
@@ -496,27 +503,29 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 			} else {
 				// Completely new package
 				result.Changes = append(result.Changes, Change{
-					ManifestPath:   path,
-					Ecosystem:      cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
-					Kind:           string(afterDeps.Kind),
-					Name:           dep.Name,
-					PURL:           dep.PURL,
-					ChangeType:     "added",
-					Requirement:    dep.Version,
-					DependencyType: string(dep.Scope),
-					Integrity:      integrity,
-					Direct:         dep.Direct,
+					ManifestPath:      path,
+					Ecosystem:         cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
+					ManifestEcosystem: afterDeps.Ecosystem,
+					Kind:              string(afterDeps.Kind),
+					Name:              dep.Name,
+					PURL:              dep.PURL,
+					ChangeType:        "added",
+					Requirement:       dep.Version,
+					DependencyType:    string(dep.Scope),
+					Integrity:         integrity,
+					Direct:            dep.Direct,
 				})
 			}
 
 			result.Snapshot[key] = SnapshotEntry{
-				Ecosystem:      cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
-				Kind:           string(afterDeps.Kind),
-				PURL:           dep.PURL,
-				Requirement:    dep.Version,
-				DependencyType: string(dep.Scope),
-				Integrity:      integrity,
-				Direct:         dep.Direct,
+				Ecosystem:         cmp.Or(dep.Ecosystem, afterDeps.Ecosystem),
+				ManifestEcosystem: afterDeps.Ecosystem,
+				Kind:              string(afterDeps.Kind),
+				PURL:              dep.PURL,
+				Requirement:       dep.Version,
+				DependencyType:    string(dep.Scope),
+				Integrity:         integrity,
+				Direct:            dep.Direct,
 			}
 		}
 
@@ -535,16 +544,17 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 					if _, stillExists := afterVersions[dep.Name]; !stillExists {
 						// Package completely removed (not just version change)
 						result.Changes = append(result.Changes, Change{
-							ManifestPath:   path,
-							Ecosystem:      cmp.Or(dep.Ecosystem, beforeDeps.Ecosystem),
-							Kind:           string(beforeDeps.Kind),
-							Name:           dep.Name,
-							PURL:           dep.PURL,
-							ChangeType:     "removed",
-							Requirement:    dep.Version,
-							DependencyType: string(dep.Scope),
-							Integrity:      dep.Integrity,
-							Direct:         dep.Direct,
+							ManifestPath:      path,
+							Ecosystem:         cmp.Or(dep.Ecosystem, beforeDeps.Ecosystem),
+							ManifestEcosystem: beforeDeps.Ecosystem,
+							Kind:              string(beforeDeps.Kind),
+							Name:              dep.Name,
+							PURL:              dep.PURL,
+							ChangeType:        "removed",
+							Requirement:       dep.Version,
+							DependencyType:    string(dep.Scope),
+							Integrity:         dep.Integrity,
+							Direct:            dep.Direct,
 						})
 					}
 					key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
@@ -572,16 +582,17 @@ func (a *Analyzer) AnalyzeCommit(commit *object.Commit, previousSnapshot Snapsho
 
 		for _, dep := range deps.Dependencies {
 			result.Changes = append(result.Changes, Change{
-				ManifestPath:   path,
-				Ecosystem:      cmp.Or(dep.Ecosystem, deps.Ecosystem),
-				Kind:           string(deps.Kind),
-				Name:           dep.Name,
-				PURL:           dep.PURL,
-				ChangeType:     "removed",
-				Requirement:    dep.Version,
-				DependencyType: string(dep.Scope),
-				Integrity:      dep.Integrity,
-				Direct:         dep.Direct,
+				ManifestPath:      path,
+				Ecosystem:         cmp.Or(dep.Ecosystem, deps.Ecosystem),
+				ManifestEcosystem: deps.Ecosystem,
+				Kind:              string(deps.Kind),
+				Name:              dep.Name,
+				PURL:              dep.PURL,
+				ChangeType:        "removed",
+				Requirement:       dep.Version,
+				DependencyType:    string(dep.Scope),
+				Integrity:         dep.Integrity,
+				Direct:            dep.Direct,
 			})
 
 			key := SnapshotKey{ManifestPath: path, Name: dep.Name, Requirement: dep.Version}
@@ -671,15 +682,16 @@ func (a *Analyzer) DependenciesAtCommit(commit *object.Commit) ([]Change, error)
 				}
 			}
 			deps = append(deps, Change{
-				ManifestPath:   f.Name,
-				Ecosystem:      cmp.Or(dep.Ecosystem, result.Ecosystem),
-				Kind:           string(result.Kind),
-				Name:           dep.Name,
-				PURL:           dep.PURL,
-				Requirement:    dep.Version,
-				DependencyType: string(dep.Scope),
-				Integrity:      integrity,
-				Direct:         dep.Direct,
+				ManifestPath:      f.Name,
+				Ecosystem:         cmp.Or(dep.Ecosystem, result.Ecosystem),
+				ManifestEcosystem: result.Ecosystem,
+				Kind:              string(result.Kind),
+				Name:              dep.Name,
+				PURL:              dep.PURL,
+				Requirement:       dep.Version,
+				DependencyType:    string(dep.Scope),
+				Integrity:         integrity,
+				Direct:            dep.Direct,
 			})
 		}
 
@@ -863,15 +875,16 @@ func (a *Analyzer) DependenciesInWorkingDir(root string, includeSubmodules bool)
 				}
 			}
 			deps = append(deps, Change{
-				ManifestPath:   relPath,
-				Ecosystem:      cmp.Or(dep.Ecosystem, result.Ecosystem),
-				Kind:           string(result.Kind),
-				Name:           dep.Name,
-				PURL:           dep.PURL,
-				Requirement:    dep.Version,
-				DependencyType: string(dep.Scope),
-				Integrity:      integrity,
-				Direct:         dep.Direct,
+				ManifestPath:      relPath,
+				Ecosystem:         cmp.Or(dep.Ecosystem, result.Ecosystem),
+				ManifestEcosystem: result.Ecosystem,
+				Kind:              string(result.Kind),
+				Name:              dep.Name,
+				PURL:              dep.PURL,
+				Requirement:       dep.Version,
+				DependencyType:    string(dep.Scope),
+				Integrity:         integrity,
+				Direct:            dep.Direct,
 			})
 		}
 

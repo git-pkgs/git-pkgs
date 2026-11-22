@@ -238,7 +238,7 @@ func (db *DB) GetLastSnapshot(branchID int64) (map[string]SnapshotInfo, error) {
 	}
 
 	rows, err := db.Query(`
-		SELECT m.path, ds.name, ds.ecosystem, ds.purl, ds.requirement, ds.dependency_type, ds.integrity, ds.direct
+		SELECT m.path, m.ecosystem, ds.name, ds.ecosystem, ds.purl, ds.requirement, ds.dependency_type, ds.integrity, ds.direct
 		FROM dependency_snapshots ds
 		JOIN manifests m ON m.id = ds.manifest_id
 		WHERE ds.commit_id = ?
@@ -252,14 +252,17 @@ func (db *DB) GetLastSnapshot(branchID int64) (map[string]SnapshotInfo, error) {
 	for rows.Next() {
 		var path, name string
 		var info SnapshotInfo
-		var ecosystem, purl, requirement, depType, integrity sql.NullString
+		var manifestEcosystem, ecosystem, purl, requirement, depType, integrity sql.NullString
 
-		if err := rows.Scan(&path, &name, &ecosystem, &purl, &requirement, &depType, &integrity, &info.Direct); err != nil {
+		if err := rows.Scan(&path, &manifestEcosystem, &name, &ecosystem, &purl, &requirement, &depType, &integrity, &info.Direct); err != nil {
 			return nil, err
 		}
 
 		info.ManifestPath = path
 		info.Name = name
+		if manifestEcosystem.Valid {
+			info.ManifestEcosystem = manifestEcosystem.String
+		}
 		if ecosystem.Valid {
 			info.Ecosystem = ecosystem.String
 		}

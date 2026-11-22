@@ -53,6 +53,7 @@ func TestAnalyzeCommitUsesDependencyEcosystem(t *testing.T) {
 	}
 
 	added := commitObject(addSHA)
+	assertManifestEcosystem(t, "added", added.Changes, added.Snapshot, "deno")
 	assertEcosystems(t, "added", ecosystemsByName(added.Changes), map[string]string{
 		"chalk":     "added npm",
 		"@std/path": "added deno",
@@ -67,12 +68,16 @@ func TestAnalyzeCommitUsesDependencyEcosystem(t *testing.T) {
 		t.Errorf("manifest licenses = %+v, want one with the file's ecosystem, deno", added.ManifestLicenses)
 	}
 
-	assertEcosystems(t, "modified", ecosystemsByName(commitObject(modifySHA).Changes), map[string]string{
+	modified := commitObject(modifySHA)
+	assertEcosystems(t, "modified", ecosystemsByName(modified.Changes), map[string]string{
 		"chalk": "modified npm",
 	})
-	assertEcosystems(t, "removed", ecosystemsByName(commitObject(removeSHA).Changes), map[string]string{
+	assertManifestEcosystem(t, "modified", modified.Changes, modified.Snapshot, "deno")
+	removed := commitObject(removeSHA)
+	assertEcosystems(t, "removed", ecosystemsByName(removed.Changes), map[string]string{
 		"chalk": "removed npm",
 	})
+	assertManifestEcosystem(t, "removed", removed.Changes, removed.Snapshot, "deno")
 
 	c, err := repo.CommitObject(*getCommit(t, addSHA))
 	if err != nil {
@@ -86,6 +91,7 @@ func TestAnalyzeCommitUsesDependencyEcosystem(t *testing.T) {
 		"chalk":     " npm",
 		"@std/path": " deno",
 	})
+	assertManifestEcosystem(t, "DependenciesAtCommit", deps, nil, "deno")
 }
 
 func denoLock(npm ...string) string {
@@ -129,14 +135,17 @@ func TestAnalyzeCommitUsesDependencyEcosystemInDenoLock(t *testing.T) {
 		return result
 	}
 
-	assertEcosystems(t, "second version", ecosystemsByName(analyze(secondVersionSHA).Changes), map[string]string{
+	secondVersion := analyze(secondVersionSHA)
+	assertEcosystems(t, "second version", ecosystemsByName(secondVersion.Changes), map[string]string{
 		"chalk": "added npm",
 	})
+	assertManifestEcosystem(t, "second version", secondVersion.Changes, secondVersion.Snapshot, "deno")
 
 	newPackage := analyze(newPackageSHA)
 	assertEcosystems(t, "new package", ecosystemsByName(newPackage.Changes), map[string]string{
 		"ms": "added npm",
 	})
+	assertManifestEcosystem(t, "new package", newPackage.Changes, newPackage.Snapshot, "deno")
 	if len(newPackage.Snapshot) != 4 {
 		t.Errorf("snapshot has %d entries, want 4", len(newPackage.Snapshot))
 	}
@@ -150,11 +159,13 @@ func TestAnalyzeCommitUsesDependencyEcosystemInDenoLock(t *testing.T) {
 		}
 	}
 
-	assertEcosystems(t, "deleted", ecosystemsByName(analyze(deleteSHA).Changes), map[string]string{
+	deleted := analyze(deleteSHA)
+	assertEcosystems(t, "deleted", ecosystemsByName(deleted.Changes), map[string]string{
 		"chalk":     "removed npm",
 		"ms":        "removed npm",
 		"@std/path": "removed deno",
 	})
+	assertManifestEcosystem(t, "deleted", deleted.Changes, deleted.Snapshot, "deno")
 }
 
 // apm.yml gives Git dependencies the git ecosystem. Moving one to
@@ -181,6 +192,7 @@ func TestAnalyzeCommitUsesDependencyEcosystemOnScopeChange(t *testing.T) {
 	assertEcosystems(t, "scope change", ecosystemsByName(result.Changes), map[string]string{
 		"github.com/acme/toolkit": "modified git",
 	})
+	assertManifestEcosystem(t, "scope change", result.Changes, result.Snapshot, "apm")
 	if len(result.Changes) == 1 && result.Changes[0].PreviousDependencyType != "runtime" {
 		t.Errorf("previous dependency type = %q, want runtime", result.Changes[0].PreviousDependencyType)
 	}
@@ -198,6 +210,7 @@ func TestDependenciesInWorkingDirUsesDependencyEcosystem(t *testing.T) {
 		"chalk":     " npm",
 		"@std/path": " deno",
 	})
+	assertManifestEcosystem(t, "DependenciesInWorkingDir", deps, nil, "deno")
 }
 
 func assertEcosystems(t *testing.T, what string, got, want map[string]string) {
@@ -209,6 +222,22 @@ func assertEcosystems(t *testing.T, what string, got, want map[string]string) {
 	for name, w := range want {
 		if got[name] != w {
 			t.Errorf("%s: %s = %q, want %q", what, name, got[name], w)
+		}
+	}
+}
+
+// assertManifestEcosystem checks that every change and snapshot entry names
+// the ecosystem of the file it came from.
+func assertManifestEcosystem(t *testing.T, what string, changes []analyzer.Change, snapshot analyzer.Snapshot, want string) {
+	t.Helper()
+	for _, ch := range changes {
+		if ch.ManifestEcosystem != want {
+			t.Errorf("%s: change %s manifest ecosystem = %q, want %q", what, ch.Name, ch.ManifestEcosystem, want)
+		}
+	}
+	for key, entry := range snapshot {
+		if entry.ManifestEcosystem != want {
+			t.Errorf("%s: snapshot %s manifest ecosystem = %q, want %q", what, key.Name, entry.ManifestEcosystem, want)
 		}
 	}
 }
