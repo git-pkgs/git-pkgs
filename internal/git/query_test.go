@@ -89,3 +89,33 @@ func TestIndexCommitSnapshotManifestKind(t *testing.T) {
 		}
 	}
 }
+
+// On an unindexed repo GetDependenciesWithDB indexes the commit itself, and
+// the manifest row must carry the file's ecosystem, not the dependency's.
+func TestGetDependenciesWithDBStoresManifestEcosystem(t *testing.T) {
+	repoDir := createTestRepo(t)
+	gitRun(t, repoDir, "config", "pkgs.ecosystems", "deno")
+	addFile(t, repoDir, "deno.json", `{"imports": {"chalk": "npm:chalk@5.3.0"}}`)
+	commit(t, repoDir, "Add deno.json")
+
+	repo, err := git.OpenRepository(repoDir)
+	if err != nil {
+		t.Fatalf("OpenRepository: %v", err)
+	}
+	deps, db, err := repo.GetDependenciesWithDB("HEAD", "")
+	if err != nil {
+		t.Fatalf("GetDependenciesWithDB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if len(deps) != 1 || deps[0].Name != "chalk" || deps[0].Ecosystem != "npm" || deps[0].ManifestEcosystem != "deno" {
+		t.Fatalf("deps = %+v, want chalk (npm) from a deno manifest", deps)
+	}
+	var ecosystem string
+	if err := db.QueryRow("SELECT ecosystem FROM manifests WHERE path = 'deno.json'").Scan(&ecosystem); err != nil {
+		t.Fatal(err)
+	}
+	if ecosystem != "deno" {
+		t.Fatalf("manifests row for deno.json: ecosystem %q, want deno", ecosystem)
+	}
+}

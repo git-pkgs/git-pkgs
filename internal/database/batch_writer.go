@@ -51,7 +51,7 @@ type SnapshotInfo struct {
 	Kind              string
 	Name              string
 	Ecosystem         string
-	ManifestEcosystem string // read back from manifests.ecosystem by GetLastSnapshot
+	ManifestEcosystem string
 	PURL              string
 	Requirement       string
 	DependencyType    string

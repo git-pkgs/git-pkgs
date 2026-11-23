@@ -302,15 +302,16 @@ func (db *DB) GetMaxPosition(branchID int64) (int, error) {
 }
 
 type Dependency struct {
-	Name           string `json:"name"`
-	Ecosystem      string `json:"ecosystem"`
-	PURL           string `json:"purl"`
-	Requirement    string `json:"requirement"`
-	DependencyType string `json:"dependency_type"`
-	Integrity      string `json:"integrity,omitempty"`
-	ManifestPath   string `json:"manifest_path"`
-	ManifestKind   string `json:"manifest_kind"`
-	Direct         bool   `json:"-"`
+	Name              string `json:"name"`
+	Ecosystem         string `json:"ecosystem"`
+	PURL              string `json:"purl"`
+	Requirement       string `json:"requirement"`
+	DependencyType    string `json:"dependency_type"`
+	Integrity         string `json:"integrity,omitempty"`
+	ManifestPath      string `json:"manifest_path"`
+	ManifestKind      string `json:"manifest_kind"`
+	ManifestEcosystem string `json:"-"`
+	Direct            bool   `json:"-"`
 }
 
 // ManifestLicense is the declared license state of a package manifest at a
@@ -478,7 +479,7 @@ func (db *DB) GetLatestDependencies(branchID int64) ([]Dependency, error) {
 
 func (db *DB) getDependenciesForCommitID(commitID int64) ([]Dependency, error) {
 	rows, err := db.Query(`
-		SELECT ds.name, ds.ecosystem, ds.purl, ds.requirement, ds.dependency_type, ds.integrity, ds.direct, m.path, m.kind
+		SELECT ds.name, ds.ecosystem, ds.purl, ds.requirement, ds.dependency_type, ds.integrity, ds.direct, m.path, m.kind, m.ecosystem
 		FROM dependency_snapshots ds
 		JOIN manifests m ON m.id = ds.manifest_id
 		WHERE ds.commit_id = ? AND ds.name != '_EMPTY_MARKER_'
@@ -492,11 +493,12 @@ func (db *DB) getDependenciesForCommitID(commitID int64) ([]Dependency, error) {
 	var deps []Dependency
 	for rows.Next() {
 		var d Dependency
-		var ecosystem, purl, requirement, depType, integrity, kind sql.NullString
+		var ecosystem, purl, requirement, depType, integrity, kind, manifestEcosystem sql.NullString
 
-		if err := rows.Scan(&d.Name, &ecosystem, &purl, &requirement, &depType, &integrity, &d.Direct, &d.ManifestPath, &kind); err != nil {
+		if err := rows.Scan(&d.Name, &ecosystem, &purl, &requirement, &depType, &integrity, &d.Direct, &d.ManifestPath, &kind, &manifestEcosystem); err != nil {
 			return nil, err
 		}
+		d.ManifestEcosystem = manifestEcosystem.String
 
 		if ecosystem.Valid {
 			d.Ecosystem = ecosystem.String
@@ -533,6 +535,7 @@ type Change struct {
 	DependencyType         string `json:"dependency_type"`
 	PreviousDependencyType string `json:"previous_dependency_type,omitempty"`
 	ManifestPath           string `json:"manifest_path"`
+	ManifestEcosystem      string `json:"-"`
 }
 
 type CommitWithChanges struct {
@@ -575,6 +578,7 @@ func (db *DB) GetCommitsWithChanges(opts LogOptions) ([]CommitWithChanges, error
 		FROM commits c
 		JOIN branch_commits bc ON bc.commit_id = c.id
 		JOIN dependency_changes dc ON dc.commit_id = c.id
+		JOIN manifests m ON m.id = dc.manifest_id
 		WHERE bc.branch_id = ?
 	`
 	args := []any{opts.BranchID}
@@ -583,7 +587,7 @@ func (db *DB) GetCommitsWithChanges(opts LogOptions) ([]CommitWithChanges, error
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 	if opts.Author != "" {
 		query += " AND (c.author_name LIKE ? OR c.author_email LIKE ?)"
 		pattern := "%" + opts.Author + "%"
@@ -658,7 +662,7 @@ func (db *DB) GetCommitsWithChanges(opts LogOptions) ([]CommitWithChanges, error
 		if opts.Ecosystem != "" || len(opts.AllowedEcosystems) > 0 || len(opts.IgnoredEcosystems) > 0 {
 			var filtered []Change
 			for _, ch := range changes {
-				if (opts.Ecosystem == "" || ch.Ecosystem == opts.Ecosystem) && ecosystemAllowed(ch.Ecosystem, opts.EcosystemFilterOptions) {
+				if (opts.Ecosystem == "" || ch.Ecosystem == opts.Ecosystem) && ecosystemAllowed(ch.ManifestEcosystem, opts.EcosystemFilterOptions) {
 					filtered = append(filtered, ch)
 				}
 			}
@@ -802,7 +806,7 @@ type DatabaseInfo struct {
 	Ecosystems      []EcosystemCount `json:"ecosystems"`
 }
 
-func (db *DB) GetDatabaseInfo() (*DatabaseInfo, error) {
+func (db *DB) GetDatabaseInfo(opts EcosystemFilterOptions) (*DatabaseInfo, error) {
 	info := &DatabaseInfo{
 		Path:      db.path,
 		RowCounts: make(map[string]int),
@@ -847,12 +851,13 @@ func (db *DB) GetDatabaseInfo() (*DatabaseInfo, error) {
 	}
 
 	// Ecosystems with counts from snapshots (current state)
-	rows, err := db.Query(`
-		SELECT ecosystem, COUNT(*) FROM dependency_snapshots
-		WHERE ecosystem IS NOT NULL AND ecosystem != ''
-		GROUP BY ecosystem
-		ORDER BY ecosystem
-	`)
+	query := `
+		SELECT ds.ecosystem, COUNT(*) FROM dependency_snapshots ds
+		JOIN manifests m ON m.id = ds.manifest_id
+		WHERE ds.ecosystem IS NOT NULL AND ds.ecosystem != ''
+	`
+	query, args := appendEcosystemConfigFilter(query, nil, "m.ecosystem", opts)
+	rows, err := db.Query(query+" GROUP BY ds.ecosystem ORDER BY ds.ecosystem", args...)
 	if err == nil {
 		defer func() { _ = rows.Close() }()
 		for rows.Next() {
@@ -870,7 +875,7 @@ func (db *DB) GetDatabaseInfo() (*DatabaseInfo, error) {
 func (db *DB) GetStaleDependencies(opts StaleOptions) ([]StaleEntry, error) {
 	query := `
 		WITH current_deps AS (
-			SELECT DISTINCT ds.name, ds.ecosystem, ds.requirement, m.path, m.kind
+			SELECT DISTINCT ds.name, ds.ecosystem, ds.requirement, m.path, m.kind, m.ecosystem AS manifest_ecosystem
 			FROM dependency_snapshots ds
 			JOIN manifests m ON m.id = ds.manifest_id
 			JOIN branch_commits bc ON bc.commit_id = ds.commit_id
@@ -904,7 +909,7 @@ func (db *DB) GetStaleDependencies(opts StaleOptions) ([]StaleEntry, error) {
 		if !whereStarted {
 			query += " WHERE 1=1"
 		}
-		query, args = appendEcosystemConfigFilter(query, args, "cd.ecosystem", opts.EcosystemFilterOptions)
+		query, args = appendEcosystemConfigFilter(query, args, "cd.manifest_ecosystem", opts.EcosystemFilterOptions)
 		whereStarted = true
 	}
 
@@ -993,6 +998,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		FROM commits c
 		JOIN branch_commits bc ON bc.commit_id = c.id
 		JOIN dependency_changes dc ON dc.commit_id = c.id
+		JOIN manifests m ON m.id = dc.manifest_id
 		WHERE bc.branch_id = ?
 	`
 	args := []any{opts.BranchID}
@@ -1000,7 +1006,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 	if opts.ExcludeBots {
 		query, args = appendExcludeBotsFilter(query, args)
 	}
@@ -1031,19 +1037,19 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		`, opts.BranchID).Scan(&snapshotCommitID)
 	}
 	if snapshotCommitID.Valid {
-		query = "SELECT COUNT(*) FROM dependency_snapshots WHERE commit_id = ?"
+		query = "SELECT COUNT(*) FROM dependency_snapshots ds JOIN manifests m ON m.id = ds.manifest_id WHERE ds.commit_id = ?"
 		args = []any{snapshotCommitID.Int64}
-		query, args = appendEcosystemConfigFilter(query, args, "ecosystem", opts.EcosystemFilterOptions)
+		query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 		err = db.QueryRow(query, args...).Scan(&stats.CurrentDeps)
 		if err != nil {
 			return nil, err
 		}
 
 		// Deps by ecosystem
-		query = "SELECT ecosystem, COUNT(*) FROM dependency_snapshots WHERE commit_id = ?"
+		query = "SELECT ds.ecosystem, COUNT(*) FROM dependency_snapshots ds JOIN manifests m ON m.id = ds.manifest_id WHERE ds.commit_id = ?"
 		args = []any{snapshotCommitID.Int64}
-		query, args = appendEcosystemConfigFilter(query, args, "ecosystem", opts.EcosystemFilterOptions)
-		query += " GROUP BY ecosystem"
+		query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
+		query += " GROUP BY ds.ecosystem"
 		rows, err := db.Query(query, args...)
 		if err != nil {
 			return nil, err
@@ -1068,6 +1074,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		FROM dependency_changes dc
 		JOIN commits c ON c.id = dc.commit_id
 		JOIN branch_commits bc ON bc.commit_id = c.id
+		JOIN manifests m ON m.id = dc.manifest_id
 		WHERE bc.branch_id = ?
 	`
 	args = []any{opts.BranchID}
@@ -1075,7 +1082,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 	if opts.ExcludeBots {
 		query, args = appendExcludeBotsFilter(query, args)
 	}
@@ -1116,6 +1123,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		FROM dependency_changes dc
 		JOIN commits c ON c.id = dc.commit_id
 		JOIN branch_commits bc ON bc.commit_id = c.id
+		JOIN manifests m ON m.id = dc.manifest_id
 		WHERE bc.branch_id = ?
 	`
 	args = []any{opts.BranchID}
@@ -1123,7 +1131,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 	if opts.ExcludeBots {
 		query, args = appendExcludeBotsFilter(query, args)
 	}
@@ -1158,6 +1166,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		FROM dependency_changes dc
 		JOIN commits c ON c.id = dc.commit_id
 		JOIN branch_commits bc ON bc.commit_id = c.id
+		JOIN manifests m ON m.id = dc.manifest_id
 		WHERE bc.branch_id = ?
 	`
 	args = []any{opts.BranchID}
@@ -1165,7 +1174,7 @@ func (db *DB) GetStats(opts StatsOptions) (*Stats, error) {
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 	if opts.ExcludeBots {
 		query, args = appendExcludeBotsFilter(query, args)
 	}
@@ -1212,6 +1221,7 @@ func (db *DB) GetAuthorStats(opts StatsOptions) ([]AuthorStats, error) {
 		FROM commits c
 		JOIN branch_commits bc ON bc.commit_id = c.id
 		JOIN dependency_changes dc ON dc.commit_id = c.id
+		JOIN manifests m ON m.id = dc.manifest_id
 	`
 	args := []any{opts.BranchID}
 	query += " WHERE bc.branch_id = ?"
@@ -1220,7 +1230,7 @@ func (db *DB) GetAuthorStats(opts StatsOptions) ([]AuthorStats, error) {
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 	if opts.ExcludeBots {
 		query, args = appendExcludeBotsFilter(query, args)
 	}
@@ -1379,7 +1389,7 @@ func (db *DB) GetWhy(opts WhyOptions) (*WhyResult, error) {
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 
 	query += " ORDER BY bc.position ASC LIMIT 1"
 
@@ -1418,7 +1428,7 @@ func (db *DB) GetBlame(opts BlameOptions) ([]BlameEntry, error) {
 	// to force SQLite to use the (branch_id, position) index properly
 	query := `
 		WITH current_deps AS (
-			SELECT DISTINCT ds.name, ds.ecosystem, ds.requirement, m.path as manifest_path
+			SELECT DISTINCT ds.name, ds.ecosystem, ds.requirement, m.path as manifest_path, m.ecosystem AS manifest_ecosystem
 			FROM dependency_snapshots ds
 			JOIN manifests m ON m.id = ds.manifest_id
 			JOIN branch_commits bc ON bc.commit_id = ds.commit_id
@@ -1455,7 +1465,7 @@ func (db *DB) GetBlame(opts BlameOptions) ([]BlameEntry, error) {
 		query += " AND cd.ecosystem = ?"
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "cd.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "cd.manifest_ecosystem", opts.EcosystemFilterOptions)
 	if opts.ExcludeBots {
 		query, args = appendExcludeBotsFilter(query, args)
 	}
@@ -1517,7 +1527,7 @@ func (db *DB) GetPackageHistory(opts HistoryOptions) ([]HistoryEntry, error) {
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 	if opts.Author != "" {
 		query += " AND (c.author_name LIKE ? OR c.author_email LIKE ?)"
 		pattern := "%" + opts.Author + "%"
@@ -1583,7 +1593,7 @@ func (db *DB) GetPackageHistory(opts HistoryOptions) ([]HistoryEntry, error) {
 
 func (db *DB) GetChangesForCommit(sha string) ([]Change, error) {
 	rows, err := db.Query(`
-		SELECT dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, dc.previous_dependency_type, m.path
+		SELECT dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, dc.previous_dependency_type, m.path, m.ecosystem
 		FROM dependency_changes dc
 		JOIN commits c ON c.id = dc.commit_id
 		JOIN manifests m ON m.id = dc.manifest_id
@@ -1598,11 +1608,12 @@ func (db *DB) GetChangesForCommit(sha string) ([]Change, error) {
 	var changes []Change
 	for rows.Next() {
 		var c Change
-		var ecosystem, purl, requirement, prevReq, depType, prevDepType sql.NullString
+		var ecosystem, purl, requirement, prevReq, depType, prevDepType, manifestEcosystem sql.NullString
 
-		if err := rows.Scan(&c.Name, &ecosystem, &purl, &c.ChangeType, &requirement, &prevReq, &depType, &prevDepType, &c.ManifestPath); err != nil {
+		if err := rows.Scan(&c.Name, &ecosystem, &purl, &c.ChangeType, &requirement, &prevReq, &depType, &prevDepType, &c.ManifestPath, &manifestEcosystem); err != nil {
 			return nil, err
 		}
+		c.ManifestEcosystem = manifestEcosystem.String
 
 		if ecosystem.Valid {
 			c.Ecosystem = ecosystem.String
@@ -1643,7 +1654,7 @@ func (db *DB) GetChangesForCommits(shas []string) (map[string][]Change, error) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT c.sha, dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, dc.previous_dependency_type, m.path
+		SELECT c.sha, dc.name, dc.ecosystem, dc.purl, dc.change_type, dc.requirement, dc.previous_requirement, dc.dependency_type, dc.previous_dependency_type, m.path, m.ecosystem
 		FROM dependency_changes dc
 		JOIN commits c ON c.id = dc.commit_id
 		JOIN manifests m ON m.id = dc.manifest_id
@@ -1661,11 +1672,12 @@ func (db *DB) GetChangesForCommits(shas []string) (map[string][]Change, error) {
 	for rows.Next() {
 		var sha string
 		var ch Change
-		var ecosystem, purl, requirement, prevReq, depType, prevDepType sql.NullString
+		var ecosystem, purl, requirement, prevReq, depType, prevDepType, manifestEcosystem sql.NullString
 
-		if err := rows.Scan(&sha, &ch.Name, &ecosystem, &purl, &ch.ChangeType, &requirement, &prevReq, &depType, &prevDepType, &ch.ManifestPath); err != nil {
+		if err := rows.Scan(&sha, &ch.Name, &ecosystem, &purl, &ch.ChangeType, &requirement, &prevReq, &depType, &prevDepType, &ch.ManifestPath, &manifestEcosystem); err != nil {
 			return nil, err
 		}
+		ch.ManifestEcosystem = manifestEcosystem.String
 
 		if ecosystem.Valid {
 			ch.Ecosystem = ecosystem.String
@@ -3153,7 +3165,7 @@ func (db *DB) GetBisectCandidates(opts BisectOptions) ([]BisectCandidate, error)
 		query += filterEcosystem
 		args = append(args, opts.Ecosystem)
 	}
-	query, args = appendEcosystemConfigFilter(query, args, "dc.ecosystem", opts.EcosystemFilterOptions)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts.EcosystemFilterOptions)
 	if opts.PackageName != "" {
 		query += " AND dc.name = ?"
 		args = append(args, opts.PackageName)
@@ -3266,7 +3278,7 @@ func (db *DB) StoreSnapshot(branchID int64, commit CommitInfo, snapshots []Snaps
 			if err == sql.ErrNoRows {
 				result, err := tx.Exec(
 					"INSERT INTO manifests (path, ecosystem, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-					s.ManifestPath, s.Ecosystem, s.Kind, now, now,
+					s.ManifestPath, s.ManifestEcosystem, s.Kind, now, now,
 				)
 				if err != nil {
 					return fmt.Errorf("inserting manifest: %w", err)

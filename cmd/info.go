@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/git-pkgs/git-pkgs/internal/config"
 	"github.com/git-pkgs/git-pkgs/internal/database"
 	"github.com/git-pkgs/git-pkgs/internal/git"
 	"github.com/spf13/cobra"
@@ -48,16 +47,14 @@ func runInfo(cmd *cobra.Command, args []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	info, err := db.GetDatabaseInfo()
-	if err != nil {
-		return fmt.Errorf("getting info: %w", err)
-	}
-
 	ecosystemFilter, err := repo.EcosystemFilter()
 	if err != nil {
 		return fmt.Errorf("loading ecosystem config: %w", err)
 	}
-	info.Ecosystems = filterEcosystemCountsByConfig(info.Ecosystems, ecosystemFilter)
+	info, err := db.GetDatabaseInfo(databaseEcosystemFilterOptions(ecosystemFilter))
+	if err != nil {
+		return fmt.Errorf("getting info: %w", err)
+	}
 
 	// Get file size
 	if stat, err := os.Stat(dbPath); err == nil {
@@ -90,19 +87,6 @@ func runInfo(cmd *cobra.Command, args []string) error {
 		outputInfoText(cmd, info)
 		return nil
 	}
-}
-
-func filterEcosystemCountsByConfig(ecosystems []database.EcosystemCount, filter config.EcosystemFilter) []database.EcosystemCount {
-	if filter.Empty() || len(ecosystems) == 0 {
-		return ecosystems
-	}
-	filtered := make([]database.EcosystemCount, 0, len(ecosystems))
-	for _, ecosystem := range ecosystems {
-		if filter.Allows(ecosystem.Name) {
-			filtered = append(filtered, ecosystem)
-		}
-	}
-	return filtered
 }
 
 func outputInfoJSON(cmd *cobra.Command, info *database.DatabaseInfo) error {

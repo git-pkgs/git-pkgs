@@ -372,8 +372,6 @@ func filterSnapshot(snapshot analyzer.Snapshot, filter config.EcosystemFilter) a
 	}
 	filtered := make(analyzer.Snapshot, len(snapshot))
 	for key, entry := range snapshot {
-		// The analyzer admits a manifest by the file's ecosystem, and restoring
-		// must keep the same entries or unchanged manifests lose them.
 		if filter.Allows(entry.ManifestEcosystem) {
 			filtered[key] = entry
 		}

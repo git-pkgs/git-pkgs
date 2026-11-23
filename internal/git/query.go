@@ -129,15 +129,16 @@ func (r *Repository) IndexCommitSnapshot(db *database.DB, branchID int64, sha st
 	snapshots := make([]database.SnapshotInfo, 0, len(changes))
 	for _, c := range changes {
 		snapshots = append(snapshots, database.SnapshotInfo{
-			ManifestPath:   c.ManifestPath,
-			Kind:           c.Kind,
-			Name:           c.Name,
-			Ecosystem:      c.Ecosystem,
-			PURL:           c.PURL,
-			Requirement:    c.Requirement,
-			DependencyType: c.DependencyType,
-			Integrity:      c.Integrity,
-			Direct:         c.Direct,
+			ManifestPath:      c.ManifestPath,
+			Kind:              c.Kind,
+			Name:              c.Name,
+			Ecosystem:         c.Ecosystem,
+			ManifestEcosystem: c.ManifestEcosystem,
+			PURL:              c.PURL,
+			Requirement:       c.Requirement,
+			DependencyType:    c.DependencyType,
+			Integrity:         c.Integrity,
+			Direct:            c.Direct,
 		})
 	}
 
@@ -161,7 +162,7 @@ func FilterDependenciesByEcosystemConfig(deps []database.Dependency, filter conf
 	}
 	filtered := make([]database.Dependency, 0, len(deps))
 	for _, dep := range deps {
-		if filter.Allows(dep.Ecosystem) {
+		if filter.Allows(dep.ManifestEcosystem) {
 			filtered = append(filtered, dep)
 		}
 	}
