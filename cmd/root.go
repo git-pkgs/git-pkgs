@@ -87,6 +87,7 @@ func NewRootCmd() *cobra.Command {
 	addLicensesCmd(cmd)
 	addIntegrityCmd(cmd)
 	addSBOMCmd(cmd)
+	addProxyCmd(cmd)
 	addVulnsCmd(cmd)
 	addInfoCmd(cmd)
 	addHooksCmd(cmd)

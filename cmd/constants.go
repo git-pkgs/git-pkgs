@@ -44,7 +44,10 @@ const osWindows = "windows"
 const versionUnknown = "unknown"
 
 // Ecosystem names
-const ecosystemNPM = "npm"
+const (
+	ecosystemNPM   = "npm"
+	ecosystemMaven = "maven"
+)
 
 // Table display values
 const displayYes = "yes"
