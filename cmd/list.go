@@ -112,7 +112,7 @@ func outputListText(cmd *cobra.Command, deps []database.Dependency) {
 		manifestDeps := byManifest[manifestPath]
 		ecosystem := ""
 		if len(manifestDeps) > 0 {
-			ecosystem = manifestDeps[0].Ecosystem
+			ecosystem = manifestDeps[0].ManifestEcosystem
 		}
 
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s (%s):\n", manifestPath, ecosystem)

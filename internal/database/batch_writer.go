@@ -47,15 +47,16 @@ type ChangeInfo struct {
 }
 
 type SnapshotInfo struct {
-	ManifestPath   string
-	Kind           string
-	Name           string
-	Ecosystem      string
-	PURL           string
-	Requirement    string
-	DependencyType string
-	Integrity      string
-	Direct         bool
+	ManifestPath      string
+	Kind              string
+	Name              string
+	Ecosystem         string
+	ManifestEcosystem string
+	PURL              string
+	Requirement       string
+	DependencyType    string
+	Integrity         string
+	Direct            bool
 }
 
 type pendingCommit struct {

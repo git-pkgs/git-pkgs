@@ -109,11 +109,10 @@ func lookupPackage(name, ecosystem string) (purlType, pkgName, version string, e
 		return "", "", "", fmt.Errorf("getting branch: %w", err)
 	}
 
-	results, err := db.SearchDependencies(branchInfo.ID, name, ecosystem, false)
+	results, err := db.SearchDependencies(branchInfo.ID, name, ecosystem, false, databaseEcosystemFilterOptions(ecosystemFilter))
 	if err != nil {
 		return "", "", "", fmt.Errorf("searching dependencies: %w", err)
 	}
-	results = filterSearchResultsByConfig(results, ecosystemFilter.Allows)
 
 	if len(results) == 0 {
 		if ecosystem != "" {

@@ -84,7 +84,7 @@ func filterChangesByEcosystemConfig(changes []database.Change, allows func(strin
 	}
 	filtered := make([]database.Change, 0, len(changes))
 	for _, c := range changes {
-		if allows(c.Ecosystem) {
+		if allows(c.ManifestEcosystem) {
 			filtered = append(filtered, c)
 		}
 	}
@@ -141,6 +141,7 @@ func getChangesForCommit(repo *git.Repository, commitRef string) ([]database.Cha
 			DependencyType:         c.DependencyType,
 			PreviousDependencyType: c.PreviousDependencyType,
 			ManifestPath:           c.ManifestPath,
+			ManifestEcosystem:      c.ManifestEcosystem,
 		})
 	}
 

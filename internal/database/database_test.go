@@ -720,7 +720,7 @@ func TestSearchDependenciesCrossEcosystem(t *testing.T) {
 		t.Fatalf("failed to get branch: %v", err)
 	}
 
-	results, err := db.SearchDependencies(branch.ID, "requests", "", false)
+	results, err := db.SearchDependencies(branch.ID, "requests", "", false, database.EcosystemFilterOptions{})
 	if err != nil {
 		t.Fatalf("SearchDependencies failed: %v", err)
 	}
@@ -833,7 +833,7 @@ func TestSearchDependenciesAddedInSHA(t *testing.T) {
 		t.Fatalf("failed to get branch: %v", err)
 	}
 
-	results, err := db.SearchDependencies(branch.ID, "lodash", "", false)
+	results, err := db.SearchDependencies(branch.ID, "lodash", "", false, database.EcosystemFilterOptions{})
 	if err != nil {
 		t.Fatalf("SearchDependencies failed: %v", err)
 	}
