@@ -49,11 +49,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting branch: %w", err)
 	}
 
-	results, err := db.SearchDependencies(branchInfo.ID, pattern, ecosystem, directOnly)
+	results, err := db.SearchDependencies(branchInfo.ID, pattern, ecosystem, directOnly, databaseEcosystemFilterOptions(ecosystemFilter))
 	if err != nil {
 		return fmt.Errorf("searching: %w", err)
 	}
-	results = filterSearchResultsByConfig(results, ecosystemFilter.Allows)
 
 	switch format {
 	case formatJSON:

@@ -52,6 +52,8 @@ func TestEcosystemConfigKeepsManifestDependencies(t *testing.T) {
 		{[]string{"stats", "--by-author"}, []string{"Commits: 4", "Changes: 6 total"}},
 		{[]string{"show", "HEAD~4"}, []string{"+ chalk 5.3.0"}},
 		{[]string{"info", "--ecosystems"}, []string{"deno: 3 dependencies", "npm: 3 dependencies"}},
+		{[]string{"search", "chalk"}, []string{"chalk  5.4.0  (npm)"}},
+		{[]string{"urls", "chalk"}, []string{"pkg:npm/chalk@5.4.0"}},
 		// Last, since it checks out a commit.
 		{[]string{"bisect", "start", "HEAD", "HEAD~4"}, []string{"2 dependency changes left"}},
 	} {
@@ -144,4 +146,12 @@ func TestEcosystemConfigFiltersMixedCommit(t *testing.T) {
 	setGitConfig(t, repoDir, "pkgs.ecosystems", "deno")
 	check([]string{"show", "HEAD"}, "+ chalk 5.3.0")
 	check([]string{"log"}, "Changes: +1")
+	check([]string{"search", "chalk"}, "chalk  5.3.0  (npm)")
+	out, _, err := runCmd(t, "search", "lodash")
+	if err != nil || !strings.Contains(out, `No dependencies matching "lodash" found.`) {
+		t.Errorf("search lodash: %v\n%s", err, out)
+	}
+	if _, _, err := runCmd(t, "urls", "lodash"); err == nil || !strings.Contains(err.Error(), `no dependency matching "lodash"`) {
+		t.Errorf("urls lodash: want no match, got %v", err)
+	}
 }

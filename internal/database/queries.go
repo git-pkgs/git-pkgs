@@ -1280,7 +1280,7 @@ func (db *DB) GetAuthorStats(opts StatsOptions) ([]AuthorStats, error) {
 	return results, rows.Err()
 }
 
-func (db *DB) SearchDependencies(branchID int64, pattern, ecosystem string, directOnly bool) ([]SearchResult, error) {
+func (db *DB) SearchDependencies(branchID int64, pattern, ecosystem string, directOnly bool, opts EcosystemFilterOptions) ([]SearchResult, error) {
 	// Get current dependencies matching pattern, with first seen and last changed dates
 	query := `
 		WITH current_deps AS (
@@ -1307,6 +1307,7 @@ func (db *DB) SearchDependencies(branchID int64, pattern, ecosystem string, dire
 	if directOnly {
 		query += " AND m.kind = 'manifest'"
 	}
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts)
 
 	query += `
 		),
