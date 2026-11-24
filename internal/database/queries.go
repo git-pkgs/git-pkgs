@@ -1317,7 +1317,11 @@ func (db *DB) SearchDependencies(branchID int64, pattern, ecosystem string, dire
 			FROM dependency_changes dc
 			JOIN commits c ON c.id = dc.commit_id
 			JOIN branch_commits bc ON bc.commit_id = c.id
-			WHERE bc.branch_id = ? AND dc.change_type = 'added'
+			LEFT JOIN manifests m ON m.id = dc.manifest_id
+			WHERE bc.branch_id = ? AND dc.change_type = 'added'`
+	args = append(args, branchID)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts)
+	query += `
 			GROUP BY dc.name, dc.ecosystem
 		),
 		last_changed AS (
@@ -1325,7 +1329,11 @@ func (db *DB) SearchDependencies(branchID int64, pattern, ecosystem string, dire
 			FROM dependency_changes dc
 			JOIN commits c ON c.id = dc.commit_id
 			JOIN branch_commits bc ON bc.commit_id = c.id
-			WHERE bc.branch_id = ?
+			LEFT JOIN manifests m ON m.id = dc.manifest_id
+			WHERE bc.branch_id = ?`
+	args = append(args, branchID)
+	query, args = appendEcosystemConfigFilter(query, args, "m.ecosystem", opts)
+	query += `
 			GROUP BY dc.name, dc.ecosystem
 		)
 		SELECT cd.name, cd.ecosystem, cd.requirement, cd.kind,
@@ -1335,7 +1343,6 @@ func (db *DB) SearchDependencies(branchID int64, pattern, ecosystem string, dire
 		LEFT JOIN last_changed lc ON lc.name = cd.name AND lc.ecosystem = cd.ecosystem
 		ORDER BY cd.name
 	`
-	args = append(args, branchID, branchID)
 
 	rows, err := db.Query(query, args...)
 	if err != nil {

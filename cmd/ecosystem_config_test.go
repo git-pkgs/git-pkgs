@@ -1,11 +1,14 @@
 package cmd_test
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/git-pkgs/git-pkgs/internal/database"
 )
 
 // With only deno enabled, the npm imports in deno.json and deno.lock are
@@ -153,5 +156,55 @@ func TestEcosystemConfigFiltersMixedCommit(t *testing.T) {
 	}
 	if _, _, err := runCmd(t, "urls", "lodash"); err == nil || !strings.Contains(err.Error(), `no dependency matching "lodash"`) {
 		t.Errorf("urls lodash: want no match, got %v", err)
+	}
+}
+
+// The index is built before the filter is set, and package.json adds and
+// bumps chalk around deno.json's import. search reports deno.json's history.
+func TestEcosystemConfigFiltersSearchHistory(t *testing.T) {
+	repoDir := createTestRepo(t)
+	commitAt := func(path, content, date string) string {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repoDir, path), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{{"add", path}, {"commit", "-m", "Change " + path}, {"rev-parse", "HEAD"}} {
+			gitCmd := exec.Command("git", args...)
+			gitCmd.Dir = repoDir
+			gitCmd.Env = append(os.Environ(), "GIT_COMMITTER_DATE="+date, "GIT_AUTHOR_DATE="+date)
+			out, err := gitCmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+			if args[0] == "rev-parse" {
+				return strings.TrimSpace(string(out))
+			}
+		}
+		return ""
+	}
+	commitAt("package.json", `{"dependencies": {"chalk": "^5.0.0"}}`, "2020-01-01T00:00:00Z")
+	denoSHA := commitAt("deno.json", `{"imports": {"chalk": "npm:chalk@5.3.0"}}`, "2021-01-01T00:00:00Z")
+	commitAt("package.json", `{"dependencies": {"chalk": "^5.4.0"}}`, "2022-01-01T00:00:00Z")
+
+	cleanup := chdir(t, repoDir)
+	defer cleanup()
+	if _, stderr, err := runCmd(t, "init"); err != nil {
+		t.Fatalf("init: %v\n%s", err, stderr)
+	}
+	setGitConfig(t, repoDir, "pkgs.ecosystems", "deno")
+	out, stderr, err := runCmd(t, "search", "chalk", "--format", "json")
+	if err != nil {
+		t.Fatalf("search: %v\n%s", err, stderr)
+	}
+	var results []database.SearchResult
+	if err := json.Unmarshal([]byte(out), &results); err != nil {
+		t.Fatalf("search json: %v\n%s", err, out)
+	}
+	if len(results) != 1 {
+		t.Fatalf("want one result, got %+v", results)
+	}
+	r := results[0]
+	if r.AddedIn != denoSHA || !strings.HasPrefix(r.FirstSeen, "2021-01-01") || !strings.HasPrefix(r.LastChanged, "2021-01-01") {
+		t.Errorf("want deno.json's history (added in %s, 2021-01-01), got %+v", denoSHA, r)
 	}
 }
