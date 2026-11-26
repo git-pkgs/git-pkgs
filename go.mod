@@ -14,7 +14,7 @@ require (
 	github.com/git-pkgs/managers v0.13.0
 	github.com/git-pkgs/manifests v0.14.0
 	github.com/git-pkgs/purl v0.2.1
-	github.com/git-pkgs/registries v0.13.2
+	github.com/git-pkgs/registries v0.14.0
 	github.com/git-pkgs/resolve v0.2.3
 	github.com/git-pkgs/sarif v0.1.3
 	github.com/git-pkgs/sbom v0.1.9
@@ -49,7 +49,7 @@ require (
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/git-pkgs/magic v0.6.0 // indirect
-	github.com/git-pkgs/pom v0.1.8 // indirect
+	github.com/git-pkgs/pom v0.1.9 // indirect
 	github.com/github/go-spdx/v2 v2.8.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
